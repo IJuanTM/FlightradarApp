@@ -65,6 +65,15 @@ class RadarView extends WatchUi.View {
     private const COLOR_HELICOPTER = COLORS[4]; // orange
     private const COLOR_MILITARY = COLORS[7]; // magenta
 
+    // Detail panel value colors - not tied to aircraft category, just distinguishing fields at a glance.
+    private const COLOR_ALT = COLORS[6]; // blue
+    private const COLOR_SPEED = COLORS[3]; // yellow
+    private const COLOR_HDG = COLORS[2]; // cyan
+    private const COLOR_SQUAWK = COLORS[7]; // magenta
+    // Shared status semantics across top/detail panels: green = done/good, orange = caution.
+    private const COLOR_SUCCESS = COLORS[1]; // green
+    private const COLOR_WARN = COLORS[4]; // orange
+
     // Indexed alongside Settings.ZOOM_LEVELS_KM - real round-number distances, not derived from it.
     private const GRID_STEP_KM as Array<Float> = [1.0, 5.0, 10.0, 25.0];
 
@@ -116,6 +125,8 @@ class RadarView extends WatchUi.View {
     private var _noGpsText as String = "";
     private var _noSignalText as String = "";
     private var _tooBusyText as String = "";
+    private var _fetchingText as String = "";
+    private var _fetchedText as String = "";
     private var _fontSmall as Graphics.FontType = Graphics.FONT_SMALL;
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
     private var _client as AirplanesLiveClient = new AirplanesLiveClient();
@@ -133,6 +144,8 @@ class RadarView extends WatchUi.View {
         _noGpsText = WatchUi.loadResource(Rez.Strings.NoGps) as String;
         _noSignalText = WatchUi.loadResource(Rez.Strings.NoSignal) as String;
         _tooBusyText = WatchUi.loadResource(Rez.Strings.TooBusy) as String;
+        _fetchingText = WatchUi.loadResource(Rez.Strings.Fetching) as String;
+        _fetchedText = WatchUi.loadResource(Rez.Strings.Fetched) as String;
         _fontSmall =
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
@@ -606,7 +619,8 @@ class RadarView extends WatchUi.View {
                 if (selectedAc == null) {
                     _selectedMissCount += 1;
                     if (_selectedMissCount >= MAX_SELECTED_MISSES) {
-                        deselectAircraft();
+                        // Keep-view, not plain deselect - avoids silently snapping the camera to the user's own position.
+                        deselectAircraftKeepView();
                     }
                 } else {
                     _selectedMissCount = 0;
@@ -675,9 +689,6 @@ class RadarView extends WatchUi.View {
             );
         }
         _drawChrome(dc, cx, cy, radiusPx, radiusKm, topPanelH);
-        if (Settings.showScaleBar) {
-            _drawScaleBar(dc, cx, cy, radiusPx, radiusKm);
-        }
         _drawAircraft(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
 
         if (selected != null) {
@@ -740,7 +751,15 @@ class RadarView extends WatchUi.View {
                     var ringPx = _round((ringKm * radiusPx) / radiusKm);
                     dc.setStroke(_withAlpha(COLOR_RING, COLOR_RING_ALPHA));
                     dc.drawCircle(cx, cy, ringPx);
-                    _drawRingLabel(dc, cx, cy, ringPx, ringKm, topPanelH);
+                    _drawRingLabel(
+                        dc,
+                        cx,
+                        cy,
+                        ringPx,
+                        ringKm,
+                        topPanelH,
+                        COLOR_GRID_LABEL
+                    );
                     ringKm += stepKm;
                 }
             }
@@ -748,7 +767,16 @@ class RadarView extends WatchUi.View {
         // Boundary ring drawn more solid, like a scope's detection edge - always shown, marks the zoom radius itself.
         dc.setStroke(_withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawCircle(cx, cy, radiusPx);
-        _drawRingLabel(dc, cx, cy, radiusPx, radiusKm, topPanelH);
+        // White, not the usual dim grid-label grey - this is the actual current zoom level, not a secondary reference ring.
+        _drawRingLabel(
+            dc,
+            cx,
+            cy,
+            radiusPx,
+            radiusKm,
+            topPanelH,
+            Graphics.COLOR_WHITE
+        );
 
         if (Settings.showRangeRings) {
             for (var deg = 0; deg < 360; deg += 30) {
@@ -771,14 +799,15 @@ class RadarView extends WatchUi.View {
         }
     }
 
-    // Upper-right (45deg) so it doesn't collide with the top panel or the scale bar at bottom-center.
+    // Upper-right (45deg) so it doesn't collide with the top panel.
     private function _drawRingLabel(
         dc as Dc,
         cx as Number,
         cy as Number,
         ringPx as Number,
         ringKm as Float,
-        topPanelH as Number
+        topPanelH as Number,
+        color as Number
     ) as Void {
         var theta = Math.toRadians(45.0);
         var x = cx + (ringPx * Math.sin(theta)).toNumber();
@@ -786,7 +815,7 @@ class RadarView extends WatchUi.View {
         if (y < topPanelH + 10) {
             return;
         }
-        _drawGridLabel(dc, x, y, _formatKm(ringKm));
+        _drawGridLabel(dc, x, y, _formatKm(ringKm), color);
     }
 
     // Largest "nice" value (1/2/3/5 x 10^n) that fits within maxKm - same rule Leaflet's scale bar uses.
@@ -832,70 +861,6 @@ class RadarView extends WatchUi.View {
             cx + ((radiusPx - tickLen) * sinT).toNumber(),
             cy - ((radiusPx - tickLen) * cosT).toNumber()
         );
-    }
-
-    // Real round-number distance sized to fit the available width - not a fixed per-zoom value that can disappear.
-    private const SCALE_BAR_MAX_WIDTH_FRACTION = 0.7;
-
-    private function _drawScaleBar(
-        dc as Dc,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float
-    ) as Void {
-        var y0 = cy + radiusPx - 24;
-        var dy = (y0 - cy).abs();
-        if (dy >= radiusPx) {
-            return;
-        }
-        var halfW = _chordHalfExtent(radiusPx, dy);
-
-        var maxBarPx = halfW * 2 * SCALE_BAR_MAX_WIDTH_FRACTION;
-        var maxKm = (maxBarPx * radiusKm) / radiusPx;
-        var stepKm = _niceKmStep(maxKm);
-        var stepPx = _round((stepKm * radiusPx) / radiusKm);
-        if (stepPx < 8) {
-            return;
-        }
-
-        var label = _formatKm(stepKm);
-        var textDims = dc.getTextDimensions(label, _fontTiny);
-        if (stepPx > halfW * 2 || textDims[0] > halfW * 2) {
-            return;
-        }
-        var x0 = cx - stepPx / 2;
-        var x1 = cx + stepPx / 2;
-        var textCy = y0 - 3 - 2 - textDims[1] / 2;
-
-        var textPadX = 3;
-        var textPadY = 1;
-        var linePad = 2;
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(
-            cx - textDims[0] / 2 - textPadX,
-            textCy - textDims[1] / 2 - textPadY,
-            textDims[0] + textPadX * 2,
-            textDims[1] + textPadY * 2
-        );
-        dc.fillRectangle(
-            x0 - linePad,
-            y0 - 3 - linePad,
-            x1 - x0 + linePad * 2,
-            6 + linePad * 2
-        );
-
-        _setSolidColor(dc, COLOR_TEXT);
-        dc.drawText(
-            cx,
-            textCy,
-            _fontTiny,
-            label,
-            Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER
-        );
-        dc.drawLine(x0, y0, x1, y0);
-        dc.drawLine(x0, y0 - 3, x0, y0 + 3);
-        dc.drawLine(x1, y0 - 3, x1, y0 + 3);
     }
 
     // Angles are eyeballed compass bearings from the real device (0deg=up/north, clockwise).
@@ -978,14 +943,7 @@ class RadarView extends WatchUi.View {
     // Zoom radius is labeled on the boundary ring instead (see _drawChrome); "No Signal" takes that old top-line slot here.
     private function _topPanelLines() as Array<[String, Number]> {
         var lines = [] as Array<[String, Number]>;
-        if (_fetchTimedOutDisplay) {
-            lines.add([_noSignalText, Graphics.COLOR_RED]);
-        } else if (!_lastFetchOk) {
-            lines.add([
-                _lastFetchTooMuchData ? _tooBusyText : _noSignalText,
-                Graphics.COLOR_RED,
-            ]);
-        }
+        lines.add(_fetchStatusLine());
         if (_centerLat != null && _centerLon != null) {
             lines.add([
                 _formatLat(_centerLat as Float, true) +
@@ -995,6 +953,21 @@ class RadarView extends WatchUi.View {
             ]);
         }
         return lines;
+    }
+
+    private function _fetchStatusLine() as [String, Number] {
+        if (_fetchTimedOutDisplay) {
+            return [_noSignalText, Graphics.COLOR_RED];
+        }
+        if (!_lastFetchOk) {
+            return _lastFetchTooMuchData
+                ? [_tooBusyText, COLOR_WARN]
+                : [_noSignalText, Graphics.COLOR_RED];
+        }
+        if (_fetchInFlight) {
+            return [_fetchingText, COLOR_GRID_LABEL];
+        }
+        return [_fetchedText, COLOR_SUCCESS];
     }
 
     private function _topPanelHeight() as Number {
@@ -1116,7 +1089,8 @@ class RadarView extends WatchUi.View {
                     dc,
                     cx - halfW + GRID_LABEL_INSET,
                     pt[1],
-                    _formatLat(lat, false)
+                    _formatLat(lat, false),
+                    COLOR_GRID_LABEL
                 );
             }
         }
@@ -1145,7 +1119,13 @@ class RadarView extends WatchUi.View {
             dc.drawLine(pt[0], lineTop, pt[0], lineBottom);
             var labelY = lineTop > topPanelH ? lineTop : topPanelH + 10;
             if (labelY < lineBottom) {
-                _drawGridLabel(dc, pt[0], labelY, _formatLon(lon, false));
+                _drawGridLabel(
+                    dc,
+                    pt[0],
+                    labelY,
+                    _formatLon(lon, false),
+                    COLOR_GRID_LABEL
+                );
             }
         }
     }
@@ -1154,7 +1134,8 @@ class RadarView extends WatchUi.View {
         dc as Dc,
         x as Number,
         y as Number,
-        text as String
+        text as String,
+        color as Number
     ) as Void {
         var dims = dc.getTextDimensions(text, _fontTiny);
         var padX = 3;
@@ -1165,7 +1146,7 @@ class RadarView extends WatchUi.View {
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(x - boxW / 2, y - boxH / 2, boxW, boxH);
 
-        dc.setColor(COLOR_GRID_LABEL, Graphics.COLOR_TRANSPARENT);
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
         dc.drawText(
             x,
             y,
@@ -2339,14 +2320,11 @@ class RadarView extends WatchUi.View {
         dc.fillRectangle(0, panelY, dc.getWidth(), panelH);
 
         for (var i = 0; i < lines.size(); i++) {
-            var line = lines[i];
-            dc.setColor(line[1] as Number, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(
+            _drawSegmentedLine(
+                dc,
                 cx,
                 panelY + 4 + i * DETAIL_PANEL_LINE_HEIGHT,
-                _fontTiny,
-                line[0] as String,
-                Graphics.TEXT_JUSTIFY_CENTER
+                lines[i] as Array<[String, Number]>
             );
         }
 
@@ -2361,21 +2339,58 @@ class RadarView extends WatchUi.View {
             : lines.size() * DETAIL_PANEL_LINE_HEIGHT + 8;
     }
 
+    private const SEGMENT_GAP_PX = 6;
+
+    // Draws left-to-right segments as one horizontally-centered group, each in its own color.
+    private function _drawSegmentedLine(
+        dc as Dc,
+        cx as Number,
+        y as Number,
+        segments as Array<[String, Number]>
+    ) as Void {
+        if (segments.size() == 0) {
+            return;
+        }
+        var widths = [] as Array<Number>;
+        var totalW = -SEGMENT_GAP_PX;
+        for (var i = 0; i < segments.size(); i++) {
+            var w = dc.getTextDimensions(segments[i][0] as String, _fontTiny)[
+                0
+            ];
+            widths.add(w);
+            totalW += w + SEGMENT_GAP_PX;
+        }
+
+        var x = cx - totalW / 2;
+        for (var i = 0; i < segments.size(); i++) {
+            dc.setColor(segments[i][1] as Number, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(
+                x,
+                y,
+                _fontTiny,
+                segments[i][0] as String,
+                Graphics.TEXT_JUSTIFY_LEFT
+            );
+            x += (widths[i] as Number) + SEGMENT_GAP_PX;
+        }
+    }
+
     private function _buildDetailLines(
         ac as Aircraft
-    ) as Array<[String, Number]> {
-        var lines = [] as Array<[String, Number]>;
+    ) as Array<Array<[String, Number]> > {
+        var lines = [] as Array<Array<[String, Number]> >;
 
-        var idParts = [] as Array<String>;
-        idParts.add(
+        var idSegs = [] as Array<[String, Number]>;
+        idSegs.add([
             ac.flight != null && (ac.flight as String).length() > 0
                 ? ac.flight as String
-                : ac.hex
-        );
+                : ac.hex,
+            _colorForAircraft(ac),
+        ]);
         if (ac.registration != null) {
-            idParts.add(ac.registration as String);
+            idSegs.add([ac.registration as String, COLOR_GRID_LABEL]);
         }
-        lines.add([_join(idParts, " "), _colorForAircraft(ac)]);
+        lines.add(idSegs);
 
         var typeStr =
             ac.typeDesc != null
@@ -2384,44 +2399,59 @@ class RadarView extends WatchUi.View {
                   ? ac.typeCode as String
                   : "";
         if (typeStr.length() > 0) {
-            lines.add([typeStr, COLOR_GRID_LABEL]);
+            lines.add([[typeStr, COLOR_GRID_LABEL]] as Array<[String, Number]>);
         }
 
-        var statParts = [] as Array<String>;
+        var statSegs = [] as Array<[String, Number]>;
         if (ac.onGround) {
-            statParts.add("GND");
+            statSegs.add(["GND", COLOR_ALT]);
         } else if (ac.altBaro != null) {
-            statParts.add("FL" + ((ac.altBaro as Number) / 100).format("%03d"));
+            statSegs.add([
+                "FL" + ((ac.altBaro as Number) / 100).format("%03d"),
+                COLOR_ALT,
+            ]);
         }
         if (ac.gs != null) {
-            statParts.add((ac.gs as Float).toNumber().toString() + "kt");
+            statSegs.add([
+                (ac.gs as Float).toNumber().toString() + "kt",
+                COLOR_SPEED,
+            ]);
         }
         if (ac.track != null) {
-            statParts.add("hdg " + (ac.track as Float).toNumber().toString());
+            statSegs.add([
+                "hdg " + (ac.track as Float).toNumber().toString(),
+                COLOR_HDG,
+            ]);
         }
-        var statLine = _join(statParts, " ");
-        if (statLine.length() > 0) {
-            lines.add([statLine, COLOR_TEXT]);
+        if (statSegs.size() > 0) {
+            lines.add(statSegs);
         }
 
-        var statParts2 = [] as Array<String>;
+        var statSegs2 = [] as Array<[String, Number]>;
         if (ac.tas != null) {
-            statParts2.add("tas" + (ac.tas as Float).toNumber().toString());
+            statSegs2.add([
+                "tas" + (ac.tas as Float).toNumber().toString(),
+                COLOR_SPEED,
+            ]);
         }
         var vr = ac.vertRate;
         if (vr != null && (vr as Float).abs() >= VERT_RATE_THRESHOLD_FPM) {
-            var sign = (vr as Float) > 0 ? "+" : "";
-            statParts2.add(sign + (vr as Float).toNumber().toString() + "fpm");
+            var climbing = (vr as Float) > 0;
+            var sign = climbing ? "+" : "";
+            statSegs2.add([
+                sign + (vr as Float).toNumber().toString() + "fpm",
+                climbing ? COLOR_SUCCESS : COLOR_WARN,
+            ]);
         }
         var emergency = ac.isEmergency();
         if (ac.squawk != null) {
-            statParts2.add(
-                (emergency ? "EMERG " : "sq") + (ac.squawk as String)
-            );
+            statSegs2.add([
+                (emergency ? "EMERG " : "sq") + (ac.squawk as String),
+                emergency ? COLOR_EMERGENCY : COLOR_SQUAWK,
+            ]);
         }
-        var statLine2 = _join(statParts2, " ");
-        if (statLine2.length() > 0) {
-            lines.add([statLine2, emergency ? COLOR_EMERGENCY : COLOR_TEXT]);
+        if (statSegs2.size() > 0) {
+            lines.add(statSegs2);
         }
 
         // What the autopilot is set to do next (MCP/FMS target), not the aircraft's current state.
@@ -2438,17 +2468,23 @@ class RadarView extends WatchUi.View {
         }
         var navLine = _join(navParts, " ");
         if (navLine.length() > 0) {
-            lines.add([navLine, COLOR_GRID_LABEL]);
+            lines.add([[navLine, COLOR_GRID_LABEL]] as Array<[String, Number]>);
         }
 
         // Blank (not omitted) mid-fetch, so the panel height doesn't shift as a fetch starts/stops.
         var trackStatus = "";
+        var trackColor = COLOR_GRID_LABEL;
         if (_trackFetchInFlight) {
-            trackStatus = "loading track...";
-        } else if (!_trackHasHistory) {
-            trackStatus = "no track history";
+            trackStatus = "Loading Track...";
+        } else if (_trackHasHistory) {
+            trackStatus = "Track Loaded";
+            trackColor = COLOR_SUCCESS;
+        } else {
+            trackStatus = "No Track History";
         }
-        lines.add([trackStatus, COLOR_GRID_LABEL]);
+        lines.add(
+            [[trackStatus, trackColor]] as Array<[String, Number]>
+        );
 
         return lines;
     }

@@ -17,10 +17,11 @@
   <string id="DisplayMenuTitle">Display</string>
   <string id="MenuShowRangeRings">Range Rings</string>
   <string id="MenuShowGridLines">Grid Lines</string>
-  <string id="MenuShowScaleBar">Scale Bar</string>
   <string id="MenuShowButtonHints">Button Hints</string>
 
   <string id="NoSignal">No Signal</string>
   <string id="TooBusy">Too Busy</string>
   <string id="NoGps">Waiting for GPS...</string>
+  <string id="Fetching">Fetching...</string>
+  <string id="Fetched">Fetched</string>
 </strings>

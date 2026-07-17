@@ -39,7 +39,6 @@ module Settings {
     // Display chrome toggles - all opt-out, default shown.
     var showRangeRings as Boolean = true;
     var showGridLines as Boolean = true;
-    var showScaleBar as Boolean = true;
     var showButtonHints as Boolean = true;
 
     function load() as Void {
@@ -55,7 +54,6 @@ module Settings {
         hideObstacles = _loadBool("hideObstacles", true);
         showRangeRings = _loadBool("showRangeRings", true);
         showGridLines = _loadBool("showGridLines", true);
-        showScaleBar = _loadBool("showScaleBar", true);
         showButtonHints = _loadBool("showButtonHints", true);
 
         for (var i = 0; i < LABEL_FIELDS.size(); i++) {
@@ -118,11 +116,6 @@ module Settings {
     function setShowGridLines(v as Boolean) as Void {
         showGridLines = v;
         Storage.setValue("showGridLines", v);
-    }
-
-    function setShowScaleBar(v as Boolean) as Void {
-        showScaleBar = v;
-        Storage.setValue("showScaleBar", v);
     }
 
     function setShowButtonHints(v as Boolean) as Void {

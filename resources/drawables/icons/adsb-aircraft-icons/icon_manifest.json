@@ -1,0 +1,554 @@
+[
+  {
+    "icon": "a319",
+    "width": 23,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "a320",
+    "width": 23,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "a321",
+    "width": 23,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "p8",
+    "width": 24.8,
+    "height": 32,
+    "hasAccent": true
+  },
+  {
+    "icon": "e737",
+    "width": 23.5,
+    "height": 32,
+    "hasAccent": true
+  },
+  {
+    "icon": "b737",
+    "width": 23.5,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "b738",
+    "width": 23.5,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "b739",
+    "width": 23.5,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "airliner",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "blimp",
+    "width": 32,
+    "height": 32,
+    "hasAccent": true
+  },
+  {
+    "icon": "balloon",
+    "width": 13,
+    "height": 17,
+    "hasAccent": false
+  },
+  {
+    "icon": "cessna",
+    "width": 26,
+    "height": 26,
+    "hasAccent": false
+  },
+  {
+    "icon": "a359",
+    "width": 31.5,
+    "height": 31.5,
+    "hasAccent": false
+  },
+  {
+    "icon": "a332",
+    "width": 31,
+    "height": 31,
+    "hasAccent": false
+  },
+  {
+    "icon": "heavy_2e",
+    "width": 34,
+    "height": 34,
+    "hasAccent": false
+  },
+  {
+    "icon": "md11",
+    "width": 38,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "c130",
+    "width": 33,
+    "height": 35,
+    "hasAccent": false
+  },
+  {
+    "icon": "hi_perf",
+    "width": 32,
+    "height": 32,
+    "hasAccent": true
+  },
+  {
+    "icon": "f18",
+    "width": 25,
+    "height": 25,
+    "hasAccent": true
+  },
+  {
+    "icon": "e3awacs",
+    "width": 36,
+    "height": 36,
+    "hasAccent": false
+  },
+  {
+    "icon": "heavy_4e",
+    "width": 34,
+    "height": 34,
+    "hasAccent": false
+  },
+  {
+    "icon": "single_turbo",
+    "width": 24,
+    "height": 22,
+    "hasAccent": false
+  },
+  {
+    "icon": "jet_nonswept",
+    "width": 22,
+    "height": 22,
+    "hasAccent": false
+  },
+  {
+    "icon": "jet_swept",
+    "width": 19,
+    "height": 25,
+    "hasAccent": false
+  },
+  {
+    "icon": "twin_large",
+    "width": 25,
+    "height": 25,
+    "hasAccent": false
+  },
+  {
+    "icon": "twin_small",
+    "width": 25,
+    "height": 22,
+    "hasAccent": false
+  },
+  {
+    "icon": "alpha_jet",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "a225",
+    "width": 36,
+    "height": 36,
+    "hasAccent": false
+  },
+  {
+    "icon": "a400",
+    "width": 31,
+    "height": 34,
+    "hasAccent": false
+  },
+  {
+    "icon": "v22_slow",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "v22_fast",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "t38",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "f35",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "l159",
+    "width": 28,
+    "height": 28,
+    "hasAccent": true
+  },
+  {
+    "icon": "mirage",
+    "width": 28,
+    "height": 28,
+    "hasAccent": true
+  },
+  {
+    "icon": "sb39",
+    "width": 29,
+    "height": 29,
+    "hasAccent": true
+  },
+  {
+    "icon": "md_a4",
+    "width": 26,
+    "height": 26,
+    "hasAccent": true
+  },
+  {
+    "icon": "tornado",
+    "width": 25,
+    "height": 25,
+    "hasAccent": true
+  },
+  {
+    "icon": "uav",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "typhoon",
+    "width": 25,
+    "height": 25,
+    "hasAccent": true
+  },
+  {
+    "icon": "rafale",
+    "width": 25,
+    "height": 25,
+    "hasAccent": false
+  },
+  {
+    "icon": "hunter",
+    "width": 26,
+    "height": 26,
+    "hasAccent": true
+  },
+  {
+    "icon": "lancaster",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "beluga",
+    "width": 29,
+    "height": 29,
+    "hasAccent": false
+  },
+  {
+    "icon": "c17",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "c5",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "super_guppy",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "wb57",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "a380",
+    "width": 42,
+    "height": 42,
+    "hasAccent": false
+  },
+  {
+    "icon": "il_62",
+    "width": 30,
+    "height": 30,
+    "hasAccent": false
+  },
+  {
+    "icon": "u2",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "glider",
+    "width": 22,
+    "height": 33,
+    "hasAccent": false
+  },
+  {
+    "icon": "p3_orion",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "cirrus_sr22",
+    "width": 23,
+    "height": 25,
+    "hasAccent": false
+  },
+  {
+    "icon": "verhees",
+    "width": 28,
+    "height": 28,
+    "hasAccent": true
+  },
+  {
+    "icon": "gyrocopter",
+    "width": 27,
+    "height": 27,
+    "hasAccent": false
+  },
+  {
+    "icon": "helicopter",
+    "width": 29,
+    "height": 29,
+    "hasAccent": false
+  },
+  {
+    "icon": "pa24",
+    "width": 30,
+    "height": 30,
+    "hasAccent": false
+  },
+  {
+    "icon": "bae_hawk",
+    "width": 33,
+    "height": 33,
+    "hasAccent": false
+  },
+  {
+    "icon": "a10",
+    "width": 24,
+    "height": 24,
+    "hasAccent": false
+  },
+  {
+    "icon": "chinook",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "apache",
+    "width": 31,
+    "height": 31,
+    "hasAccent": false
+  },
+  {
+    "icon": "blackhawk",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "s61",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "f5_tiger",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "c2",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "b52",
+    "width": 40,
+    "height": 40,
+    "hasAccent": false
+  },
+  {
+    "icon": "b707",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "rutan_veze",
+    "width": 27,
+    "height": 27,
+    "hasAccent": false
+  },
+  {
+    "icon": "pumpkin",
+    "width": 32,
+    "height": 32,
+    "hasAccent": true
+  },
+  {
+    "icon": "witchr",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "witchl",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "m326",
+    "width": 25,
+    "height": 25,
+    "hasAccent": true
+  },
+  {
+    "icon": "miragef1",
+    "width": 35,
+    "height": 35,
+    "hasAccent": true
+  },
+  {
+    "icon": "unknown",
+    "width": 22,
+    "height": 22,
+    "hasAccent": false
+  },
+  {
+    "icon": "ground_square",
+    "width": 11,
+    "height": 11,
+    "hasAccent": false
+  },
+  {
+    "icon": "ground_emergency",
+    "width": 7.2,
+    "height": 18,
+    "hasAccent": false
+  },
+  {
+    "icon": "ground_service",
+    "width": 7.2,
+    "height": 18,
+    "hasAccent": false
+  },
+  {
+    "icon": "ground_unknown",
+    "width": 7.2,
+    "height": 18,
+    "hasAccent": false
+  },
+  {
+    "icon": "ground_fixed",
+    "width": 12,
+    "height": 12,
+    "hasAccent": false
+  },
+  {
+    "icon": "ground_tower",
+    "width": 22,
+    "height": 18,
+    "hasAccent": false
+  },
+  {
+    "icon": "puma",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "tiger",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "mil24",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "dauphin",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "gazelle",
+    "width": 28,
+    "height": 28,
+    "hasAccent": false
+  },
+  {
+    "icon": "md_f15",
+    "width": 28,
+    "height": 28,
+    "hasAccent": true
+  },
+  {
+    "icon": "strato",
+    "width": 40,
+    "height": 40,
+    "hasAccent": false
+  },
+  {
+    "icon": "asterisk",
+    "width": 11,
+    "height": 11,
+    "hasAccent": false
+  },
+  {
+    "icon": "b1b_lancer",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  },
+  {
+    "icon": "para",
+    "width": 25,
+    "height": 25,
+    "hasAccent": true
+  },
+  {
+    "icon": "e390",
+    "width": 32,
+    "height": 32,
+    "hasAccent": false
+  }
+]

@@ -1,0 +1,16 @@
+adsb_emitter_category,icon_file,scale,meaning
+A1,cessna.svg,1,Light (<7t)
+A2,jet_swept.svg,0.94,Small (7-34t)
+A3,airliner.svg,0.96,Large (34-136t)
+A4,airliner.svg,1,High vortex large (B757)
+A5,heavy_2e.svg,0.92,Heavy (>136t)
+A6,hi_perf.svg,0.94,High performance / high speed
+A7,helicopter.svg,1,Rotorcraft
+B1,glider.svg,1,Glider/sailplane
+B2,balloon.svg,1,Lighter-than-air (balloon/blimp)
+B4,cessna.svg,0.92,Ultralight/hang glider/paraglider
+B6,uav.svg,1,UAV / drone
+C0,ground_unknown.svg,1,Ground vehicle, unknown
+C1,ground_emergency.svg,1,Ground vehicle, emergency
+C2,ground_service.svg,1,Ground vehicle, service
+C3,ground_tower.svg,1,Fixed ground / obstruction (tower)

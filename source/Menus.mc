@@ -63,15 +63,6 @@ module MenuBuilder {
         );
         menu.addItem(
             new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuShowScaleBar,
-                null,
-                :showScaleBar,
-                Settings.showScaleBar,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowButtonHints,
                 null,
                 :showButtonHints,
@@ -168,8 +159,6 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setShowRangeRings(enabled);
         } else if (id == :showGridLines) {
             Settings.setShowGridLines(enabled);
-        } else if (id == :showScaleBar) {
-            Settings.setShowScaleBar(enabled);
         } else if (id == :showButtonHints) {
             Settings.setShowButtonHints(enabled);
         }
