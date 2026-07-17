@@ -1,0 +1,4 @@
+<resources>
+  <font id="SpaceMono_TINY" filename="SpaceMono/SpaceMono_TINY.fnt" antialias="true" />
+  <font id="SpaceMono_SMALL" filename="SpaceMono/SpaceMono_SMALL.fnt" antialias="true" />
+</resources>

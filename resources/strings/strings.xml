@@ -1,0 +1,26 @@
+<strings>
+  <string id="AppName">Flight Radar</string>
+
+  <string id="MenuTitle">Radar Settings</string>
+  <string id="MenuLabels">Aircraft Labels</string>
+  <string id="MenuLabelsSub">Show Labels</string>
+  <string id="MenuDisplay">Display</string>
+  <string id="MenuHideGroundVehicles">Hide Ground Vehicles</string>
+  <string id="MenuHideGroundedPlanes">Hide Grounded Planes</string>
+  <string id="MenuHideObstacles">Hide Obstacles</string>
+
+  <string id="LabelsMenuTitle">Aircraft Labels</string>
+  <string id="LabelCallsign">Callsign</string>
+  <string id="LabelSpeed">Speed</string>
+  <string id="LabelAltitude">Altitude</string>
+
+  <string id="DisplayMenuTitle">Display</string>
+  <string id="MenuShowRangeRings">Range Rings</string>
+  <string id="MenuShowGridLines">Grid Lines</string>
+  <string id="MenuShowScaleBar">Scale Bar</string>
+  <string id="MenuShowButtonHints">Button Hints</string>
+
+  <string id="NoSignal">No Signal</string>
+  <string id="TooBusy">Too Busy</string>
+  <string id="NoGps">Waiting for GPS...</string>
+</strings>

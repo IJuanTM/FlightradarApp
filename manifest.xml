@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<iq:manifest xmlns:iq="http://www.garmin.com/xml/connectiq" version="3">
+  <iq:application entry="FlightradarApp" id="bea35646-1778-404a-9515-ad346ca8c60f" minApiLevel="6.0.2" name="@Strings.AppName" type="watch-app" launcherIcon="@Drawables.LauncherIcon">
+    <iq:products>
+      <iq:product id="fenix847mm"/>
+    </iq:products>
+    <iq:permissions>
+      <iq:uses-permission id="Communications"/>
+      <iq:uses-permission id="Positioning"/>
+    </iq:permissions>
+    <iq:languages>
+      <iq:language>eng</iq:language>
+    </iq:languages>
+    <iq:barrels/>
+  </iq:application>
+</iq:manifest>

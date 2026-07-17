@@ -1,0 +1,7 @@
+__pycache__/
+
+.claude/
+
+bin/
+
+resources/jsonData/credentials.json

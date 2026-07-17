@@ -1,0 +1,61 @@
+<drawables xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://developer.garmin.com/downloads/connect-iq/resources.xsd">
+    <bitmap id="LauncherIcon" filename="launcher_icon.png" />
+    <!-- automaticPalette=false required: any bitmap touched by drawBitmap2's :transform/:tintColor must be direct-color. -->
+    <bitmap id="AircraftA0" filename="aircraft_a0.png" automaticPalette="false" />
+    <bitmap id="AircraftA1" filename="aircraft_a1.png" automaticPalette="false" />
+    <bitmap id="AircraftA2" filename="aircraft_a2.png" automaticPalette="false" />
+    <bitmap id="AircraftA3" filename="aircraft_a3.png" automaticPalette="false" />
+    <bitmap id="AircraftA4" filename="aircraft_a4.png" automaticPalette="false" />
+    <bitmap id="AircraftA5" filename="aircraft_a5.png" automaticPalette="false" />
+    <bitmap id="AircraftA6" filename="aircraft_a6.png" automaticPalette="false" />
+    <bitmap id="AircraftVehicle" filename="aircraft_vehicle.png" automaticPalette="false" />
+    <bitmap id="AircraftA320" filename="aircraft_a320.png" automaticPalette="false" />
+    <bitmap id="AircraftA330" filename="aircraft_a330.png" automaticPalette="false" />
+    <bitmap id="AircraftA340" filename="aircraft_a340.png" automaticPalette="false" />
+    <bitmap id="AircraftA380" filename="aircraft_a380.png" automaticPalette="false" />
+    <bitmap id="AircraftB737" filename="aircraft_b737.png" automaticPalette="false" />
+    <bitmap id="AircraftB747" filename="aircraft_b747.png" automaticPalette="false" />
+    <bitmap id="AircraftB767" filename="aircraft_b767.png" automaticPalette="false" />
+    <bitmap id="AircraftB777" filename="aircraft_b777.png" automaticPalette="false" />
+    <bitmap id="AircraftB787" filename="aircraft_b787.png" automaticPalette="false" />
+    <bitmap id="AircraftC130" filename="aircraft_c130.png" automaticPalette="false" />
+    <bitmap id="AircraftCessna" filename="aircraft_cessna.png" automaticPalette="false" />
+    <bitmap id="AircraftCrjx" filename="aircraft_crjx.png" automaticPalette="false" />
+    <bitmap id="AircraftDh8a" filename="aircraft_dh8a.png" automaticPalette="false" />
+    <bitmap id="AircraftE195" filename="aircraft_e195.png" automaticPalette="false" />
+    <bitmap id="AircraftErj" filename="aircraft_erj.png" automaticPalette="false" />
+    <bitmap id="AircraftF100" filename="aircraft_f100.png" automaticPalette="false" />
+    <bitmap id="AircraftFa7x" filename="aircraft_fa7x.png" automaticPalette="false" />
+    <bitmap id="AircraftGlf5" filename="aircraft_glf5.png" automaticPalette="false" />
+    <bitmap id="AircraftLearjet" filename="aircraft_learjet.png" automaticPalette="false" />
+    <bitmap id="AircraftMd11" filename="aircraft_md11.png" automaticPalette="false" />
+    <!-- Pre-dilated emergency-halo outline variants - see RadarView._drawIconHalo. -->
+    <bitmap id="AircraftA0Emg" filename="aircraft_a0_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA1Emg" filename="aircraft_a1_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA2Emg" filename="aircraft_a2_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA3Emg" filename="aircraft_a3_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA4Emg" filename="aircraft_a4_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA5Emg" filename="aircraft_a5_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA6Emg" filename="aircraft_a6_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftVehicleEmg" filename="aircraft_vehicle_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA320Emg" filename="aircraft_a320_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA330Emg" filename="aircraft_a330_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA340Emg" filename="aircraft_a340_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftA380Emg" filename="aircraft_a380_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftB737Emg" filename="aircraft_b737_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftB747Emg" filename="aircraft_b747_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftB767Emg" filename="aircraft_b767_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftB777Emg" filename="aircraft_b777_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftB787Emg" filename="aircraft_b787_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftC130Emg" filename="aircraft_c130_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftCessnaEmg" filename="aircraft_cessna_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftCrjxEmg" filename="aircraft_crjx_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftDh8aEmg" filename="aircraft_dh8a_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftE195Emg" filename="aircraft_e195_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftErjEmg" filename="aircraft_erj_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftF100Emg" filename="aircraft_f100_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftFa7xEmg" filename="aircraft_fa7x_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftGlf5Emg" filename="aircraft_glf5_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftLearjetEmg" filename="aircraft_learjet_emg.png" automaticPalette="false" />
+    <bitmap id="AircraftMd11Emg" filename="aircraft_md11_emg.png" automaticPalette="false" />
+</drawables>
