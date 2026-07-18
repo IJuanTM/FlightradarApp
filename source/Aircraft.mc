@@ -22,6 +22,16 @@ class Aircraft {
     public var navHeading as Float?;
     // Seconds since the last position update - seen_pos when available, else the coarser seen (any message).
     public var positionAgeSec as Float?;
+    public var operatorName as String?;
+    public var ias as Number?;
+    public var mach as Float?;
+    // Ident button pressed / flight-status-change flag - distinct from emergency.
+    public var spi as Boolean;
+    public var alertFlag as Boolean;
+    public var windDir as Number?;
+    public var windSpeed as Number?;
+    public var outsideAirTemp as Number?;
+    public var totalAirTemp as Number?;
 
     public function initialize(dict as Dictionary) {
         var hexVal = dict["hex"];
@@ -42,7 +52,9 @@ class Aircraft {
             altBaro = ab.toNumber();
         } else {
             onGround = false;
-            altBaro = null;
+            // No barometric reading at all (not even "ground") - fall back to GPS/geometric altitude rather than showing nothing.
+            var ag = dict["alt_geom"];
+            altBaro = ag != null ? ag.toNumber() : null;
         }
 
         gs = _toFloatOrNull(dict["gs"]);
@@ -74,6 +86,21 @@ class Aircraft {
 
         var seenPos = dict["seen_pos"];
         positionAgeSec = _toFloatOrNull(seenPos != null ? seenPos : dict["seen"]);
+
+        operatorName = _toTrimmedStringOrNull(dict["ownOp"]);
+        var iasVal = dict["ias"];
+        ias = iasVal != null ? iasVal.toNumber() : null;
+        mach = _toFloatOrNull(dict["mach"]);
+        spi = _toBoolFlag(dict["spi"]);
+        alertFlag = _toBoolFlag(dict["alert"]);
+        var wdVal = dict["wd"];
+        windDir = wdVal != null ? wdVal.toNumber() : null;
+        var wsVal = dict["ws"];
+        windSpeed = wsVal != null ? wsVal.toNumber() : null;
+        var oatVal = dict["oat"];
+        outsideAirTemp = oatVal != null ? oatVal.toNumber() : null;
+        var tatVal = dict["tat"];
+        totalAirTemp = tatVal != null ? tatVal.toNumber() : null;
     }
 
     public function isHelicopter() as Boolean {
@@ -105,6 +132,10 @@ class Aircraft {
 
     private function _toFloat(v, def as Float) as Float {
         return v != null ? v.toFloat() : def;
+    }
+
+    private function _toBoolFlag(v) as Boolean {
+        return v != null && v.toNumber() != 0;
     }
 
     private function _toFloatOrNull(v) as Float? {

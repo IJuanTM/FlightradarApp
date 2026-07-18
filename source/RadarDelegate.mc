@@ -42,6 +42,10 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
             return true;
         }
 
+        if (_view.tryOpenDetailPanel(coords[0], coords[1])) {
+            return true;
+        }
+
         var hex = _view.hitTestAircraft(coords[0], coords[1]);
         if (hex != null) {
             _view.selectAircraft(hex as String);

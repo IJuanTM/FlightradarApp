@@ -5,9 +5,8 @@
   <string id="MenuLabels">Aircraft Labels</string>
   <string id="MenuLabelsSub">Show Labels</string>
   <string id="MenuDisplay">Display</string>
-  <string id="MenuHideGroundVehicles">Hide Ground Vehicles</string>
-  <string id="MenuHideGroundedPlanes">Hide Grounded Planes</string>
-  <string id="MenuHideObstacles">Hide Obstacles</string>
+  <string id="MenuFilters">Filters</string>
+  <string id="MenuAircraft">Aircraft</string>
 
   <string id="LabelsMenuTitle">Aircraft Labels</string>
   <string id="LabelCallsign">Callsign</string>
@@ -18,6 +17,21 @@
   <string id="MenuShowRangeRings">Range Rings</string>
   <string id="MenuShowGridLines">Grid Lines</string>
   <string id="MenuShowButtonHints">Button Hints</string>
+  <string id="MenuMetricUnits">Metric Units</string>
+  <string id="MenuBatterySaver">Battery Saver</string>
+
+  <string id="FiltersMenuTitle">Filters</string>
+  <string id="MenuShowGroundVehicles">Show Ground Vehicles</string>
+  <string id="MenuHideGroundedPlanes">Hide Grounded Planes</string>
+  <string id="MenuHideObstacles">Hide Obstacles</string>
+  <string id="MenuHideMilitary">Hide Military</string>
+
+  <string id="AircraftMenuTitle">Aircraft</string>
+  <string id="MenuShowTrack">Show Track</string>
+  <string id="MenuShowVertRateChevron">Climb/Descend Arrows</string>
+  <string id="MenuDimGroundedAircraft">Dim Grounded Aircraft</string>
+  <string id="MenuDimStaleAircraft">Dim Stale Aircraft</string>
+  <string id="MenuSingleColorMode">Single Color Mode</string>
 
   <string id="NoSignal">No Signal</string>
   <string id="TooBusy">Too Busy</string>

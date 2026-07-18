@@ -12,29 +12,13 @@ module MenuBuilder {
             new WatchUi.MenuItem(Rez.Strings.MenuDisplay, null, :display, null)
         );
         menu.addItem(
-            new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuHideGroundVehicles,
-                null,
-                :hideGroundVehicles,
-                Settings.hideGroundVehicles,
-                null
-            )
+            new WatchUi.MenuItem(Rez.Strings.MenuFilters, null, :filters, null)
         );
         menu.addItem(
-            new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuHideGroundedPlanes,
+            new WatchUi.MenuItem(
+                Rez.Strings.MenuAircraft,
                 null,
-                :hideGroundedPlanes,
-                Settings.hideGroundedPlanes,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuHideObstacles,
-                null,
-                :hideObstacles,
-                Settings.hideObstacles,
+                :aircraft,
                 null
             )
         );
@@ -67,6 +51,115 @@ module MenuBuilder {
                 null,
                 :showButtonHints,
                 Settings.showButtonHints,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuMetricUnits,
+                null,
+                :useMetricUnits,
+                Settings.useMetricUnits,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuBatterySaver,
+                null,
+                :batterySaverMode,
+                Settings.batterySaverMode,
+                null
+            )
+        );
+        return menu;
+    }
+
+    function buildFiltersMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({ :title => Rez.Strings.FiltersMenuTitle });
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowGroundVehicles,
+                null,
+                :showGroundVehicles,
+                Settings.showGroundVehicles,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuHideGroundedPlanes,
+                null,
+                :hideGroundedPlanes,
+                Settings.hideGroundedPlanes,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuHideObstacles,
+                null,
+                :hideObstacles,
+                Settings.hideObstacles,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuHideMilitary,
+                null,
+                :hideMilitary,
+                Settings.hideMilitary,
+                null
+            )
+        );
+        return menu;
+    }
+
+    function buildAircraftMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({ :title => Rez.Strings.AircraftMenuTitle });
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowTrack,
+                null,
+                :showSelectedTrail,
+                Settings.showSelectedTrail,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowVertRateChevron,
+                null,
+                :showVertRateChevron,
+                Settings.showVertRateChevron,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuDimGroundedAircraft,
+                null,
+                :dimGroundedAircraft,
+                Settings.dimGroundedAircraft,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuDimStaleAircraft,
+                null,
+                :dimStaleAircraft,
+                Settings.dimStaleAircraft,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuSingleColorMode,
+                null,
+                :singleColorMode,
+                Settings.singleColorMode,
                 null
             )
         );
@@ -129,16 +222,22 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
             return;
         }
 
-        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+        if (id == :filters) {
+            WatchUi.pushView(
+                MenuBuilder.buildFiltersMenu(),
+                new FiltersMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
             return;
         }
-        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
-        if (id == :hideGroundVehicles) {
-            Settings.setHideGroundVehicles(enabled);
-        } else if (id == :hideGroundedPlanes) {
-            Settings.setHideGroundedPlanes(enabled);
-        } else if (id == :hideObstacles) {
-            Settings.setHideObstacles(enabled);
+
+        if (id == :aircraft) {
+            WatchUi.pushView(
+                MenuBuilder.buildAircraftMenu(),
+                new AircraftMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
         }
     }
 }
@@ -161,6 +260,60 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setShowGridLines(enabled);
         } else if (id == :showButtonHints) {
             Settings.setShowButtonHints(enabled);
+        } else if (id == :useMetricUnits) {
+            Settings.setUseMetricUnits(enabled);
+        } else if (id == :batterySaverMode) {
+            Settings.setBatterySaverMode(enabled);
+        }
+    }
+}
+
+class FiltersMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        var id = item.getId();
+        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
+
+        if (id == :showGroundVehicles) {
+            Settings.setShowGroundVehicles(enabled);
+        } else if (id == :hideGroundedPlanes) {
+            Settings.setHideGroundedPlanes(enabled);
+        } else if (id == :hideObstacles) {
+            Settings.setHideObstacles(enabled);
+        } else if (id == :hideMilitary) {
+            Settings.setHideMilitary(enabled);
+        }
+    }
+}
+
+class AircraftMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        var id = item.getId();
+        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
+
+        if (id == :showSelectedTrail) {
+            Settings.setShowSelectedTrail(enabled);
+        } else if (id == :showVertRateChevron) {
+            Settings.setShowVertRateChevron(enabled);
+        } else if (id == :dimGroundedAircraft) {
+            Settings.setDimGroundedAircraft(enabled);
+        } else if (id == :dimStaleAircraft) {
+            Settings.setDimStaleAircraft(enabled);
+        } else if (id == :singleColorMode) {
+            Settings.setSingleColorMode(enabled);
         }
     }
 }
