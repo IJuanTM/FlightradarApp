@@ -189,51 +189,53 @@ module AircraftClassifier {
     };
 
     // Safety net for missing category - MTOW 75,000-300,000lbs tier.
-    var LARGE_TYPE_CODES as Array<String> = [
-        "A319",
-        "A320",
-        "A321",
-        "A332",
-        "A333",
-        "A338",
-        "A339",
-        "B737",
-        "B738",
-        "B739",
-        "B37M",
-        "B38M",
-        "B39M",
-        "B752",
-        "B753",
-        "C130",
-    ];
+    const LARGE_TYPE_CODES =
+        [
+            "A319",
+            "A320",
+            "A321",
+            "A332",
+            "A333",
+            "A338",
+            "A339",
+            "B737",
+            "B738",
+            "B739",
+            "B37M",
+            "B38M",
+            "B39M",
+            "B752",
+            "B753",
+            "C130",
+        ] as Array<String>;
 
     // Safety net for missing category - MTOW >300,000lbs tier (incl. military transports).
-    var SUPER_HEAVY_TYPE_CODES as Array<String> = [
-        "B762",
-        "B763",
-        "B764",
-        "B772",
-        "B773",
-        "B77L",
-        "B77W",
-        "B788",
-        "B789",
-        "B78X",
-        "B742",
-        "B743",
-        "B744",
-        "B748",
-        "A342",
-        "A343",
-        "A345",
-        "A346",
-        "A388",
-        "MD11",
-        "C5M",
-        "C17",
-        "K35R",
-    ];
+    const SUPER_HEAVY_TYPE_CODES =
+        [
+            "B762",
+            "B763",
+            "B764",
+            "B772",
+            "B773",
+            "B77L",
+            "B77W",
+            "B788",
+            "B789",
+            "B78X",
+            "B742",
+            "B743",
+            "B744",
+            "B748",
+            "A342",
+            "A343",
+            "A345",
+            "A346",
+            "A388",
+            "MD11",
+            "C5M",
+            "C17",
+            "K35R",
+        ] as Array<String>;
 
     // ICAO type designator -> icon shape key, checked before category.
     const TYPE_TO_ICON as Dictionary<String, String> = {
@@ -686,6 +688,10 @@ module AircraftClassifier {
 
     // typeCode exact match, then prefix supplement, then category, else "unknown".
     function shapeKey(ac as Aircraft) as String {
+        return _shapeKeyForCategory(ac, effectiveCategory(ac));
+    }
+
+    function _shapeKeyForCategory(ac as Aircraft, cat as String) as String {
         var t = ac.typeCode;
         if (t != null) {
             var exact = TYPE_TO_ICON[t as String];
@@ -699,13 +705,16 @@ module AircraftClassifier {
                 }
             }
         }
-        var byCategory = CATEGORY_TO_ICON[effectiveCategory(ac)];
+        var byCategory = CATEGORY_TO_ICON[cat];
         return byCategory != null ? byCategory as String : "unknown";
     }
 
     // Rotorcraft (A7) has no size signal in the category, so that shape stays fixed.
     function sizeScale(ac as Aircraft) as Float {
-        var cat = effectiveCategory(ac);
+        return _sizeScaleForCategory(effectiveCategory(ac));
+    }
+
+    function _sizeScaleForCategory(cat as String) as Float {
         if (cat.equals("A1")) {
             return 0.7;
         }
@@ -726,9 +735,10 @@ module AircraftClassifier {
 
     // baseScale is RadarView's own render-scale constant, not part of classification.
     function iconHalfExtent(ac as Aircraft, baseScale as Float) as Number {
-        var diag = ICON_HALF_DIAGONAL[shapeKey(ac)];
+        var cat = effectiveCategory(ac);
+        var diag = ICON_HALF_DIAGONAL[_shapeKeyForCategory(ac, cat)];
         var srcHalf = diag != null ? diag as Float : 30.0;
-        var scale = baseScale * sizeScale(ac);
+        var scale = baseScale * _sizeScaleForCategory(cat);
         return (srcHalf * scale).toNumber();
     }
 }

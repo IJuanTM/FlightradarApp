@@ -61,7 +61,7 @@ class OpenSkyClient {
         _withToken(method(:_fetchRouteWithToken));
     }
 
-    // Shared by fetchTrack/fetchRoute - runs dispatch(token) once a valid token is ready, requesting one first if needed.
+    // Shared by fetchTrack/fetchRoute, so token acquisition isn't duplicated.
     private function _withToken(dispatch as TokenDispatch) as Void {
         var token = _accessToken;
         var expiresAt = _tokenExpiresAtMs;
@@ -123,7 +123,6 @@ class OpenSkyClient {
         return true;
     }
 
-    // Public so method(:_onTokenReceive) isn't optimized away as an unreferenced private symbol.
     public function _onTokenReceive(
         responseCode as Number,
         data as Dictionary or String or Null
@@ -157,7 +156,6 @@ class OpenSkyClient {
         }
     }
 
-    // Public so method(:_fetchTrackWithToken) isn't an unreferenced private symbol.
     public function _fetchTrackWithToken(token as String) as Void {
         var hex = _pendingTrackHex;
         if (hex == null) {
@@ -177,7 +175,6 @@ class OpenSkyClient {
         );
     }
 
-    // Public so method(:_onTrackReceive) isn't optimized away as an unreferenced private symbol.
     public function _onTrackReceive(
         responseCode as Number,
         data as Dictionary or String or Null
@@ -228,7 +225,6 @@ class OpenSkyClient {
         }
     }
 
-    // Public so method(:_fetchRouteWithToken) isn't an unreferenced private symbol.
     public function _fetchRouteWithToken(token as String) as Void {
         var hex = _pendingRouteHex;
         if (hex == null) {
@@ -257,7 +253,6 @@ class OpenSkyClient {
         );
     }
 
-    // Public so method(:_onRouteReceive) isn't optimized away as an unreferenced private symbol.
     public function _onRouteReceive(
         responseCode as Number,
         data as Dictionary or String or Null
@@ -275,7 +270,7 @@ class OpenSkyClient {
             _completeRoute(null, null, true);
             return;
         }
-        // This endpoint's JSON root is an array, but makeWebRequest's callback type is fixed to Dictionary|String|Null - widen to Object first or the Array branch is statically unreachable.
+        // This endpoint's JSON root is an array, but the callback type is fixed to Dictionary|String|Null - widen first.
         var raw = data as Object;
         if (responseCode != 200 or !(raw instanceof Array)) {
             _failPendingRoute();

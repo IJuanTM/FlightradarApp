@@ -44,7 +44,7 @@ module Settings {
     var useMetricUnits as Boolean = false;
     var batterySaverMode as Boolean = false;
 
-    // Aircraft display toggles - all opt-out, default on (matches existing always-on behavior before these settings existed).
+    // Aircraft display toggles - all opt-out, default on.
     var showSelectedTrail as Boolean = true;
     var showVertRateChevron as Boolean = true;
     var dimGroundedAircraft as Boolean = true;

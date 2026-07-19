@@ -69,7 +69,6 @@ class AirplanesLiveClient {
         );
     }
 
-    // Public so method(:_onThrottleElapsed) isn't optimized away as an unreferenced private symbol.
     public function _onThrottleElapsed() as Void {
         _performFetch();
     }
@@ -101,7 +100,6 @@ class AirplanesLiveClient {
         Communications.makeWebRequest(url, null, options, method(:_onReceive));
     }
 
-    // Public so method(:_onReceive) isn't optimized away as an unreferenced private symbol.
     public function _onReceive(
         responseCode as Number,
         data as Dictionary or String or Null
@@ -171,7 +169,7 @@ class AirplanesLiveClient {
         return true;
     }
 
-    // One object per tick, deliberately - the watchdog is VM-cycle-based (no fixed ms budget), and looping to parse many objects per tick tripped it on a big response.
+    // One object per tick, deliberately - the VM-cycle-based watchdog tripped when parsing many objects per tick.
     public function _continueParsingAircraft() as Void {
         _jsonDeadlineMs = System.getTimer() + PARSE_BUDGET_MS;
 
@@ -341,7 +339,7 @@ class AirplanesLiveClient {
     }
 
     private function _parseJsonString() as String {
-        // A truncated response can leave _jsonPos already past the end when this is called - guard like _parseJsonValue does.
+        // A truncated response can leave _jsonPos past the end here - guard like _parseJsonValue does.
         if (_jsonPos >= _jsonChars.size()) {
             return "";
         }

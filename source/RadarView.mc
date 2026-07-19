@@ -7,13 +7,12 @@ import Toybox.Timer;
 import Toybox.WatchUi;
 
 class RadarView extends WatchUi.View {
-    // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where a big response is also most likely to hit the platform's transport-size ceiling.
+    // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
     private const POLL_MS_BY_ZOOM as Array<Number> = [1000, 1000, 2000, 3000];
-    // Applied on top of POLL_MS_BY_ZOOM when Settings.batterySaverMode is on - fewer network fetches, not a different zoom-based schedule.
+    // Multiplies POLL_MS_BY_ZOOM in battery saver mode - fewer fetches, not a different schedule.
     private const BATTERY_SAVER_MULTIPLIER = 3;
-    // Tolerates a transient ADS-B reception gap for the selected aircraft before giving up on it.
     private const MAX_SELECTED_MISSES = 3;
-    // 4 gives a consistent 1/2/3/4, 2/4/6/8, 5/10/15/20, 10/20/30/40 progression - a divisor of 3 gave an ugly 3/6/9 at 10km.
+    // 4 gives 1/2/3/4, 2/4/6/8, 5/10/15/20, 10/20/30/40 - a divisor of 3 gave an ugly 3/6/9 at 10km.
     private const RING_TARGET_COUNT = 4;
     // Wider than the icon - real taps land less precisely than a mouse click.
     private const HIT_RADIUS_PX = 24;
@@ -24,7 +23,6 @@ class RadarView extends WatchUi.View {
     // Measured once in onLayout from the monospace font - same _charW pattern as ../TerminalWatchface.
     private var _charW as Number = 8;
     private var _charH as Number = 14;
-    // Was a const - now derived from _charW, see onLayout.
     private var _edgeMargin as Number = 20;
 
     // Same shade steps as ../TerminalWatchface's GRAYS, extended with two lighter steps for this app's own use.
@@ -39,7 +37,6 @@ class RadarView extends WatchUi.View {
     private const COLOR_GRID = GRAYS[3];
     private const COLOR_GRID_ALPHA = 0x10;
     private const COLOR_GRID_LABEL = GRAYS[2];
-    // All three were fixed pixel constants - now derived from _charH/_charW in onLayout.
     private var _gridLabelInset as Number = 22;
     private var _topPanelLineHeight as Number = 18;
     private var _detailPanelLineHeight as Number = 18;
@@ -73,18 +70,18 @@ class RadarView extends WatchUi.View {
     private const COLOR_HELICOPTER = COLORS[4]; // orange
     private const COLOR_MILITARY = COLORS[7]; // magenta
 
-    // Full-detail "grey" values are white, not grey - both label and value read as the same dim tone otherwise. COLOR_ROUTE_DIM (same dim grey as the compact panel's "No Track History") is only for the Route field's loading/unknown/failed states, to read as "not resolved" rather than a plain fact.
+    // "Grey" full-detail values are white - label and value would read as the same dim tone otherwise.
     private const COLOR_DETAIL_VALUE = COLORS[0]; // white
+    // Route's loading/unknown/failed states only, to read as "not resolved" rather than a fact.
     private const COLOR_ROUTE_DIM = COLOR_GRID_LABEL;
     // Identity/reference fields - not grey, row labels are already grey.
     private const COLOR_IDENTITY = COLORS[2]; // cyan
-    // Environmental fields (wind, outside/total air temp) - not the aircraft's own state.
     private const COLOR_ENV = COLORS[9]; // purple
 
     // Detail panel value colors - not tied to aircraft category, just distinguishing fields at a glance.
     private const COLOR_ALT = COLORS[6]; // blue
     private const COLOR_SPEED = COLORS[3]; // yellow
-    // Was cyan, same as COLOR_IDENTITY - collided once that moved off grey. Orange per direct request.
+    // Orange, not cyan - would collide with COLOR_IDENTITY (also cyan).
     private const COLOR_HDG = COLORS[4]; // orange
     private const COLOR_SQUAWK = COLORS[7]; // magenta
     // Shared status semantics across top/detail panels: green = done/good, orange = caution.
@@ -108,9 +105,12 @@ class RadarView extends WatchUi.View {
     private var _fetchTimedOutDisplay as Boolean = false;
     private const FETCH_TIMEOUT_MS = 10000;
     private var _lastDrawnPositions as Array<[String, Number, Number]> = [];
-    // [hex, x0, y0, x1, y1] - hex-tagged so a label can freely overlap its own icon/chevron/reticle, only another aircraft's is a real clip.
+    // [hex, x0, y0, x1, y1] - hex-tagged so a label may overlap its own icon/chevron/reticle, only another's clips.
     private var _reservedRects as
         Array<[String, Number, Number, Number, Number]> = [];
+    // hex -> [category, shapeKey, sizeScale, iconHalfExtent], cleared once per _drawAircraft call - see _classify().
+    private var _classifyCache as
+        Dictionary<String, [String, String, Float, Number]> = {};
 
     private var _selectedHex as String?;
     // [lat, lon, altitudeFt, onGround] - altitude/ground drive the trail's gradient/dashed rendering.
@@ -120,7 +120,7 @@ class RadarView extends WatchUi.View {
     private var _trackHasHistory as Boolean = false;
     private var _selectedMissCount as Number = 0;
     private var _trackFetchRetried as Boolean = false;
-    // Last confirmed position of the selected aircraft - the auto-deselect-on-miss path freezes the camera here, not via _focusPoint() (which falls through to the user's own position once the aircraft is already absent from _aircraftByHex, the exact state that path fires in).
+    // Last confirmed position of the selected aircraft - frozen-camera fallback on auto-deselect, see _onFetchResult.
     private var _selectedLastPos as [Float, Float]?;
 
     // The pushed full-detail view, null when closed - route-fetch results only apply while this is still open.
@@ -385,9 +385,9 @@ class RadarView extends WatchUi.View {
             Graphics.BitmapType,
         };
 
-        // Monospace font, so one char's width is every char's width - same _charW pattern as ../TerminalWatchface.
-        _charW = dc.getTextWidthInPixels("0", _fontTiny);
-        _charH = dc.getFontHeight(_fontTiny);
+        var charSize = DrawUtil.measureChar(dc, _fontTiny);
+        _charW = charSize[0];
+        _charH = charSize[1];
         _edgeMargin = _charW * 2;
         _gridLabelInset = _charH + _charW;
         _topPanelLineHeight = _charH + 4;
@@ -399,7 +399,7 @@ class RadarView extends WatchUi.View {
         _segmentGapPx = _charW;
     }
 
-    // A single recurring Timer, not two - a second always-on one alongside the poll timer hit Connect IQ's "Too Many Timers" limit.
+    // A single recurring Timer, not two - a second one alongside the poll timer hit the "Too Many Timers" limit.
     public function onShow() as Void {
         var timer = new Timer.Timer();
         timer.start(method(:_onTick), ANIM_TICK_MS, true);
@@ -416,7 +416,6 @@ class RadarView extends WatchUi.View {
         }
     }
 
-    // Public so method(:_onTick) isn't optimized away as an unreferenced private symbol.
     public function _onTick() as Void {
         var startedAt = _fetchStartMs;
         if (
@@ -676,7 +675,7 @@ class RadarView extends WatchUi.View {
                 ? (ac as Aircraft).flight as String
                 : (ac as Aircraft).hex;
         var built = _buildFullDetailRows(ac as Aircraft);
-        // Same ring/panel geometry the radar itself uses (_lastRadiusPx/_lastScreenHeight are set every onUpdate, and this view can only open while the radar is showing) - so the boundary ring and top/bottom separators line up exactly with where they'd be on the radar underneath.
+        // Reuses the radar's own ring/panel geometry so the separators line up with the radar underneath.
         var ringCx = _lastScreenHeight / 2;
         var view = new AircraftDetailView(
             header,
@@ -710,7 +709,6 @@ class RadarView extends WatchUi.View {
         _openSky.fetchRoute(hex as String, method(:_onRouteResult));
     }
 
-    // Public so method(:_onRouteResult) isn't optimized away as an unreferenced private symbol.
     public function _onRouteResult(
         dep as String?,
         arr as String?,
@@ -729,7 +727,7 @@ class RadarView extends WatchUi.View {
             _selectedHex != null &&
             (fetchedHex as String).equals(_selectedHex as String);
         if (!stillRelevant) {
-            // Reopened for a different aircraft mid-fetch - retry for what's actually showing, don't leave it stuck on "Loading...".
+            // Reopened for a different aircraft mid-fetch - retry for what's actually showing.
             _fetchSelectedRoute();
             return;
         }
@@ -779,7 +777,6 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Public so method(:_onAirportInfoResult) isn't optimized away as an unreferenced private symbol.
     // Checks both pending slots - icao alone doesn't say dep vs arr (touch-and-go can have dep==arr).
     public function _onAirportInfoResult(
         icao as String,
@@ -830,7 +827,6 @@ class RadarView extends WatchUi.View {
         _openSky.fetchTrack(hex as String, method(:_onTrackResult));
     }
 
-    // Public so method(:_onTrackResult) isn't optimized away as an unreferenced private symbol.
     public function _onTrackResult(
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
@@ -886,7 +882,6 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Public so method(:_onFetchResult) isn't optimized away as an unreferenced private symbol.
     public function _onFetchResult(
         aircraft as Array<Aircraft>,
         ok as Boolean,
@@ -911,7 +906,7 @@ class RadarView extends WatchUi.View {
                 if (selectedAc == null) {
                     _selectedMissCount += 1;
                     if (_selectedMissCount >= MAX_SELECTED_MISSES) {
-                        // _focusPoint() would fall through to the user's own position here - the aircraft is already missing from _aircraftByHex, so freeze on the last confirmed fix instead.
+                        // _focusPoint() would fall through to the user's position here - freeze the last fix instead.
                         if (_manualFocus == null) {
                             _manualFocus = _selectedLastPos;
                         }
@@ -1054,7 +1049,9 @@ class RadarView extends WatchUi.View {
                 var ringKm = stepKm;
                 while (ringKm < radiusKm - 0.001) {
                     var ringPx = _round((ringKm * radiusPx) / radiusKm);
-                    dc.setStroke(_withAlpha(COLOR_RING, COLOR_RING_ALPHA));
+                    dc.setStroke(
+                        DrawUtil.withAlpha(COLOR_RING, COLOR_RING_ALPHA)
+                    );
                     dc.drawCircle(cx, cy, ringPx);
                     _drawRingLabel(
                         dc,
@@ -1070,7 +1067,7 @@ class RadarView extends WatchUi.View {
             }
         }
         // Boundary ring drawn more solid, like a scope's detection edge - always shown, marks the zoom radius itself.
-        dc.setStroke(_withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
+        dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawCircle(cx, cy, radiusPx);
         // White, not the usual dim grid-label grey - this is the actual current zoom level, not a secondary reference ring.
         _drawRingLabel(dc, cx, cy, radiusPx, radiusKm, topPanelH, COLORS[0]);
@@ -1079,7 +1076,7 @@ class RadarView extends WatchUi.View {
             for (var deg = 0; deg < 360; deg += 30) {
                 var cardinal = deg % 90 == 0;
                 dc.setStroke(
-                    _withAlpha(
+                    DrawUtil.withAlpha(
                         COLOR_RING,
                         cardinal ? COLOR_TICK_ALPHA : COLOR_MINOR_TICK_ALPHA
                     )
@@ -1198,7 +1195,7 @@ class RadarView extends WatchUi.View {
         return [x, y];
     }
 
-    // Zoom in (KEY_UP). White, not COLOR_TEXT - matches the chevron's brightness instead of reading fainter/thinner next to it.
+    // Zoom in (KEY_UP). White, not COLOR_TEXT, to match the chevron's brightness.
     private function _drawPlusHint(dc as Dc, x as Number, y as Number) as Void {
         _setSolidColor(dc, COLORS[0]);
         var s = 6;
@@ -1226,7 +1223,7 @@ class RadarView extends WatchUi.View {
         dc.drawLine(x - s, y + 3, x + s, y + 3);
     }
 
-    // Recenter (KEY_ESC) - a crosshair with a gap at the center, not a solid "+", so it doesn't read as a duplicate of the zoom-in hint.
+    // Recenter (KEY_ESC) - a crosshair with a gap, not a solid "+", so it doesn't read as the zoom-in hint.
     private function _drawRecenterHint(
         dc as Dc,
         x as Number,
@@ -1314,7 +1311,7 @@ class RadarView extends WatchUi.View {
     private const FETCH_SPINNER_DOT_R = 2;
     private const FETCH_SPINNER_PERIOD_MS = 1200;
 
-    // A dot orbiting a small ring, not a static dot - no rotational symmetry to alias against, so it reads as motion even at ANIM_TICK_MS's redraw rate.
+    // A dot orbiting a ring, not a static dot - no rotational symmetry, so it still reads as motion at this redraw rate.
     private function _drawFetchSpinner(
         dc as Dc,
         x as Number,
@@ -1345,9 +1342,9 @@ class RadarView extends WatchUi.View {
         if (dy >= radiusPx) {
             return;
         }
-        var halfW = _chordHalfExtent(radiusPx, dy);
-        // COLOR_BOUNDARY_ALPHA, not COLOR_RING_ALPHA - this line is meant to read as a continuation of the boundary ring itself, so it needs the same opacity, not the dimmer one used for the secondary range rings.
-        dc.setStroke(_withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
+        var halfW = DrawUtil.chordHalfExtent(radiusPx, dy);
+        // COLOR_BOUNDARY_ALPHA, not COLOR_RING_ALPHA - reads as a continuation of the boundary ring, not a secondary ring.
+        dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawLine(cx - halfW, y, cx + halfW, y);
     }
 
@@ -1383,8 +1380,8 @@ class RadarView extends WatchUi.View {
             if (dy >= radiusPx) {
                 continue;
             }
-            var halfW = _chordHalfExtent(radiusPx, dy);
-            dc.setStroke(_withAlpha(COLOR_GRID, COLOR_GRID_ALPHA));
+            var halfW = DrawUtil.chordHalfExtent(radiusPx, dy);
+            dc.setStroke(DrawUtil.withAlpha(COLOR_GRID, COLOR_GRID_ALPHA));
             dc.drawLine(cx - halfW, pt[1], cx + halfW, pt[1]);
             if (pt[1] > topPanelH && pt[1] < bottomLimitY) {
                 _drawGridLabel(
@@ -1414,10 +1411,10 @@ class RadarView extends WatchUi.View {
             if (dx >= radiusPx) {
                 continue;
             }
-            var halfH = _chordHalfExtent(radiusPx, dx);
+            var halfH = DrawUtil.chordHalfExtent(radiusPx, dx);
             var lineTop = cy - halfH;
             var lineBottom = cy + halfH;
-            dc.setStroke(_withAlpha(COLOR_GRID, COLOR_GRID_ALPHA));
+            dc.setStroke(DrawUtil.withAlpha(COLOR_GRID, COLOR_GRID_ALPHA));
             dc.drawLine(pt[0], lineTop, pt[0], lineBottom);
             var labelY = lineTop > topPanelH ? lineTop : topPanelH + 10;
             if (labelY < lineBottom) {
@@ -1568,20 +1565,9 @@ class RadarView extends WatchUi.View {
     // setStroke needs an explicit alpha byte and isn't reset by setColor - reasserts both for a fully opaque draw.
     private function _setSolidColor(dc as Dc, color as Number) as Void {
         dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        // 0xfe, not 0xff - packing white (0xffffff) at alpha 0xff produces exactly 0xFFFFFFFF, which as a signed 32-bit Number equals -1, the same bit pattern as Graphics.COLOR_TRANSPARENT - setStroke silently treats it as "no stroke" instead of "opaque white" (this is what made the up-chevron invisible). 0xfe is visually indistinguishable from fully opaque and can never collide with -1 for any RGB color.
-        dc.setStroke(_withAlpha(color, 0xfe));
-    }
-
-    private function _withAlpha(color as Number, alpha as Number) as Number {
-        return DrawUtil.withAlpha(color, alpha);
-    }
-
-    // Half-length of the chord of the radar circle at a given perpendicular offset from center.
-    private function _chordHalfExtent(
-        radiusPx as Number,
-        offsetPx as Number
-    ) as Number {
-        return DrawUtil.chordHalfExtent(radiusPx, offsetPx);
+        // 0xfe, not 0xff - white at alpha 0xff packs to -1, the same bits as Graphics.COLOR_TRANSPARENT.
+        // setStroke then silently drops the stroke instead of drawing opaque white (this broke the up-chevron).
+        dc.setStroke(DrawUtil.withAlpha(color, 0xfe));
     }
 
     // Degrees of latitude spanning a given km distance - constant everywhere, unlike longitude.
@@ -1613,7 +1599,7 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Skips rects owned by hex itself - a label may freely sit over its own icon/chevron/reticle, only another aircraft's counts as a clip.
+    // Skips rects owned by hex itself - a label may sit over its own icon/chevron/reticle, only another's clips.
     private function _overlapsReserved(
         hex as String,
         rect as [Number, Number, Number, Number]
@@ -1661,6 +1647,11 @@ class RadarView extends WatchUi.View {
     ) as Void {
         _lastDrawnPositions = [];
         _reservedRects = [];
+        // Cleared once per frame - caches shape/category/scale/half-extent, each asked for several times per aircraft.
+        _classifyCache = {};
+        // Loop-invariant - computed once, not per aircraft.
+        var showGroundVehicles = _effectiveShowGroundVehicles();
+        var hideGroundedPlanes = _effectiveHideGroundedPlanes();
 
         for (var i = 0; i < _aircraft.size(); i++) {
             var ac = _aircraft[i];
@@ -1680,17 +1671,13 @@ class RadarView extends WatchUi.View {
             // Selection overrides the decluttering filters below - a selected aircraft always draws.
             if (!isSelected) {
                 var isGroundVehicle = ac.isGroundVehicle();
-                if (!_effectiveShowGroundVehicles() && isGroundVehicle) {
+                if (!showGroundVehicles && isGroundVehicle) {
                     continue;
                 }
                 if (Settings.hideObstacles && ac.isObstacle()) {
                     continue;
                 }
-                if (
-                    _effectiveHideGroundedPlanes() &&
-                    ac.onGround &&
-                    !isGroundVehicle
-                ) {
+                if (hideGroundedPlanes && ac.onGround && !isGroundVehicle) {
                     continue;
                 }
                 if (Settings.hideMilitary && ac.military) {
@@ -1731,7 +1718,7 @@ class RadarView extends WatchUi.View {
                 _drawEmergencyBadge(dc, pos[0], pos[1], ac);
             }
 
-            // Reserved for every aircraft, ahead of the label pass - a label must never cover any icon or clip any climb/descend chevron, not just the selected one's.
+            // Reserved for every aircraft ahead of the label pass, so no label covers an icon or clips a chevron.
             _reserveRect(ac.hex, _iconRect(pos[0], pos[1], ac));
             if (Settings.showVertRateChevron) {
                 var chevronRect = _chevronRect(pos[0], pos[1], ac);
@@ -1752,7 +1739,7 @@ class RadarView extends WatchUi.View {
             }
         }
 
-        // A separate pass, after every icon - otherwise a later aircraft's label could paint over an earlier aircraft's icon.
+        // A separate pass, after every icon - otherwise a later label could paint over an earlier icon.
         if (Settings.labelsEnabled) {
             var selectedIndex = -1;
             if (_selectedHex != null) {
@@ -1767,7 +1754,7 @@ class RadarView extends WatchUi.View {
                     }
                 }
             }
-            // Drawn/registered before the rest, so its rect is already reserved - an overlapping non-selected label loses the spot instead of both rendering on top of each other.
+            // Drawn first so its rect is already reserved - an overlapping label loses the spot instead of stacking.
             if (selectedIndex >= 0) {
                 var selEntry = _lastDrawnPositions[selectedIndex];
                 var selAc = _aircraftByHex[selEntry[0] as String];
@@ -1798,7 +1785,7 @@ class RadarView extends WatchUi.View {
                 );
             }
 
-            // Re-drawn on top of every label, so the selected craft's own icon/reticle/chevron can never end up visually behind another aircraft's label.
+            // Re-drawn on top of every label, so the selected aircraft's icon/reticle/chevron stay visible above others.
             if (selectedIndex >= 0) {
                 var topEntry = _lastDrawnPositions[selectedIndex];
                 var topAc = _aircraftByHex[topEntry[0] as String];
@@ -1814,7 +1801,8 @@ class RadarView extends WatchUi.View {
         }
     }
 
-    // Bigger-class aircraft's label wins any overlap over a smaller one's - plain insertion sort, on-screen counts are small enough that this is cheap.
+    // Bigger-class aircraft's label wins any overlap - plain insertion sort, cheap since on-screen counts are small.
+    // Scales precomputed once per index, not re-derived on every comparison.
     private function _labelDrawOrder(selectedIndex as Number) as Array<Number> {
         var order = [] as Array<Number>;
         for (var i = 0; i < _lastDrawnPositions.size(); i++) {
@@ -1822,15 +1810,21 @@ class RadarView extends WatchUi.View {
                 order.add(i);
             }
         }
+        var scales = [] as Array<Float>;
+        for (var i = 0; i < order.size(); i++) {
+            scales.add(_sizeScaleForIndex(order[i]));
+        }
         for (var i = 1; i < order.size(); i++) {
             var key = order[i];
-            var keyScale = _sizeScaleForIndex(key);
+            var keyScale = scales[i];
             var j = i - 1;
-            while (j >= 0 && _sizeScaleForIndex(order[j]) < keyScale) {
+            while (j >= 0 && scales[j] < keyScale) {
                 order[j + 1] = order[j];
+                scales[j + 1] = scales[j];
                 j -= 1;
             }
             order[j + 1] = key;
+            scales[j + 1] = keyScale;
         }
         return order;
     }
@@ -1856,7 +1850,7 @@ class RadarView extends WatchUi.View {
         _drawSelectionReticle(dc, x, y, ac);
     }
 
-    // Flat aircraft-color line (the altitude gradient was tried and dropped - looked messy/inconsistent, see [[selection_declutter_history]]). Ground/taxi segments use the same color at a lower opacity instead of a separate gray, so the dashed part still reads as "the same track", just dimmer.
+    // Ground/taxi segments dim the same color instead of using gray, so the dashed part still reads as one track.
     private const TRAIL_DASH_PX = 5.0;
     private const TRAIL_GAP_PX = 4.0;
     private const TRAIL_MAX_DASHES_PER_SEGMENT = 24;
@@ -1895,11 +1889,13 @@ class RadarView extends WatchUi.View {
                 var p1 = prevPt as [Float, Float, Number, Boolean];
                 if ((p1[3] as Boolean) || (pt[3] as Boolean)) {
                     dc.setStroke(
-                        _withAlpha(trailColor, COLOR_TRAIL_GROUND_ALPHA)
+                        DrawUtil.withAlpha(trailColor, COLOR_TRAIL_GROUND_ALPHA)
                     );
                     _drawDashedLine(dc, p0[0], p0[1], screen[0], screen[1]);
                 } else {
-                    dc.setStroke(_withAlpha(trailColor, COLOR_TRAIL_ALPHA));
+                    dc.setStroke(
+                        DrawUtil.withAlpha(trailColor, COLOR_TRAIL_ALPHA)
+                    );
                     dc.drawLine(p0[0], p0[1], screen[0], screen[1]);
                 }
             }
@@ -1948,13 +1944,32 @@ class RadarView extends WatchUi.View {
     // A position this old hasn't actually moved across several poll cycles - likely a fringe-of-coverage ghost.
     private const STALE_POSITION_SEC = 15.0;
     private const STALE_DIM_FACTOR = 0.55;
-    // Compensated for source PNGs now rendering at 3px/unit (was 2px/unit) - on-screen size unchanged.
+    // Tied to source PNGs' 3px/unit rendering - on-screen icon size stays constant if that changes.
     private const ICON_BASE_SCALE = 0.226667;
     private const ICON_RECT_MARGIN = 2;
 
-    // Per-shape tables/classification live in AircraftClassifier - just a rendering-facing wrapper here.
+    // Real tables/classification live in AircraftClassifier - cached per aircraft for the current frame.
+    private function _classify(
+        ac as Aircraft
+    ) as [String, String, Float, Number] {
+        var cached = _classifyCache[ac.hex];
+        if (cached != null) {
+            return cached as [String, String, Float, Number];
+        }
+        var cat = AircraftClassifier.effectiveCategory(ac);
+        var shape = AircraftClassifier._shapeKeyForCategory(ac, cat);
+        var scale = AircraftClassifier._sizeScaleForCategory(cat);
+        var diag = AircraftClassifier.ICON_HALF_DIAGONAL[shape];
+        var srcHalf = diag != null ? diag as Float : 30.0;
+        var halfExtent = (srcHalf * ICON_BASE_SCALE * scale).toNumber();
+        var result =
+            [cat, shape, scale, halfExtent] as [String, String, Float, Number];
+        _classifyCache[ac.hex] = result;
+        return result;
+    }
+
     private function _iconHalfExtent(ac as Aircraft) as Number {
-        return AircraftClassifier.iconHalfExtent(ac, ICON_BASE_SCALE);
+        return _classify(ac)[3];
     }
 
     private function _iconRect(
@@ -1969,7 +1984,7 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Helicopters draw a real rotated body silhouette matched by type (e.g. H60->blackhawk), same as fixed-wing - no separate rotor overlay, the body art already depicts the rotor.
+    // Helicopters use a real rotated body silhouette matched by type, same as fixed-wing - no separate rotor overlay.
     private function _drawAircraftIcon(
         dc as Dc,
         x as Number,
@@ -1994,9 +2009,9 @@ class RadarView extends WatchUi.View {
     // Fixed corner offset, not centered on the icon - centered markers looked off-center against asymmetric icons.
     private const EMERGENCY_BADGE_R = 7;
     private const EMERGENCY_BADGE_MARGIN = 2;
-    // Extra separation beyond the shared icon-marker clearance, specific to this badge.
     private const EMERGENCY_BADGE_EXTRA_CLEARANCE = 10;
-    private const DIAGONAL_FACTOR = 0.7071;
+    // Up-left - same angle+radius convention as _chevronCenter (theta=0 is up, clockwise), not a hardcoded offset.
+    private const EMERGENCY_BADGE_ANGLE_DEG = 315.0;
 
     private function _emergencyBadgeCenter(
         x as Number,
@@ -2008,10 +2023,11 @@ class RadarView extends WatchUi.View {
             ICON_MARKER_CLEARANCE +
             EMERGENCY_BADGE_EXTRA_CLEARANCE
         ).toFloat();
+        var theta = Math.toRadians(EMERGENCY_BADGE_ANGLE_DEG);
         return (
             [
-                (x - r * DIAGONAL_FACTOR).toNumber(),
-                (y - r * DIAGONAL_FACTOR).toNumber(),
+                (x + r * Math.sin(theta)).toNumber(),
+                (y - r * Math.cos(theta)).toNumber(),
             ] as [Number, Number]
         );
     }
@@ -2048,7 +2064,7 @@ class RadarView extends WatchUi.View {
     private const SELECTION_ARROW_LEN = 7.0;
     private const SELECTION_ARROW_WIDTH = 5.0;
     private const SELECTION_RECT_MARGIN = 2;
-    // Shared clearance beyond the icon's own rendered extent - both the reticle and the vert-rate chevron sit this far past the actual icon edge, not a separately-tuned radius.
+    // Shared clearance past the icon's own extent - both the reticle and vert-rate chevron use this, not separate radii.
     private const ICON_MARKER_CLEARANCE = 6;
 
     // Shared by _drawSelectionReticle and _selectionReticleRect - [tipY, baseY, halfW].
@@ -2103,7 +2119,6 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Rotated bitmap + AffineTransform, tinted via :tintColor.
     private function _drawIconVariant(
         dc as Dc,
         x as Number,
@@ -2139,7 +2154,7 @@ class RadarView extends WatchUi.View {
     private const CHEVRON_ANGLE_DESCEND_DEG = 135.0;
     private const CHEVRON_RECT_HALF = 4;
 
-    // Shared by _drawVertRateChevron and _chevronRect, so the declutter rect always matches where the chevron actually draws.
+    // Shared by _drawVertRateChevron and _chevronRect, so the declutter rect matches where it actually draws.
     private function _chevronCenter(
         x as Number,
         y as Number,
@@ -2150,7 +2165,7 @@ class RadarView extends WatchUi.View {
             return null;
         }
         var climbing = (rate as Float) > 0;
-        // Placed by angle+radius past the icon's own extent, not a flat x/y offset or a separately-tuned radius - the old fixed CHEVRON_RADIUS sat too close on small (light-category) icons.
+        // Angle+radius past the icon's extent, not a flat offset, so it clears small icons too.
         var r = (_iconHalfExtent(ac) + ICON_MARKER_CLEARANCE).toFloat();
         var theta = Math.toRadians(
             climbing ? CHEVRON_ANGLE_CLIMB_DEG : CHEVRON_ANGLE_DESCEND_DEG
@@ -2199,17 +2214,17 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Real tables/classification live in AircraftClassifier - thin wrappers only, below.
+    // Real tables/classification live in AircraftClassifier - all three read the cached _classify() result.
     private function _effectiveCategory(ac as Aircraft) as String {
-        return AircraftClassifier.effectiveCategory(ac);
+        return _classify(ac)[0];
     }
 
     private function _shapeKeyForAircraft(ac as Aircraft) as String {
-        return AircraftClassifier.shapeKey(ac);
+        return _classify(ac)[1];
     }
 
     private function _sizeScaleForAircraft(ac as Aircraft) as Float {
-        return AircraftClassifier.sizeScale(ac);
+        return _classify(ac)[2];
     }
 
     private function _colorForAircraft(ac as Aircraft) as Number {
@@ -2239,13 +2254,13 @@ class RadarView extends WatchUi.View {
         return (v + (v >= 0 ? 0.5 : -0.5)).toNumber();
     }
 
-    // Was 4/2/18.0 fixed px - now derived from _charW/_charH in onLayout.
     private var _labelOverlapMarginPx as Number = 4;
     private var _labelLineGapPx as Number = 2;
-    // Scaled by aircraft size like the reticle/icon, with enough margin to clear SELECTION_BRACKET_HALF at every size tier.
+    // Scaled by aircraft size like the reticle/icon, with margin to clear the reticle at every size tier.
     private var _labelVoffsetBase as Float = 18.0;
 
-    // Two rows (callsign / speed+altitude) instead of one wide line - narrower footprint, fewer overlap hides. No background rect - reads better floating directly over the radar, per-field colored the same way the compact/full detail views already color these same fields (not one flat aircraft-color line).
+    // Two rows (callsign / speed+altitude), not one wide line - narrower footprint, fewer overlap hides.
+    // No background rect, and fields keep the compact/full-detail views' own colors, not one flat color.
     private function _drawAircraftLabel(
         dc as Dc,
         x as Number,
@@ -2314,7 +2329,8 @@ class RadarView extends WatchUi.View {
         return totalW;
     }
 
-    // Same colors as the equivalent fields in the compact/full detail views (callsign=aircraft color, speed=yellow, altitude=blue) - a label is just the at-a-glance version of the same data, so it should read consistently rather than as one flat aircraft-color line.
+    // Same colors as the compact/full detail views (callsign=aircraft, speed=yellow, altitude=blue).
+    // A label is just the at-a-glance version of the same data - it should read consistently, not as one flat color.
     private function _buildLabelLines(
         ac as Aircraft
     ) as [Array<[String, Number]>, Array<[String, Number]>] {
@@ -2363,7 +2379,8 @@ class RadarView extends WatchUi.View {
         var panelY = h - panelH;
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
-        // Starts one row below panelY, not at it - leaves the boundary-ring pixel at panelY itself unerased, so the border line drawn there (_drawPanelBorder) sits on top of it seamlessly instead of on bare black. The top panel's own fillRectangle(0, 0, w, panelH) already has this property for free (it stops one row short of its own border line at panelH); this mirrors that on the bottom edge.
+        // Starts one row below panelY, leaving that pixel for _drawPanelBorder's line, not bare black.
+        // Mirrors the top panel, which stops one row short of its own border for the same reason.
         dc.fillRectangle(0, panelY + 1, dc.getWidth(), panelH - 1);
 
         for (var i = 0; i < lines.size(); i++) {
@@ -2387,31 +2404,29 @@ class RadarView extends WatchUi.View {
             : lines.size() * _detailPanelLineHeight + 8;
     }
 
-    // Gap from the panel edge - was a fixed 20px, now derived from _charH in onLayout.
     private var _chevronMarginPx as Number = 20;
     // Glyph size itself stays a fixed pixel constant - it's a plain vector chevron, not text.
     private const CHEVRON_SIZE_PX = 7;
-    // Extra tap area above the panel's own top edge, covering the chevron drawn there - lets the chevron itself feel tappable, not just the panel body.
+    // Extra tap area above the panel's top edge, covering the chevron - so the chevron itself feels tappable.
     private const CHEVRON_TAP_MARGIN_PX = 28;
     // Horizontal tap zone around the chevron, not the full panel width.
     private const CHEVRON_TAP_HALF_WIDTH_PX = 40;
 
-    // "There's more above" - visually extends the panel into the full-detail view opened by tapping it. Mirrors _drawMinusHint/_drawMenuHint's plain-line style, no font glyph involved. Full white, not COLOR_TEXT - it's an affordance, not body text, so it should read as brighter than the panel content around it.
+    // "There's more above" affordance - a plain line like _drawMinusHint/_drawMenuHint, no font glyph.
+    // Full white, not COLOR_TEXT, since it's an affordance, not body text - reads brighter than the panel content.
     private function _drawChevronUp(
         dc as Dc,
         x as Number,
         y as Number,
         s as Number
     ) as Void {
-        // Plain setColor, not _setSolidColor/setStroke - matches AircraftDetailView's own (confirmed working) down chevron exactly, rather than relying solely on the _setSolidColor alpha fix above.
+        // Plain setColor, not _setSolidColor/setStroke - matches AircraftDetailView's own down chevron.
         dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
         DrawUtil.drawChevron(dc, x, y, s, true);
     }
 
-    // Was a fixed 6px - now one char width, see onLayout.
     private var _segmentGapPx as Number = 6;
 
-    // Draws left-to-right segments as one horizontally-centered group, each in its own color.
     private function _drawSegmentedLine(
         dc as Dc,
         cx as Number,
@@ -2442,7 +2457,7 @@ class RadarView extends WatchUi.View {
         return DrawUtil.markedTextWidth(dc, _fontTiny, text);
     }
 
-    // Left-justified draw starting at x - the caller (_drawSegmentedLine) already handled centering the whole line and setting the color.
+    // Left-justified from x - the caller (_drawSegmentedLine) already centered the line and set the color.
     private function _drawSegmentText(
         dc as Dc,
         x as Number,
@@ -2453,7 +2468,7 @@ class RadarView extends WatchUi.View {
         DrawUtil.drawMarkedText(dc, x, y, _fontTiny, text, color);
     }
 
-    // Deliberately curated, not exhaustive - tas/vert-rate/nav-target/non-emergency squawk moved to _buildFullDetailRows to keep this panel short.
+    // Curated, not exhaustive - tas/vert-rate/nav-target/squawk moved to _buildFullDetailRows to keep this panel short.
     private function _buildDetailLines(
         ac as Aircraft
     ) as Array<Array<[String, Number]> > {
@@ -2540,7 +2555,7 @@ class RadarView extends WatchUi.View {
         return lines;
     }
 
-    // Adds a curated (not sequential-buffer) row: both cells paired if both exist, otherwise whichever one exists gets its own full-width row, otherwise nothing is added.
+    // Pairs both cells if both exist; otherwise adds whichever one exists as its own row; otherwise adds nothing.
     private function _gridRow(
         rows as Array<Array<[String, String, Number]> >,
         cellA as [String, String, Number]?,
@@ -2558,7 +2573,21 @@ class RadarView extends WatchUi.View {
         }
     }
 
-    // Everything the compact panel leaves out, for AircraftDetailView's scrollable grid. Deliberately curated, not a generic "pair everything sequentially" scheme - long identity text (type/operator) always gets its own full-width row, only genuinely short/similar stats share a compact 2-field row (AircraftDetailView draws every row as one centered inline line regardless of field count, so there's no separate font-size treatment to keep in sync here). Colors reuse the compact panel's own semantics (alt=blue, speed=yellow, hdg=cyan, grey=secondary, emergency=red) except grey, which uses the brighter COLOR_DETAIL_VALUE instead of COLOR_GRID_LABEL - this is a dedicated full screen, not a small chrome overlay. `^` embedded in a value string marks where AircraftDetailView should draw a code-drawn degree circle instead of a "°" character - this app's custom bitmap fonts don't have that glyph baked in (see [[selection_declutter_history]]), same fix TerminalWatchface already uses (`_drawSmallTempNum`/`_glowCircle`).
+    // A group that added no rows (all its fields were absent) doesn't get a boundary marker.
+    private function _markGroupIfNonEmpty(
+        rows as Array<Array<[String, String, Number]> >,
+        groupBoundaries as Array<Number>,
+        start as Number
+    ) as Void {
+        if (rows.size() > start) {
+            groupBoundaries.add(start);
+        }
+    }
+
+    // Everything the compact panel leaves out, for AircraftDetailView's scrollable grid.
+    // Curated: long identity text (type/operator) gets its own row; only short/similar stats share a row.
+    // Colors match the compact panel (alt=blue, speed=yellow, hdg=cyan, emergency=red); grey uses COLOR_DETAIL_VALUE here.
+    // `^` in a value marks a code-drawn degree circle, same convention as DrawUtil.DEGREE_MARK.
     private function _buildFullDetailRows(
         ac as Aircraft
     ) as
@@ -2600,9 +2629,7 @@ class RadarView extends WatchUi.View {
                     [String, String, Number],
             ]);
         }
-        if (rows.size() > identityStart) {
-            groupBoundaries.add(identityStart);
-        }
+        _markGroupIfNonEmpty(rows, groupBoundaries, identityStart);
 
         var performanceStart = rows.size();
         var altCell = null as [String, String, Number]?;
@@ -2657,9 +2684,7 @@ class RadarView extends WatchUi.View {
                   [String, String, Number]
                 : null;
         _gridRow(rows, tasCell, machCell);
-        if (rows.size() > performanceStart) {
-            groupBoundaries.add(performanceStart);
-        }
+        _markGroupIfNonEmpty(rows, groupBoundaries, performanceStart);
 
         var navStatusStart = rows.size();
         var emergency = ac.isEmergency();
@@ -2702,9 +2727,7 @@ class RadarView extends WatchUi.View {
                 ] as [String, String, Number],
             ]);
         }
-        if (rows.size() > navStatusStart) {
-            groupBoundaries.add(navStatusStart);
-        }
+        _markGroupIfNonEmpty(rows, groupBoundaries, navStatusStart);
 
         var targetStart = rows.size();
         var selAltCell =
@@ -2724,9 +2747,7 @@ class RadarView extends WatchUi.View {
                   ] as [String, String, Number]
                 : null;
         _gridRow(rows, selAltCell, selHdgCell);
-        if (rows.size() > targetStart) {
-            groupBoundaries.add(targetStart);
-        }
+        _markGroupIfNonEmpty(rows, groupBoundaries, targetStart);
 
         var envStart = rows.size();
         if (ac.windDir != null && ac.windSpeed != null) {
@@ -2758,9 +2779,7 @@ class RadarView extends WatchUi.View {
                   ] as [String, String, Number]
                 : null;
         _gridRow(rows, outTempCell, totalTempCell);
-        if (rows.size() > envStart) {
-            groupBoundaries.add(envStart);
-        }
+        _markGroupIfNonEmpty(rows, groupBoundaries, envStart);
 
         // Separate rows, not one joined "dep -> arr" line - a full description is too long for one line.
         var routeStart = rows.size();
@@ -2774,9 +2793,7 @@ class RadarView extends WatchUi.View {
                 [String, String, Number],
         ]);
         var arrIndex = rows.size() - 1;
-        if (rows.size() > routeStart) {
-            groupBoundaries.add(routeStart);
-        }
+        _markGroupIfNonEmpty(rows, groupBoundaries, routeStart);
 
         var groupStarts = [] as Array<Boolean>;
         for (var i = 0; i < rows.size(); i++) {

@@ -28,6 +28,14 @@ module DrawUtil {
         return (alpha << 24) | (color & 0xffffff);
     }
 
+    // [charW, charH] for a monospace font - one character's width is every character's width.
+    function measureChar(dc as Dc, font) as [Number, Number] {
+        return (
+            [dc.getTextWidthInPixels("0", font), dc.getFontHeight(font)] as
+            [Number, Number]
+        );
+    }
+
     // Locates whichever embedded marker (if any) is present - a value never contains both kinds.
     function _findMarker(text as String) as [Number, String]? {
         var d = text.find(DEGREE_MARK);
@@ -41,7 +49,6 @@ module DrawUtil {
         return null;
     }
 
-    // Measured width of a segment/value string, accounting for an embedded degree-circle or warning-icon mark.
     function markedTextWidth(dc as Dc, font, text as String) as Number {
         var found = _findMarker(text);
         if (found == null) {

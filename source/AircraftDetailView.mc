@@ -34,7 +34,6 @@ class AircraftDetailView extends WatchUi.View {
     // Measured once in onLayout from the monospace font - same _charW pattern as ../TerminalWatchface.
     private var _charW as Number = 8;
     private var _charH as Number = 14;
-    // Derived from _charW/_charH in onLayout.
     private var _minRowHeight as Number = 20;
     private var _maxRowHeight as Number = 28;
     private var _contentPadding as Number = 6;
@@ -89,9 +88,9 @@ class AircraftDetailView extends WatchUi.View {
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
 
-        // Monospace font, so one char's width is every char's width - same _charW pattern as ../TerminalWatchface.
-        _charW = dc.getTextWidthInPixels("0", _fontTiny);
-        _charH = dc.getFontHeight(_fontTiny);
+        var charSize = DrawUtil.measureChar(dc, _fontTiny);
+        _charW = charSize[0];
+        _charH = charSize[1];
         _minRowHeight = _charH + 6;
         _maxRowHeight = _charH + 14;
         _contentPadding = _charH / 2;
@@ -175,7 +174,7 @@ class AircraftDetailView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
-    // Tap-to-close target for the down chevron drawn at the bottom of the screen - kept generous (CHEVRON_TAP_PAD) since it's a small glyph.
+    // Tap target for the down chevron - kept generous since it's a small glyph.
     public function isCloseChevronHit(x as Number, y as Number) as Boolean {
         return (
             (x - _ringCx).abs() <= CHEVRON_TAP_PAD &&
@@ -191,13 +190,14 @@ class AircraftDetailView extends WatchUi.View {
         var h = dc.getHeight();
         var cx = w / 2;
 
-        // Same boundary ring the radar itself draws, at the exact same cx/cy/radius - covered by the black top/bottom bands below, visible only in the content band in between.
+        // Same boundary ring the radar draws - covered by the black bands below, visible only in the content band.
         dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawCircle(_ringCx, _ringCy, _ringRadiusPx);
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(0, 0, w, _topY);
-        // Starts one row below _bottomY, not at it - leaves the boundary-ring pixel at _bottomY itself unerased, so the separator drawn there sits on top of it seamlessly instead of on bare black (mirrors the top band, which already stops one row short of _topY for the same reason).
+        // Starts one row below _bottomY - leaves that pixel unerased so the separator sits on it, not bare black.
+        // Mirrors the top band, which stops one row short of _topY for the same reason.
         dc.fillRectangle(0, _bottomY + 1, w, h - _bottomY - 1);
 
         _drawRingSeparator(dc, _topY);
@@ -223,19 +223,19 @@ class AircraftDetailView extends WatchUi.View {
         _drawCloseAffordance(dc, cx, h);
     }
 
-    // A horizontal line at y, width clamped to the chord of the boundary ring at that height - touches the ring on both ends instead of floating independently of it.
+    // Width clamped to the boundary ring's chord at that height, so it touches the ring on both ends.
     private function _drawRingSeparator(dc as Dc, y as Number) as Void {
         var dy = (y - _ringCy).abs();
         if (dy >= _ringRadiusPx) {
             return;
         }
         var halfW = DrawUtil.chordHalfExtent(_ringRadiusPx, dy);
-        // COLOR_BOUNDARY_ALPHA, not a dimmer tone - this line reads as a continuation of the boundary ring, so it needs the same opacity as the ring itself.
+        // COLOR_BOUNDARY_ALPHA, not a dimmer tone - reads as a continuation of the boundary ring itself.
         dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawLine(_ringCx - halfW, y, _ringCx + halfW, y);
     }
 
-    // Just the down chevron, centered in the band below _bottomY - "Close" text label dropped per direct request.
+    // Just the down chevron, centered in the band below _bottomY - no text label, reads as an affordance not body text.
     private function _drawCloseAffordance(
         dc as Dc,
         cx as Number,
@@ -247,7 +247,7 @@ class AircraftDetailView extends WatchUi.View {
         _drawChevronDown(dc, cx, _closeChevronY, CHEVRON_SIZE);
     }
 
-    // Measures then draws 1-2 fields as one centered inline line: "Label value" per field, fields separated by a wider gap - mirrors _drawSegmentedLine's group-centering, just with a label prefix per segment.
+    // Measures then draws 1-2 "Label value" fields as one centered inline line, mirroring _drawSegmentedLine.
     private function _drawGridRow(
         dc as Dc,
         cx as Number,

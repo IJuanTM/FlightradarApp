@@ -34,7 +34,7 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
         return false;
     }
 
-    // Suppressed right after a committed drag (trailing onTap) and while one is still active (a real gesture can interleave a stray tap mid-drag).
+    // Suppressed right after a committed drag and while one is active - a real gesture can leave a stray tap.
     public function onTap(clickEvent as WatchUi.ClickEvent) as Boolean {
         var coords = clickEvent.getCoordinates();
 

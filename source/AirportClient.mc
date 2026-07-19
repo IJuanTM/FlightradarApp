@@ -7,19 +7,17 @@ class AirportClient {
 
     typedef InfoCallback as (Method(icao as String, text as String?) as Void);
 
-    private var _callback as InfoCallback?;
-
     public function initialize() {}
 
+    // Callback travels via :context, not an instance field - stays stateless across concurrent fetches.
     public function fetchInfo(
         icao as String,
         callback as InfoCallback
     ) as Void {
-        _callback = callback;
         var options = {
             :method => Communications.HTTP_REQUEST_METHOD_GET,
             :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-            :context => icao,
+            :context => [icao, callback] as [String, InfoCallback],
         };
         Communications.makeWebRequest(
             BASE_URL,
@@ -29,18 +27,15 @@ class AirportClient {
         );
     }
 
-    // Public so method(:_onReceive) isn't optimized away as an unreferenced private symbol.
     public function _onReceive(
         responseCode as Number,
         data as Dictionary or String or Null,
-        context as String
+        context as [String, InfoCallback]
     ) as Void {
-        var cb = _callback;
-        if (cb == null) {
-            return;
-        }
+        var icao = context[0];
+        var cb = context[1];
         if (responseCode != 200 or !(data instanceof Dictionary)) {
-            cb.invoke(context, null);
+            cb.invoke(icao, null);
             return;
         }
 
@@ -49,14 +44,14 @@ class AirportClient {
         var country = dict["country"];
         var iata = dict["iata"];
         if (!(location instanceof String) or !(country instanceof String)) {
-            cb.invoke(context, null);
+            cb.invoke(icao, null);
             return;
         }
 
         var codes =
             iata instanceof String && (iata as String).length() > 0
-                ? context + "/" + (iata as String)
-                : context;
+                ? icao + "/" + (iata as String)
+                : icao;
         var text =
             _asciiSanitize(_cleanLocation(location as String)) +
             ", " +
@@ -64,7 +59,7 @@ class AirportClient {
             " (" +
             codes +
             ")";
-        cb.invoke(context, text);
+        cb.invoke(icao, text);
     }
 
     // Some entries phrase location as "<municipality>, near <city>" - the city after "near" is more recognizable.

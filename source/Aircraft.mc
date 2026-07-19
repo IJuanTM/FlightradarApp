@@ -52,7 +52,7 @@ class Aircraft {
             altBaro = ab.toNumber();
         } else {
             onGround = false;
-            // No barometric reading at all (not even "ground") - fall back to GPS/geometric altitude rather than showing nothing.
+            // No barometric reading at all - fall back to GPS/geometric altitude rather than showing nothing.
             var ag = dict["alt_geom"];
             altBaro = ag != null ? ag.toNumber() : null;
         }
@@ -129,14 +129,8 @@ class Aircraft {
         );
     }
 
-    // TEMP debug override - forces emergency state for visual testing. Revert before shipping.
-    private const FORCE_EMERGENCY_DEBUG = true;
-
     // Checks the API's own emergency field first - not every real emergency squawks exactly 7500/7600/7700.
     public function isEmergency() as Boolean {
-        if (FORCE_EMERGENCY_DEBUG) {
-            return true;
-        }
         var em = emergency;
         if (em != null && !em.equals("none")) {
             return true;
@@ -168,7 +162,7 @@ class Aircraft {
         return s.length() > 0 ? s : null;
     }
 
-    // Real Mode S callsigns are A-Z/0-9/space only - anything else is a corrupted decode (seen as garbled/non-Latin-looking text), not a real name.
+    // Real Mode S callsigns are A-Z/0-9/space only - anything else is a corrupted decode, not a real name.
     private function _validCallsignOrNull(s as String) as String? {
         if (s.length() == 0) {
             return null;
