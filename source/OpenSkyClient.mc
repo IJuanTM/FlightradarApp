@@ -10,15 +10,19 @@ class OpenSkyClient {
         "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
     // "/tracks/all", not "/tracks" - OpenSky's own prose REST doc is stale on this.
     private const TRACKS_URL = "https://opensky-network.org/api/tracks/all";
-    private const FLIGHTS_URL = "https://opensky-network.org/api/flights/aircraft";
+    private const FLIGHTS_URL =
+        "https://opensky-network.org/api/flights/aircraft";
     private const TOKEN_SAFETY_MARGIN_MS = 60000;
     // flights/aircraft needs a begin/end window - wide enough to reliably catch a flight that started hours ago.
     private const ROUTE_LOOKBACK_SEC = 24 * 3600;
-    // Time.Moment.value() counts seconds since Garmin's own reference epoch (1989-12-31 00:00:00 UTC), not the Unix epoch (1970-01-01) this API expects - this is the fixed, well-known offset between the two.
-    private const GARMIN_TO_UNIX_EPOCH_OFFSET_SEC = 631065600;
 
     typedef TrackCallback as
-        (Method(points as Array<[Float, Float, Number, Boolean]>, ok as Boolean) as Void);
+        (Method
+            (
+                points as Array<[Float, Float, Number, Boolean]>,
+                ok as Boolean
+            ) as Void
+        );
     typedef RouteCallback as
         (Method(dep as String?, arr as String?, ok as Boolean) as Void);
     typedef TokenDispatch as (Method(token as String) as Void);
@@ -206,7 +210,9 @@ class OpenSkyClient {
                             lat.toFloat(),
                             lon.toFloat(),
                             // OpenSky reports meters, airplanes.live (and this whole app) works in feet.
-                            alt != null ? (alt.toFloat() * 3.28084).toNumber() : 0,
+                            alt != null
+                                ? (alt.toFloat() * 3.28084).toNumber()
+                                : 0,
                             onGround instanceof Boolean && onGround,
                         ]);
                     }
@@ -228,8 +234,8 @@ class OpenSkyClient {
         if (hex == null) {
             return;
         }
-        // System.getTimer() is device-uptime ms, not wall-clock time - using it here (a real bug this session) sent OpenSky begin/end windows near the 1970 epoch, so /flights/aircraft correctly found nothing and every route silently came back "Unknown".
-        var now = Time.now().value() + GARMIN_TO_UNIX_EPOCH_OFFSET_SEC;
+        // Already Unix-epoch seconds on real hardware, despite SDK docs claiming a Garmin epoch - confirmed live.
+        var now = Time.now().value();
         var url =
             FLIGHTS_URL +
             "?icao24=" +

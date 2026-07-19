@@ -1,14 +1,16 @@
 import Toybox.Graphics;
 import Toybox.Lang;
-import Toybox.Math;
 import Toybox.WatchUi;
 
-// Custom full-screen view, not a system Menu2 - black background, styled like the rest of this app. RadarView builds the row data and passes its own ring/panel geometry (see initialize()) so this view's boundary ring and top/bottom separators line up exactly with where they sit on the radar underneath.
+// Custom full-screen view, not a system Menu2 - RadarView builds the row data and passes its own ring/panel geometry.
 class AircraftDetailView extends WatchUi.View {
     private var _headerText as String;
     private var _headerColor as Number;
     private var _rows as Array<Array<[String, String, Number]> >;
-    private var _routeRowIndex as Number;
+    private var _depRowIndex as Number;
+    private var _arrRowIndex as Number;
+    // True at row i if row i starts a new visual group - those get a bigger gap than rows within the same group.
+    private var _groupStarts as Array<Boolean>;
     private var _scrollPx as Number = 0;
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
     private var _fontSmall as Graphics.FontType = Graphics.FONT_SMALL;
@@ -20,45 +22,45 @@ class AircraftDetailView extends WatchUi.View {
     private var _bottomY as Number = 0;
     private var _bottomPanelH as Number;
 
-    // Row height is computed, not fixed - a short row list stretches (up to MAX) to fill the available space instead of leaving dead space below it; a long list clamps to MIN and scrolls.
-    private var _rowHeight as Number = MIN_ROW_HEIGHT;
+    // Adaptive: stretches toward MAX for few rows, clamps to MIN and scrolls for many. Between-group gap only.
+    private var _rowHeight as Number = 20;
+    // Precomputed per-row Y offset from a 0-based origin, built once in onLayout.
+    private var _rowY as Array<Number> = [];
+    private var _totalContentHeight as Number = 0;
     private var _contentTop as Number = 0;
     private var _visibleHeight as Number = 1;
     private var _closeChevronY as Number = 0;
 
-    private const MIN_ROW_HEIGHT = 20;
-    private const MAX_ROW_HEIGHT = 28;
-    private const CONTENT_PADDING = 6;
+    // Measured once in onLayout from the monospace font - same _charW pattern as ../TerminalWatchface.
+    private var _charW as Number = 8;
+    private var _charH as Number = 14;
+    // Derived from _charW/_charH in onLayout.
+    private var _minRowHeight as Number = 20;
+    private var _maxRowHeight as Number = 28;
+    private var _contentPadding as Number = 6;
+    // Gap between rows in the same group - text height plus a small pad, always tighter than _rowHeight.
+    private var _intraGroupGapPaddingPx as Number = 2;
     private const COLOR_ROW_LABEL = 0x999999;
 
-    // Must match RadarView's own COLOR_RING/COLOR_BOUNDARY_ALPHA/COLORS[0] (GRAYS[4], 0x40, white) - duplicated here since this is a separate view class with no access to RadarView's private constants. Use this, not Graphics.COLOR_WHITE, for content colors - matches the app's own COLORS-array convention rather than a hand-picked system constant.
+    // Must match RadarView's own values - duplicated since this class can't see RadarView's private consts.
     private const COLOR_RING = 0xaaaaaa;
     private const COLOR_BOUNDARY_ALPHA = 0x40;
     private const COLOR_WHITE = 0xffffff;
 
-    // Every row (1 or 2 fields) draws as one horizontally-centered inline line, same visual language as the compact panel's _drawSegmentedLine - no separate "hero" font, so nothing on this screen looks bigger than anything else by accident.
-    private const LABEL_VALUE_GAP_PX = 4;
-    private const FIELD_GAP_PX = 16;
-
-    // Embedded in a value string by RadarView to mark where a code-drawn degree circle goes - this app's custom bitmap fonts don't have a "°" glyph baked in, same fix TerminalWatchface uses (_drawSmallTempNum/_glowCircle) for the same reason.
-    private const DEGREE_MARK = "^";
-    // Both sides measure the same raw pixel gap from the circle's edge to the text's advance-width edge, but it reads tighter on the right - letters (e.g. "C") apparently carry less built-in left-side bearing than digits carry right-side bearing in this font. Right gap biased larger to compensate.
-    private const DEGREE_MARK_GAP_LEFT = 1;
-    private const DEGREE_MARK_GAP_RIGHT = 2;
-    private const DEGREE_MARK_R = 1;
-    // Text y is the top of the glyph box, so a circle centered there sits high (superscript-like) - nudged down to align with the text's visual middle instead.
-    private const DEGREE_MARK_Y_OFFSET = 4;
+    // Each row draws as one centered inline line, same style as the compact panel's segmented line.
+    private var _labelValueGapPx as Number = 4;
+    private var _fieldGapPx as Number = 16;
 
     private const CHEVRON_SIZE = 7;
     private const CHEVRON_TAP_PAD = 16;
-    private const CLOSE_TEXT = "Close";
-    private const CLOSE_CHEVRON_GAP = 10;
 
     public function initialize(
         headerText as String,
         headerColor as Number,
         rows as Array<Array<[String, String, Number]> >,
-        routeRowIndex as Number,
+        depRowIndex as Number,
+        arrRowIndex as Number,
+        groupStarts as Array<Boolean>,
         ringCx as Number,
         ringCy as Number,
         ringRadiusPx as Number,
@@ -69,7 +71,9 @@ class AircraftDetailView extends WatchUi.View {
         _headerText = headerText;
         _headerColor = headerColor;
         _rows = rows;
-        _routeRowIndex = routeRowIndex;
+        _depRowIndex = depRowIndex;
+        _arrRowIndex = arrRowIndex;
+        _groupStarts = groupStarts;
         _ringCx = ringCx;
         _ringCy = ringCy;
         _ringRadiusPx = ringRadiusPx;
@@ -85,44 +89,81 @@ class AircraftDetailView extends WatchUi.View {
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
 
+        // Monospace font, so one char's width is every char's width - same _charW pattern as ../TerminalWatchface.
+        _charW = dc.getTextWidthInPixels("0", _fontTiny);
+        _charH = dc.getFontHeight(_fontTiny);
+        _minRowHeight = _charH + 6;
+        _maxRowHeight = _charH + 14;
+        _contentPadding = _charH / 2;
+        _intraGroupGapPaddingPx = _charW / 4;
+        _labelValueGapPx = _charW / 2;
+        _fieldGapPx = _charW * 2;
+
         var h = dc.getHeight();
         _bottomY = h - _bottomPanelH;
 
-        var contentTop0 = _topY + CONTENT_PADDING;
-        var available = _bottomY - CONTENT_PADDING - contentTop0;
+        var contentTop0 = _topY + _contentPadding;
+        var available = _bottomY - _contentPadding - contentTop0;
         var count = _rows.size();
-        var rowH = count > 0 ? available / count : MIN_ROW_HEIGHT;
-        if (rowH < MIN_ROW_HEIGHT) {
-            rowH = MIN_ROW_HEIGHT;
-        } else if (rowH > MAX_ROW_HEIGHT) {
-            rowH = MAX_ROW_HEIGHT;
+        var rowH = count > 0 ? available / count : _minRowHeight;
+        if (rowH < _minRowHeight) {
+            rowH = _minRowHeight;
+        } else if (rowH > _maxRowHeight) {
+            rowH = _maxRowHeight;
         }
         _rowHeight = rowH;
         _visibleHeight = available;
 
-        // Actual visual content height, not count*rowH - the trailing gap after the last row's own text isn't really "content", counting it made the block look biased toward the top of the band instead of centered.
         var lineH = dc.getTextDimensions("Ag", _fontTiny)[1];
-        var used = count > 0 ? (count - 1) * rowH + lineH : 0;
+        var intraGap = lineH + _intraGroupGapPaddingPx;
+
+        // Precomputed once - rowH at a group boundary, intraGap within the same group.
+        _rowY = [];
+        var y = 0;
+        for (var i = 0; i < count; i++) {
+            if (i > 0) {
+                var isGroupStart = i < _groupStarts.size() && _groupStarts[i];
+                y += isGroupStart ? rowH : intraGap;
+            }
+            _rowY.add(y);
+        }
+
+        // Real content height, not count*rowH - excludes the trailing gap after the last row.
+        var used = count > 0 ? y + lineH : 0;
+        _totalContentHeight = used;
         _contentTop =
             used < available
                 ? contentTop0 + (available - used) / 2
                 : contentTop0;
     }
 
-    // Called from RadarView._onRouteResult once the async OpenSky route fetch resolves. Route always sits alone in its own row, so cell 0. Color is passed in (not fixed) so RadarView can dim it for the unknown/failed states, same as "No Track History" in the compact panel.
-    public function setRouteText(text as String, color as Number) as Void {
-        if (_routeRowIndex < 0 || _routeRowIndex >= _rows.size()) {
+    // Departure/arrival update independently - each is its own async lookup, resolving at different times.
+    public function setDepartureText(text as String, color as Number) as Void {
+        _setRowText(_depRowIndex, text, color);
+        WatchUi.requestUpdate();
+    }
+
+    public function setArrivalText(text as String, color as Number) as Void {
+        _setRowText(_arrRowIndex, text, color);
+        WatchUi.requestUpdate();
+    }
+
+    private function _setRowText(
+        rowIndex as Number,
+        text as String,
+        color as Number
+    ) as Void {
+        if (rowIndex < 0 || rowIndex >= _rows.size()) {
             return;
         }
-        var row = _rows[_routeRowIndex];
+        var row = _rows[rowIndex];
         var cell = row[0];
         row[0] = [cell[0], text, color];
-        WatchUi.requestUpdate();
     }
 
     public function scroll(dyPx as Number) as Void {
         _scrollPx += dyPx;
-        var maxScroll = _rows.size() * _rowHeight - _visibleHeight;
+        var maxScroll = _totalContentHeight - _visibleHeight;
         if (maxScroll < 0) {
             maxScroll = 0;
         }
@@ -136,8 +177,10 @@ class AircraftDetailView extends WatchUi.View {
 
     // Tap-to-close target for the down chevron drawn at the bottom of the screen - kept generous (CHEVRON_TAP_PAD) since it's a small glyph.
     public function isCloseChevronHit(x as Number, y as Number) as Boolean {
-        return (x - _ringCx).abs() <= CHEVRON_TAP_PAD &&
-            (y - _closeChevronY).abs() <= CHEVRON_TAP_PAD;
+        return (
+            (x - _ringCx).abs() <= CHEVRON_TAP_PAD &&
+            (y - _closeChevronY).abs() <= CHEVRON_TAP_PAD
+        );
     }
 
     public function onUpdate(dc as Dc) as Void {
@@ -149,7 +192,7 @@ class AircraftDetailView extends WatchUi.View {
         var cx = w / 2;
 
         // Same boundary ring the radar itself draws, at the exact same cx/cy/radius - covered by the black top/bottom bands below, visible only in the content band in between.
-        dc.setStroke(_withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
+        dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawCircle(_ringCx, _ringCy, _ringRadiusPx);
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
@@ -170,7 +213,7 @@ class AircraftDetailView extends WatchUi.View {
         );
 
         for (var i = 0; i < _rows.size(); i++) {
-            var y = _contentTop + i * _rowHeight - _scrollPx;
+            var y = _contentTop + (_rowY[i] as Number) - _scrollPx;
             if (y + _rowHeight < _contentTop || y > _bottomY) {
                 continue;
             }
@@ -186,46 +229,21 @@ class AircraftDetailView extends WatchUi.View {
         if (dy >= _ringRadiusPx) {
             return;
         }
-        var halfW = _chordHalfExtent(_ringRadiusPx, dy);
+        var halfW = DrawUtil.chordHalfExtent(_ringRadiusPx, dy);
         // COLOR_BOUNDARY_ALPHA, not a dimmer tone - this line reads as a continuation of the boundary ring, so it needs the same opacity as the ring itself.
-        dc.setStroke(_withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
+        dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawLine(_ringCx - halfW, y, _ringCx + halfW, y);
     }
 
-    private function _chordHalfExtent(
-        radiusPx as Number,
-        offsetPx as Number
-    ) as Number {
-        return Math.sqrt(
-            (radiusPx * radiusPx - offsetPx * offsetPx).toFloat()
-        ).toNumber();
-    }
-
-    private function _withAlpha(color as Number, alpha as Number) as Number {
-        return (alpha << 24) | (color & 0xffffff);
-    }
-
-    // "Close" text plus a down chevron, the pair vertically centered in the band below _bottomY - mirrors the up chevron RadarView draws above the compact panel.
+    // Just the down chevron, centered in the band below _bottomY - "Close" text label dropped per direct request.
     private function _drawCloseAffordance(
         dc as Dc,
         cx as Number,
         h as Number
     ) as Void {
-        var closeH = dc.getTextDimensions(CLOSE_TEXT, _fontTiny)[1];
-        var blockH = closeH + CLOSE_CHEVRON_GAP + CHEVRON_SIZE;
         var bandH = h - _bottomY;
-        var blockTop = _bottomY + (bandH - blockH) / 2;
-
+        _closeChevronY = _bottomY + bandH / 2;
         dc.setColor(COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(
-            cx,
-            blockTop,
-            _fontTiny,
-            CLOSE_TEXT,
-            Graphics.TEXT_JUSTIFY_CENTER
-        );
-
-        _closeChevronY = blockTop + closeH + CLOSE_CHEVRON_GAP + CHEVRON_SIZE;
         _drawChevronDown(dc, cx, _closeChevronY, CHEVRON_SIZE);
     }
 
@@ -238,14 +256,14 @@ class AircraftDetailView extends WatchUi.View {
     ) as Void {
         var labelWidths = [] as Array<Number>;
         var valueWidths = [] as Array<Number>;
-        var totalW = -FIELD_GAP_PX;
+        var totalW = -_fieldGapPx;
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
             var labelW = dc.getTextDimensions(cell[0] as String, _fontTiny)[0];
             var valueW = _valueSegmentWidth(dc, cell[1] as String);
             labelWidths.add(labelW);
             valueWidths.add(valueW);
-            totalW += labelW + LABEL_VALUE_GAP_PX + valueW + FIELD_GAP_PX;
+            totalW += labelW + _labelValueGapPx + valueW + _fieldGapPx;
         }
 
         var x = cx - totalW / 2;
@@ -259,28 +277,14 @@ class AircraftDetailView extends WatchUi.View {
                 cell[0] as String,
                 Graphics.TEXT_JUSTIFY_LEFT
             );
-            x += (labelWidths[i] as Number) + LABEL_VALUE_GAP_PX;
+            x += (labelWidths[i] as Number) + _labelValueGapPx;
             _drawValueSegment(dc, x, y, cell[1] as String, cell[2] as Number);
-            x += (valueWidths[i] as Number) + FIELD_GAP_PX;
+            x += (valueWidths[i] as Number) + _fieldGapPx;
         }
     }
 
     private function _valueSegmentWidth(dc as Dc, value as String) as Number {
-        var markIdx = value.find(DEGREE_MARK);
-        if (markIdx == null) {
-            return dc.getTextDimensions(value, _fontTiny)[0];
-        }
-        var idx = markIdx as Number;
-        var before = value.substring(0, idx) as String;
-        var after = value.substring(idx + 1, value.length()) as String;
-        var beforeW = dc.getTextDimensions(before, _fontTiny)[0];
-        var afterW =
-            after.length() > 0 ? dc.getTextDimensions(after, _fontTiny)[0] : 0;
-        var markW =
-            DEGREE_MARK_GAP_LEFT +
-            DEGREE_MARK_R * 2 +
-            (after.length() > 0 ? DEGREE_MARK_GAP_RIGHT : 0);
-        return beforeW + markW + afterW;
+        return DrawUtil.markedTextWidth(dc, _fontTiny, value);
     }
 
     // Left-justified draw starting at x - the caller (_drawGridRow) already handled centering the whole row.
@@ -292,32 +296,7 @@ class AircraftDetailView extends WatchUi.View {
         color as Number
     ) as Void {
         dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        var markIdx = value.find(DEGREE_MARK);
-        if (markIdx == null) {
-            dc.drawText(x, y, _fontTiny, value, Graphics.TEXT_JUSTIFY_LEFT);
-            return;
-        }
-
-        var idx = markIdx as Number;
-        var before = value.substring(0, idx) as String;
-        var after = value.substring(idx + 1, value.length()) as String;
-        dc.drawText(x, y, _fontTiny, before, Graphics.TEXT_JUSTIFY_LEFT);
-        var beforeW = dc.getTextDimensions(before, _fontTiny)[0];
-        var circleCx = x + beforeW + DEGREE_MARK_GAP_LEFT + DEGREE_MARK_R;
-        dc.drawCircle(
-            circleCx,
-            y + DEGREE_MARK_R + DEGREE_MARK_Y_OFFSET,
-            DEGREE_MARK_R
-        );
-        if (after.length() > 0) {
-            dc.drawText(
-                circleCx + DEGREE_MARK_R + DEGREE_MARK_GAP_RIGHT,
-                y,
-                _fontTiny,
-                after,
-                Graphics.TEXT_JUSTIFY_LEFT
-            );
-        }
+        DrawUtil.drawMarkedText(dc, x, y, _fontTiny, value, color);
     }
 
     private function _drawChevronDown(
@@ -327,8 +306,7 @@ class AircraftDetailView extends WatchUi.View {
         s as Number
     ) as Void {
         dc.setColor(COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawLine(x - s, y - s, x, y);
-        dc.drawLine(x, y, x + s, y - s);
+        DrawUtil.drawChevron(dc, x, y, s, false);
     }
 }
 
@@ -338,7 +316,10 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     private var _dragLastY as Number?;
     private const SCROLL_STEP_PX = 40;
 
-    public function initialize(view as AircraftDetailView, radarView as RadarView) {
+    public function initialize(
+        view as AircraftDetailView,
+        radarView as RadarView
+    ) {
         BehaviorDelegate.initialize();
         _view = view;
         _radarView = radarView;

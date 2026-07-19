@@ -26,7 +26,9 @@ module MenuBuilder {
     }
 
     function buildDisplayMenu() as WatchUi.Menu2 {
-        var menu = new WatchUi.Menu2({ :title => Rez.Strings.DisplayMenuTitle });
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.DisplayMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowRangeRings,
@@ -76,7 +78,9 @@ module MenuBuilder {
     }
 
     function buildFiltersMenu() as WatchUi.Menu2 {
-        var menu = new WatchUi.Menu2({ :title => Rez.Strings.FiltersMenuTitle });
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.FiltersMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowGroundVehicles,
@@ -117,7 +121,9 @@ module MenuBuilder {
     }
 
     function buildAircraftMenu() as WatchUi.Menu2 {
-        var menu = new WatchUi.Menu2({ :title => Rez.Strings.AircraftMenuTitle });
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.AircraftMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowTrack,

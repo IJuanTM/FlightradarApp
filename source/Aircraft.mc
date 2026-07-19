@@ -85,7 +85,9 @@ class Aircraft {
         navHeading = _toFloatOrNull(dict["nav_heading"]);
 
         var seenPos = dict["seen_pos"];
-        positionAgeSec = _toFloatOrNull(seenPos != null ? seenPos : dict["seen"]);
+        positionAgeSec = _toFloatOrNull(
+            seenPos != null ? seenPos : dict["seen"]
+        );
 
         operatorName = _toTrimmedStringOrNull(dict["ownOp"]);
         var iasVal = dict["ias"];
@@ -109,25 +111,41 @@ class Aircraft {
 
     // DO-260B C1/C2 = surface vehicles, never an airborne class, distinct from a plane that's merely onGround.
     public function isGroundVehicle() as Boolean {
-        return category != null &&
-            (category.equals("C0") or category.equals("C1") or category.equals("C2"));
+        return (
+            category != null &&
+            (category.equals("C0") or
+                category.equals("C1") or
+                category.equals("C2"))
+        );
     }
 
     // DO-260B C3-C5 = point/cluster/line obstacles - towers, masts, tethered balloons.
     public function isObstacle() as Boolean {
-        return category != null &&
-            (category.equals("C3") or category.equals("C4") or category.equals("C5"));
+        return (
+            category != null &&
+            (category.equals("C3") or
+                category.equals("C4") or
+                category.equals("C5"))
+        );
     }
+
+    // TEMP debug override - forces emergency state for visual testing. Revert before shipping.
+    private const FORCE_EMERGENCY_DEBUG = true;
 
     // Checks the API's own emergency field first - not every real emergency squawks exactly 7500/7600/7700.
     public function isEmergency() as Boolean {
+        if (FORCE_EMERGENCY_DEBUG) {
+            return true;
+        }
         var em = emergency;
         if (em != null && !em.equals("none")) {
             return true;
         }
         var sq = squawk;
-        return sq != null &&
-            (sq.equals("7500") or sq.equals("7600") or sq.equals("7700"));
+        return (
+            sq != null &&
+            (sq.equals("7500") or sq.equals("7600") or sq.equals("7700"))
+        );
     }
 
     private function _toFloat(v, def as Float) as Float {

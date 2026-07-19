@@ -17,7 +17,13 @@ class AirplanesLiveClient {
 
     // tooMuchData distinguishes the known response-size-ceiling failure (-400/-402/-403) from a generic failure.
     typedef FetchCallback as
-        (Method(aircraft as Array<Aircraft>, ok as Boolean, tooMuchData as Boolean) as Void);
+        (Method
+            (
+                aircraft as Array<Aircraft>,
+                ok as Boolean,
+                tooMuchData as Boolean
+            ) as Void
+        );
 
     // airplanes.live documents a 1 req/sec limit - a bit of margin above that.
     private const MIN_REQUEST_INTERVAL_MS = 1100;
@@ -46,7 +52,9 @@ class AirplanesLiveClient {
 
         var lastStart = _lastRequestStartMs;
         var elapsed =
-            lastStart != null ? System.getTimer() - lastStart : MIN_REQUEST_INTERVAL_MS;
+            lastStart != null
+                ? System.getTimer() - lastStart
+                : MIN_REQUEST_INTERVAL_MS;
         if (elapsed >= MIN_REQUEST_INTERVAL_MS) {
             _performFetch();
             return;
@@ -85,7 +93,9 @@ class AirplanesLiveClient {
         // TEXT_PLAIN, not JSON - the platform's JSON decoder can't handle this API's oversized now/ctime fields.
         var options = {
             :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_TEXT_PLAIN,
+            :responseType
+            =>
+            Communications.HTTP_RESPONSE_CONTENT_TYPE_TEXT_PLAIN,
         };
 
         Communications.makeWebRequest(url, null, options, method(:_onReceive));
@@ -177,7 +187,10 @@ class AirplanesLiveClient {
                 if (c == ',') {
                     _jsonPos += 1;
                     _skipJsonWs();
-                    c = _jsonPos < _jsonChars.size() ? _jsonChars[_jsonPos] : ' ';
+                    c =
+                        _jsonPos < _jsonChars.size()
+                            ? _jsonChars[_jsonPos]
+                            : ' ';
                 }
                 if (c == ']') {
                     _jsonPos += 1;
@@ -197,19 +210,29 @@ class AirplanesLiveClient {
 
         if (!done) {
             var timer = new Timer.Timer();
-            timer.start(method(:_continueParsingAircraft), MIN_TIMER_INTERVAL_MS, false);
+            timer.start(
+                method(:_continueParsingAircraft),
+                MIN_TIMER_INTERVAL_MS,
+                false
+            );
             return;
         }
 
         var cb = _pendingCallback;
         if (cb != null) {
-            cb.invoke(ok ? _incrementalResults : ([] as Array<Aircraft>), ok, false);
+            cb.invoke(
+                ok ? _incrementalResults : [] as Array<Aircraft>,
+                ok,
+                false
+            );
         }
     }
 
     // -400/-402/-403 are Communications' own response-size/memory-ceiling codes - distinct from a real connectivity failure.
     private function _isSizeCeilingError(responseCode as Number) as Boolean {
-        return responseCode == -400 or responseCode == -402 or responseCode == -403;
+        return (
+            responseCode == -400 or responseCode == -402 or responseCode == -403
+        );
     }
 
     private function _checkParseBudget() as Void {
@@ -263,7 +286,7 @@ class AirplanesLiveClient {
     }
 
     private function _parseJsonObject() as Dictionary {
-        var dict = {} as Dictionary;
+        var dict = ({}) as Dictionary;
         _jsonPos += 1; // consume '{'
         _skipJsonWs();
         if (_jsonPos < _jsonChars.size() && _jsonChars[_jsonPos] == '}') {
@@ -344,7 +367,10 @@ class AirplanesLiveClient {
     }
 
     // \uXXXX escapes are dropped, not expanded - not observed in this API's data.
-    private function _unescapeJsonString(start as Number, end as Number) as String {
+    private function _unescapeJsonString(
+        start as Number,
+        end as Number
+    ) as String {
         var chars = [] as Array<Char>;
         var i = start;
         while (i < end) {
@@ -384,9 +410,15 @@ class AirplanesLiveClient {
             _jsonPos += 1;
             _scanJsonDigits(n);
         }
-        if (_jsonPos < n && (_jsonChars[_jsonPos] == 'e' || _jsonChars[_jsonPos] == 'E')) {
+        if (
+            _jsonPos < n &&
+            (_jsonChars[_jsonPos] == 'e' || _jsonChars[_jsonPos] == 'E')
+        ) {
             _jsonPos += 1;
-            if (_jsonPos < n && (_jsonChars[_jsonPos] == '+' || _jsonChars[_jsonPos] == '-')) {
+            if (
+                _jsonPos < n &&
+                (_jsonChars[_jsonPos] == '+' || _jsonChars[_jsonPos] == '-')
+            ) {
                 _jsonPos += 1;
             }
             _scanJsonDigits(n);

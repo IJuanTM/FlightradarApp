@@ -15,12 +15,17 @@ class RadarView extends WatchUi.View {
     private const MAX_SELECTED_MISSES = 3;
     // 4 gives a consistent 1/2/3/4, 2/4/6/8, 5/10/15/20, 10/20/30/40 progression - a divisor of 3 gave an ugly 3/6/9 at 10km.
     private const RING_TARGET_COUNT = 4;
-    private const EDGE_MARGIN = 20;
     // Wider than the icon - real taps land less precisely than a mouse click.
     private const HIT_RADIUS_PX = 24;
     private const DRAG_THRESHOLD_PX = 32;
     // Only bounds ongoing growth, never the initial OpenSky history.
     private const MAX_SELECTED_TRACK_POINTS = 500;
+
+    // Measured once in onLayout from the monospace font - same _charW pattern as ../TerminalWatchface.
+    private var _charW as Number = 8;
+    private var _charH as Number = 14;
+    // Was a const - now derived from _charW, see onLayout.
+    private var _edgeMargin as Number = 20;
 
     // Same shade steps as ../TerminalWatchface's GRAYS, extended with two lighter steps for this app's own use.
     private const GRAYS =
@@ -34,9 +39,10 @@ class RadarView extends WatchUi.View {
     private const COLOR_GRID = GRAYS[3];
     private const COLOR_GRID_ALPHA = 0x10;
     private const COLOR_GRID_LABEL = GRAYS[2];
-    private const GRID_LABEL_INSET = 22;
-    private const TOP_PANEL_LINE_HEIGHT = 18;
-    private const DETAIL_PANEL_LINE_HEIGHT = 18;
+    // All three were fixed pixel constants - now derived from _charH/_charW in onLayout.
+    private var _gridLabelInset as Number = 22;
+    private var _topPanelLineHeight as Number = 18;
+    private var _detailPanelLineHeight as Number = 18;
     private const COLOR_TRAIL_ALPHA = 0x90;
     private const COLOR_TEXT = GRAYS[5];
 
@@ -70,11 +76,16 @@ class RadarView extends WatchUi.View {
     // Full-detail "grey" values are white, not grey - both label and value read as the same dim tone otherwise. COLOR_ROUTE_DIM (same dim grey as the compact panel's "No Track History") is only for the Route field's loading/unknown/failed states, to read as "not resolved" rather than a plain fact.
     private const COLOR_DETAIL_VALUE = COLORS[0]; // white
     private const COLOR_ROUTE_DIM = COLOR_GRID_LABEL;
+    // Identity/reference fields - not grey, row labels are already grey.
+    private const COLOR_IDENTITY = COLORS[2]; // cyan
+    // Environmental fields (wind, outside/total air temp) - not the aircraft's own state.
+    private const COLOR_ENV = COLORS[9]; // purple
 
     // Detail panel value colors - not tied to aircraft category, just distinguishing fields at a glance.
     private const COLOR_ALT = COLORS[6]; // blue
     private const COLOR_SPEED = COLORS[3]; // yellow
-    private const COLOR_HDG = COLORS[2]; // cyan
+    // Was cyan, same as COLOR_IDENTITY - collided once that moved off grey. Orange per direct request.
+    private const COLOR_HDG = COLORS[4]; // orange
     private const COLOR_SQUAWK = COLORS[7]; // magenta
     // Shared status semantics across top/detail panels: green = done/good, orange = caution.
     private const COLOR_SUCCESS = COLORS[1]; // green
@@ -117,6 +128,10 @@ class RadarView extends WatchUi.View {
     private var _routeFetchInFlight as Boolean = false;
     private var _routeFetchHex as String?;
     private var _routeFetchRetried as Boolean = false;
+    // Departure/arrival airport-info lookups - independent of the route fetch and of each other.
+    private var _airportFetchHex as String?;
+    private var _pendingDepIcao as String?;
+    private var _pendingArrIcao as String?;
 
     private var _manualFocus as [Float, Float]?;
     private var _dragStartCoords as [Number, Number]?;
@@ -145,6 +160,7 @@ class RadarView extends WatchUi.View {
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
     private var _client as AirplanesLiveClient = new AirplanesLiveClient();
     private var _openSky as OpenSkyClient = new OpenSkyClient();
+    private var _airportClient as AirportClient = new AirportClient();
 
     // One bitmap per shape - emergency halo is drawn via an offset-blit outline, not a second dilated variant.
     private var _iconBitmaps as Dictionary<String, Graphics.BitmapType> = {};
@@ -166,96 +182,221 @@ class RadarView extends WatchUi.View {
             WatchUi.loadResource(Rez.Fonts.SpaceMono_TINY) as
             Graphics.FontDefinition;
         _iconBitmaps = {
-            "a10" => WatchUi.loadResource(Rez.Drawables.AircraftA10) as Graphics.BitmapType,
-            "a225" => WatchUi.loadResource(Rez.Drawables.AircraftA225) as Graphics.BitmapType,
-            "a319" => WatchUi.loadResource(Rez.Drawables.AircraftA319) as Graphics.BitmapType,
-            "a320" => WatchUi.loadResource(Rez.Drawables.AircraftA320) as Graphics.BitmapType,
-            "a321" => WatchUi.loadResource(Rez.Drawables.AircraftA321) as Graphics.BitmapType,
-            "a332" => WatchUi.loadResource(Rez.Drawables.AircraftA332) as Graphics.BitmapType,
-            "a359" => WatchUi.loadResource(Rez.Drawables.AircraftA359) as Graphics.BitmapType,
-            "a380" => WatchUi.loadResource(Rez.Drawables.AircraftA380) as Graphics.BitmapType,
-            "a400" => WatchUi.loadResource(Rez.Drawables.AircraftA400) as Graphics.BitmapType,
-            "airliner" => WatchUi.loadResource(Rez.Drawables.AircraftAirliner) as Graphics.BitmapType,
-            "alpha_jet" => WatchUi.loadResource(Rez.Drawables.AircraftAlphaJet) as Graphics.BitmapType,
-            "apache" => WatchUi.loadResource(Rez.Drawables.AircraftApache) as Graphics.BitmapType,
-            "asterisk" => WatchUi.loadResource(Rez.Drawables.AircraftAsterisk) as Graphics.BitmapType,
-            "b1b_lancer" => WatchUi.loadResource(Rez.Drawables.AircraftB1bLancer) as Graphics.BitmapType,
-            "b52" => WatchUi.loadResource(Rez.Drawables.AircraftB52) as Graphics.BitmapType,
-            "b707" => WatchUi.loadResource(Rez.Drawables.AircraftB707) as Graphics.BitmapType,
-            "b737" => WatchUi.loadResource(Rez.Drawables.AircraftB737) as Graphics.BitmapType,
-            "b738" => WatchUi.loadResource(Rez.Drawables.AircraftB738) as Graphics.BitmapType,
-            "b739" => WatchUi.loadResource(Rez.Drawables.AircraftB739) as Graphics.BitmapType,
-            "bae_hawk" => WatchUi.loadResource(Rez.Drawables.AircraftBaeHawk) as Graphics.BitmapType,
-            "balloon" => WatchUi.loadResource(Rez.Drawables.AircraftBalloon) as Graphics.BitmapType,
-            "beluga" => WatchUi.loadResource(Rez.Drawables.AircraftBeluga) as Graphics.BitmapType,
-            "blackhawk" => WatchUi.loadResource(Rez.Drawables.AircraftBlackhawk) as Graphics.BitmapType,
-            "blimp" => WatchUi.loadResource(Rez.Drawables.AircraftBlimp) as Graphics.BitmapType,
-            "c130" => WatchUi.loadResource(Rez.Drawables.AircraftC130) as Graphics.BitmapType,
-            "c17" => WatchUi.loadResource(Rez.Drawables.AircraftC17) as Graphics.BitmapType,
-            "c2" => WatchUi.loadResource(Rez.Drawables.AircraftC2) as Graphics.BitmapType,
-            "c5" => WatchUi.loadResource(Rez.Drawables.AircraftC5) as Graphics.BitmapType,
-            "cessna" => WatchUi.loadResource(Rez.Drawables.AircraftCessna) as Graphics.BitmapType,
-            "chinook" => WatchUi.loadResource(Rez.Drawables.AircraftChinook) as Graphics.BitmapType,
-            "cirrus_sr22" => WatchUi.loadResource(Rez.Drawables.AircraftCirrusSr22) as Graphics.BitmapType,
-            "dauphin" => WatchUi.loadResource(Rez.Drawables.AircraftDauphin) as Graphics.BitmapType,
-            "e390" => WatchUi.loadResource(Rez.Drawables.AircraftE390) as Graphics.BitmapType,
-            "e3awacs" => WatchUi.loadResource(Rez.Drawables.AircraftE3awacs) as Graphics.BitmapType,
-            "e737" => WatchUi.loadResource(Rez.Drawables.AircraftE737) as Graphics.BitmapType,
-            "f18" => WatchUi.loadResource(Rez.Drawables.AircraftF18) as Graphics.BitmapType,
-            "f35" => WatchUi.loadResource(Rez.Drawables.AircraftF35) as Graphics.BitmapType,
-            "f5_tiger" => WatchUi.loadResource(Rez.Drawables.AircraftF5Tiger) as Graphics.BitmapType,
-            "gazelle" => WatchUi.loadResource(Rez.Drawables.AircraftGazelle) as Graphics.BitmapType,
-            "glider" => WatchUi.loadResource(Rez.Drawables.AircraftGlider) as Graphics.BitmapType,
-            "ground_emergency" => WatchUi.loadResource(Rez.Drawables.AircraftGroundEmergency) as Graphics.BitmapType,
-            "ground_fixed" => WatchUi.loadResource(Rez.Drawables.AircraftGroundFixed) as Graphics.BitmapType,
-            "ground_service" => WatchUi.loadResource(Rez.Drawables.AircraftGroundService) as Graphics.BitmapType,
-            "ground_square" => WatchUi.loadResource(Rez.Drawables.AircraftGroundSquare) as Graphics.BitmapType,
-            "ground_tower" => WatchUi.loadResource(Rez.Drawables.AircraftGroundTower) as Graphics.BitmapType,
-            "ground_unknown" => WatchUi.loadResource(Rez.Drawables.AircraftGroundUnknown) as Graphics.BitmapType,
-            "gyrocopter" => WatchUi.loadResource(Rez.Drawables.AircraftGyrocopter) as Graphics.BitmapType,
-            "heavy_2e" => WatchUi.loadResource(Rez.Drawables.AircraftHeavy2e) as Graphics.BitmapType,
-            "heavy_4e" => WatchUi.loadResource(Rez.Drawables.AircraftHeavy4e) as Graphics.BitmapType,
-            "helicopter" => WatchUi.loadResource(Rez.Drawables.AircraftHelicopter) as Graphics.BitmapType,
-            "hi_perf" => WatchUi.loadResource(Rez.Drawables.AircraftHiPerf) as Graphics.BitmapType,
-            "hunter" => WatchUi.loadResource(Rez.Drawables.AircraftHunter) as Graphics.BitmapType,
-            "il_62" => WatchUi.loadResource(Rez.Drawables.AircraftIl62) as Graphics.BitmapType,
-            "jet_nonswept" => WatchUi.loadResource(Rez.Drawables.AircraftJetNonswept) as Graphics.BitmapType,
-            "jet_swept" => WatchUi.loadResource(Rez.Drawables.AircraftJetSwept) as Graphics.BitmapType,
-            "l159" => WatchUi.loadResource(Rez.Drawables.AircraftL159) as Graphics.BitmapType,
-            "lancaster" => WatchUi.loadResource(Rez.Drawables.AircraftLancaster) as Graphics.BitmapType,
-            "m326" => WatchUi.loadResource(Rez.Drawables.AircraftM326) as Graphics.BitmapType,
-            "md11" => WatchUi.loadResource(Rez.Drawables.AircraftMd11) as Graphics.BitmapType,
-            "md_a4" => WatchUi.loadResource(Rez.Drawables.AircraftMdA4) as Graphics.BitmapType,
-            "md_f15" => WatchUi.loadResource(Rez.Drawables.AircraftMdF15) as Graphics.BitmapType,
-            "mil24" => WatchUi.loadResource(Rez.Drawables.AircraftMil24) as Graphics.BitmapType,
-            "mirage" => WatchUi.loadResource(Rez.Drawables.AircraftMirage) as Graphics.BitmapType,
-            "miragef1" => WatchUi.loadResource(Rez.Drawables.AircraftMiragef1) as Graphics.BitmapType,
-            "p3_orion" => WatchUi.loadResource(Rez.Drawables.AircraftP3Orion) as Graphics.BitmapType,
-            "p8" => WatchUi.loadResource(Rez.Drawables.AircraftP8) as Graphics.BitmapType,
-            "pa24" => WatchUi.loadResource(Rez.Drawables.AircraftPa24) as Graphics.BitmapType,
-            "para" => WatchUi.loadResource(Rez.Drawables.AircraftPara) as Graphics.BitmapType,
-            "puma" => WatchUi.loadResource(Rez.Drawables.AircraftPuma) as Graphics.BitmapType,
-            "rafale" => WatchUi.loadResource(Rez.Drawables.AircraftRafale) as Graphics.BitmapType,
-            "rutan_veze" => WatchUi.loadResource(Rez.Drawables.AircraftRutanVeze) as Graphics.BitmapType,
-            "s61" => WatchUi.loadResource(Rez.Drawables.AircraftS61) as Graphics.BitmapType,
-            "sb39" => WatchUi.loadResource(Rez.Drawables.AircraftSb39) as Graphics.BitmapType,
-            "single_turbo" => WatchUi.loadResource(Rez.Drawables.AircraftSingleTurbo) as Graphics.BitmapType,
-            "strato" => WatchUi.loadResource(Rez.Drawables.AircraftStrato) as Graphics.BitmapType,
-            "super_guppy" => WatchUi.loadResource(Rez.Drawables.AircraftSuperGuppy) as Graphics.BitmapType,
-            "t38" => WatchUi.loadResource(Rez.Drawables.AircraftT38) as Graphics.BitmapType,
-            "tiger" => WatchUi.loadResource(Rez.Drawables.AircraftTiger) as Graphics.BitmapType,
-            "tornado" => WatchUi.loadResource(Rez.Drawables.AircraftTornado) as Graphics.BitmapType,
-            "twin_large" => WatchUi.loadResource(Rez.Drawables.AircraftTwinLarge) as Graphics.BitmapType,
-            "twin_small" => WatchUi.loadResource(Rez.Drawables.AircraftTwinSmall) as Graphics.BitmapType,
-            "typhoon" => WatchUi.loadResource(Rez.Drawables.AircraftTyphoon) as Graphics.BitmapType,
-            "u2" => WatchUi.loadResource(Rez.Drawables.AircraftU2) as Graphics.BitmapType,
-            "uav" => WatchUi.loadResource(Rez.Drawables.AircraftUav) as Graphics.BitmapType,
-            "unknown" => WatchUi.loadResource(Rez.Drawables.AircraftUnknown) as Graphics.BitmapType,
-            "v22_fast" => WatchUi.loadResource(Rez.Drawables.AircraftV22Fast) as Graphics.BitmapType,
-            "v22_slow" => WatchUi.loadResource(Rez.Drawables.AircraftV22Slow) as Graphics.BitmapType,
-            "verhees" => WatchUi.loadResource(Rez.Drawables.AircraftVerhees) as Graphics.BitmapType,
-            "wb57" => WatchUi.loadResource(Rez.Drawables.AircraftWb57) as Graphics.BitmapType,
+            "a10" => WatchUi.loadResource(Rez.Drawables.AircraftA10) as
+            Graphics.BitmapType,
+            "a225" => WatchUi.loadResource(Rez.Drawables.AircraftA225) as
+            Graphics.BitmapType,
+            "a319" => WatchUi.loadResource(Rez.Drawables.AircraftA319) as
+            Graphics.BitmapType,
+            "a320" => WatchUi.loadResource(Rez.Drawables.AircraftA320) as
+            Graphics.BitmapType,
+            "a321" => WatchUi.loadResource(Rez.Drawables.AircraftA321) as
+            Graphics.BitmapType,
+            "a332" => WatchUi.loadResource(Rez.Drawables.AircraftA332) as
+            Graphics.BitmapType,
+            "a359" => WatchUi.loadResource(Rez.Drawables.AircraftA359) as
+            Graphics.BitmapType,
+            "a380" => WatchUi.loadResource(Rez.Drawables.AircraftA380) as
+            Graphics.BitmapType,
+            "a400" => WatchUi.loadResource(Rez.Drawables.AircraftA400) as
+            Graphics.BitmapType,
+            "airliner" => WatchUi.loadResource(
+                Rez.Drawables.AircraftAirliner
+            ) as Graphics.BitmapType,
+            "alpha_jet" => WatchUi.loadResource(
+                Rez.Drawables.AircraftAlphaJet
+            ) as Graphics.BitmapType,
+            "apache" => WatchUi.loadResource(Rez.Drawables.AircraftApache) as
+            Graphics.BitmapType,
+            "asterisk" => WatchUi.loadResource(
+                Rez.Drawables.AircraftAsterisk
+            ) as Graphics.BitmapType,
+            "b1b_lancer" => WatchUi.loadResource(
+                Rez.Drawables.AircraftB1bLancer
+            ) as Graphics.BitmapType,
+            "b52" => WatchUi.loadResource(Rez.Drawables.AircraftB52) as
+            Graphics.BitmapType,
+            "b707" => WatchUi.loadResource(Rez.Drawables.AircraftB707) as
+            Graphics.BitmapType,
+            "b737" => WatchUi.loadResource(Rez.Drawables.AircraftB737) as
+            Graphics.BitmapType,
+            "b738" => WatchUi.loadResource(Rez.Drawables.AircraftB738) as
+            Graphics.BitmapType,
+            "b739" => WatchUi.loadResource(Rez.Drawables.AircraftB739) as
+            Graphics.BitmapType,
+            "bae_hawk" => WatchUi.loadResource(Rez.Drawables.AircraftBaeHawk) as
+            Graphics.BitmapType,
+            "balloon" => WatchUi.loadResource(Rez.Drawables.AircraftBalloon) as
+            Graphics.BitmapType,
+            "beluga" => WatchUi.loadResource(Rez.Drawables.AircraftBeluga) as
+            Graphics.BitmapType,
+            "blackhawk" => WatchUi.loadResource(
+                Rez.Drawables.AircraftBlackhawk
+            ) as Graphics.BitmapType,
+            "blimp" => WatchUi.loadResource(Rez.Drawables.AircraftBlimp) as
+            Graphics.BitmapType,
+            "c130" => WatchUi.loadResource(Rez.Drawables.AircraftC130) as
+            Graphics.BitmapType,
+            "c17" => WatchUi.loadResource(Rez.Drawables.AircraftC17) as
+            Graphics.BitmapType,
+            "c2" => WatchUi.loadResource(Rez.Drawables.AircraftC2) as
+            Graphics.BitmapType,
+            "c5" => WatchUi.loadResource(Rez.Drawables.AircraftC5) as
+            Graphics.BitmapType,
+            "cessna" => WatchUi.loadResource(Rez.Drawables.AircraftCessna) as
+            Graphics.BitmapType,
+            "chinook" => WatchUi.loadResource(Rez.Drawables.AircraftChinook) as
+            Graphics.BitmapType,
+            "cirrus_sr22" => WatchUi.loadResource(
+                Rez.Drawables.AircraftCirrusSr22
+            ) as Graphics.BitmapType,
+            "dauphin" => WatchUi.loadResource(Rez.Drawables.AircraftDauphin) as
+            Graphics.BitmapType,
+            "e390" => WatchUi.loadResource(Rez.Drawables.AircraftE390) as
+            Graphics.BitmapType,
+            "e3awacs" => WatchUi.loadResource(Rez.Drawables.AircraftE3awacs) as
+            Graphics.BitmapType,
+            "e737" => WatchUi.loadResource(Rez.Drawables.AircraftE737) as
+            Graphics.BitmapType,
+            "f18" => WatchUi.loadResource(Rez.Drawables.AircraftF18) as
+            Graphics.BitmapType,
+            "f35" => WatchUi.loadResource(Rez.Drawables.AircraftF35) as
+            Graphics.BitmapType,
+            "f5_tiger" => WatchUi.loadResource(Rez.Drawables.AircraftF5Tiger) as
+            Graphics.BitmapType,
+            "gazelle" => WatchUi.loadResource(Rez.Drawables.AircraftGazelle) as
+            Graphics.BitmapType,
+            "glider" => WatchUi.loadResource(Rez.Drawables.AircraftGlider) as
+            Graphics.BitmapType,
+            "ground_emergency" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGroundEmergency
+            ) as Graphics.BitmapType,
+            "ground_fixed" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGroundFixed
+            ) as Graphics.BitmapType,
+            "ground_service" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGroundService
+            ) as Graphics.BitmapType,
+            "ground_square" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGroundSquare
+            ) as Graphics.BitmapType,
+            "ground_tower" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGroundTower
+            ) as Graphics.BitmapType,
+            "ground_unknown" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGroundUnknown
+            ) as Graphics.BitmapType,
+            "gyrocopter" => WatchUi.loadResource(
+                Rez.Drawables.AircraftGyrocopter
+            ) as Graphics.BitmapType,
+            "heavy_2e" => WatchUi.loadResource(Rez.Drawables.AircraftHeavy2e) as
+            Graphics.BitmapType,
+            "heavy_4e" => WatchUi.loadResource(Rez.Drawables.AircraftHeavy4e) as
+            Graphics.BitmapType,
+            "helicopter" => WatchUi.loadResource(
+                Rez.Drawables.AircraftHelicopter
+            ) as Graphics.BitmapType,
+            "hi_perf" => WatchUi.loadResource(Rez.Drawables.AircraftHiPerf) as
+            Graphics.BitmapType,
+            "hunter" => WatchUi.loadResource(Rez.Drawables.AircraftHunter) as
+            Graphics.BitmapType,
+            "il_62" => WatchUi.loadResource(Rez.Drawables.AircraftIl62) as
+            Graphics.BitmapType,
+            "jet_nonswept" => WatchUi.loadResource(
+                Rez.Drawables.AircraftJetNonswept
+            ) as Graphics.BitmapType,
+            "jet_swept" => WatchUi.loadResource(
+                Rez.Drawables.AircraftJetSwept
+            ) as Graphics.BitmapType,
+            "l159" => WatchUi.loadResource(Rez.Drawables.AircraftL159) as
+            Graphics.BitmapType,
+            "lancaster" => WatchUi.loadResource(
+                Rez.Drawables.AircraftLancaster
+            ) as Graphics.BitmapType,
+            "m326" => WatchUi.loadResource(Rez.Drawables.AircraftM326) as
+            Graphics.BitmapType,
+            "md11" => WatchUi.loadResource(Rez.Drawables.AircraftMd11) as
+            Graphics.BitmapType,
+            "md_a4" => WatchUi.loadResource(Rez.Drawables.AircraftMdA4) as
+            Graphics.BitmapType,
+            "md_f15" => WatchUi.loadResource(Rez.Drawables.AircraftMdF15) as
+            Graphics.BitmapType,
+            "mil24" => WatchUi.loadResource(Rez.Drawables.AircraftMil24) as
+            Graphics.BitmapType,
+            "mirage" => WatchUi.loadResource(Rez.Drawables.AircraftMirage) as
+            Graphics.BitmapType,
+            "miragef1" => WatchUi.loadResource(
+                Rez.Drawables.AircraftMiragef1
+            ) as Graphics.BitmapType,
+            "p3_orion" => WatchUi.loadResource(Rez.Drawables.AircraftP3Orion) as
+            Graphics.BitmapType,
+            "p8" => WatchUi.loadResource(Rez.Drawables.AircraftP8) as
+            Graphics.BitmapType,
+            "pa24" => WatchUi.loadResource(Rez.Drawables.AircraftPa24) as
+            Graphics.BitmapType,
+            "para" => WatchUi.loadResource(Rez.Drawables.AircraftPara) as
+            Graphics.BitmapType,
+            "puma" => WatchUi.loadResource(Rez.Drawables.AircraftPuma) as
+            Graphics.BitmapType,
+            "rafale" => WatchUi.loadResource(Rez.Drawables.AircraftRafale) as
+            Graphics.BitmapType,
+            "rutan_veze" => WatchUi.loadResource(
+                Rez.Drawables.AircraftRutanVeze
+            ) as Graphics.BitmapType,
+            "s61" => WatchUi.loadResource(Rez.Drawables.AircraftS61) as
+            Graphics.BitmapType,
+            "sb39" => WatchUi.loadResource(Rez.Drawables.AircraftSb39) as
+            Graphics.BitmapType,
+            "single_turbo" => WatchUi.loadResource(
+                Rez.Drawables.AircraftSingleTurbo
+            ) as Graphics.BitmapType,
+            "strato" => WatchUi.loadResource(Rez.Drawables.AircraftStrato) as
+            Graphics.BitmapType,
+            "super_guppy" => WatchUi.loadResource(
+                Rez.Drawables.AircraftSuperGuppy
+            ) as Graphics.BitmapType,
+            "t38" => WatchUi.loadResource(Rez.Drawables.AircraftT38) as
+            Graphics.BitmapType,
+            "tiger" => WatchUi.loadResource(Rez.Drawables.AircraftTiger) as
+            Graphics.BitmapType,
+            "tornado" => WatchUi.loadResource(Rez.Drawables.AircraftTornado) as
+            Graphics.BitmapType,
+            "twin_large" => WatchUi.loadResource(
+                Rez.Drawables.AircraftTwinLarge
+            ) as Graphics.BitmapType,
+            "twin_small" => WatchUi.loadResource(
+                Rez.Drawables.AircraftTwinSmall
+            ) as Graphics.BitmapType,
+            "typhoon" => WatchUi.loadResource(Rez.Drawables.AircraftTyphoon) as
+            Graphics.BitmapType,
+            "u2" => WatchUi.loadResource(Rez.Drawables.AircraftU2) as
+            Graphics.BitmapType,
+            "uav" => WatchUi.loadResource(Rez.Drawables.AircraftUav) as
+            Graphics.BitmapType,
+            "unknown" => WatchUi.loadResource(Rez.Drawables.AircraftUnknown) as
+            Graphics.BitmapType,
+            "v22_fast" => WatchUi.loadResource(Rez.Drawables.AircraftV22Fast) as
+            Graphics.BitmapType,
+            "v22_slow" => WatchUi.loadResource(Rez.Drawables.AircraftV22Slow) as
+            Graphics.BitmapType,
+            "verhees" => WatchUi.loadResource(Rez.Drawables.AircraftVerhees) as
+            Graphics.BitmapType,
+            "wb57" => WatchUi.loadResource(Rez.Drawables.AircraftWb57) as
+            Graphics.BitmapType,
         };
+
+        // Monospace font, so one char's width is every char's width - same _charW pattern as ../TerminalWatchface.
+        _charW = dc.getTextWidthInPixels("0", _fontTiny);
+        _charH = dc.getFontHeight(_fontTiny);
+        _edgeMargin = _charW * 2;
+        _gridLabelInset = _charH + _charW;
+        _topPanelLineHeight = _charH + 4;
+        _detailPanelLineHeight = _charH + 4;
+        _labelOverlapMarginPx = _charW / 2;
+        _labelLineGapPx = _charH / 8;
+        _labelVoffsetBase = _charH.toFloat() * 1.3;
+        _chevronMarginPx = _charH + 6;
+        _segmentGapPx = _charW;
     }
 
     // A single recurring Timer, not two - a second always-on one alongside the poll timer hit Connect IQ's "Too Many Timers" limit.
@@ -503,14 +644,21 @@ class RadarView extends WatchUi.View {
         deselectAircraft();
     }
 
-    // True (and opens full detail) if (x,y) is inside the detail panel - it spans the full width, so only Y matters.
+    // True (and opens full detail) if (x,y) is within the chevron's own tap zone, not the full panel width.
     public function tryOpenDetailPanel(x as Number, y as Number) as Boolean {
         var ac = _selectedAircraft();
         if (ac == null) {
             return false;
         }
         var panelH = _detailPanelHeight(ac as Aircraft);
-        if (panelH == 0 || y < _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX) {
+        if (
+            panelH == 0 ||
+            y < _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX
+        ) {
+            return false;
+        }
+        var cx = _lastScreenHeight / 2;
+        if ((x - cx).abs() > CHEVRON_TAP_HALF_WIDTH_PX) {
             return false;
         }
         openFullDetail();
@@ -535,11 +683,13 @@ class RadarView extends WatchUi.View {
             _colorForAircraft(ac as Aircraft),
             built[0] as Array<Array<[String, String, Number]> >,
             built[1] as Number,
+            built[2] as Number,
+            built[3] as Array<Boolean>,
             ringCx,
             ringCx,
             _lastRadiusPx,
             _topPanelHeight(),
-            _detailPanelHeight(ac as Aircraft)
+            _topPanelHeight() // bottom band matches the header's own height, not the (variable) compact panel height
         );
         _detailView = view;
         WatchUi.pushView(
@@ -586,11 +736,31 @@ class RadarView extends WatchUi.View {
 
         if (ok) {
             _routeFetchRetried = false;
-            var resolved = dep != null || arr != null;
-            (view as AircraftDetailView).setRouteText(
-                _formatRoute(dep, arr),
-                resolved ? COLOR_SUCCESS : COLOR_ROUTE_DIM
-            );
+            _airportFetchHex = fetchedHex;
+            _pendingDepIcao = dep;
+            _pendingArrIcao = arr;
+            if (dep != null) {
+                _airportClient.fetchInfo(
+                    dep as String,
+                    method(:_onAirportInfoResult)
+                );
+            } else {
+                (view as AircraftDetailView).setDepartureText(
+                    "Unknown",
+                    COLOR_ROUTE_DIM
+                );
+            }
+            if (arr != null) {
+                _airportClient.fetchInfo(
+                    arr as String,
+                    method(:_onAirportInfoResult)
+                );
+            } else {
+                (view as AircraftDetailView).setArrivalText(
+                    "Unknown",
+                    COLOR_ROUTE_DIM
+                );
+            }
             return;
         }
 
@@ -599,14 +769,50 @@ class RadarView extends WatchUi.View {
             _fetchSelectedRoute();
             return;
         }
-        (view as AircraftDetailView).setRouteText("Unavailable", COLOR_ROUTE_DIM);
+        (view as AircraftDetailView).setDepartureText(
+            "Unavailable",
+            COLOR_ROUTE_DIM
+        );
+        (view as AircraftDetailView).setArrivalText(
+            "Unavailable",
+            COLOR_ROUTE_DIM
+        );
     }
 
-    private function _formatRoute(dep as String?, arr as String?) as String {
-        if (dep == null && arr == null) {
-            return "Unknown";
+    // Public so method(:_onAirportInfoResult) isn't optimized away as an unreferenced private symbol.
+    // Checks both pending slots - icao alone doesn't say dep vs arr (touch-and-go can have dep==arr).
+    public function _onAirportInfoResult(
+        icao as String,
+        text as String?
+    ) as Void {
+        var view = _detailView;
+        if (view == null) {
+            return;
         }
-        return (dep != null ? dep : "?") + " -> " + (arr != null ? arr : "?");
+        var stillRelevant =
+            _airportFetchHex != null &&
+            _selectedHex != null &&
+            (_airportFetchHex as String).equals(_selectedHex as String);
+        if (!stillRelevant) {
+            return;
+        }
+
+        var color = text != null ? COLOR_SUCCESS : COLOR_ROUTE_DIM;
+        var display = text != null ? text as String : icao;
+        if (
+            _pendingDepIcao != null &&
+            (_pendingDepIcao as String).equals(icao)
+        ) {
+            _pendingDepIcao = null;
+            (view as AircraftDetailView).setDepartureText(display, color);
+        }
+        if (
+            _pendingArrIcao != null &&
+            (_pendingArrIcao as String).equals(icao)
+        ) {
+            _pendingArrIcao = null;
+            (view as AircraftDetailView).setArrivalText(display, color);
+        }
     }
 
     // Called from AircraftDetailDelegate once the pushed view is popped, so a late route result has nothing left to update.
@@ -748,7 +954,7 @@ class RadarView extends WatchUi.View {
         var h = dc.getHeight();
         var cx = w / 2;
         var cy = h / 2;
-        var radiusPx = (w < h ? w : h) / 2 - EDGE_MARGIN;
+        var radiusPx = (w < h ? w : h) / 2 - _edgeMargin;
         var radiusKm = Settings.zoomRadiusKm();
         _lastRadiusPx = radiusPx;
         _lastScreenHeight = h;
@@ -867,15 +1073,7 @@ class RadarView extends WatchUi.View {
         dc.setStroke(_withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawCircle(cx, cy, radiusPx);
         // White, not the usual dim grid-label grey - this is the actual current zoom level, not a secondary reference ring.
-        _drawRingLabel(
-            dc,
-            cx,
-            cy,
-            radiusPx,
-            radiusKm,
-            topPanelH,
-            COLORS[0]
-        );
+        _drawRingLabel(dc, cx, cy, radiusPx, radiusKm, topPanelH, COLORS[0]);
 
         if (Settings.showRangeRings) {
             for (var deg = 0; deg < 360; deg += 30) {
@@ -1074,7 +1272,7 @@ class RadarView extends WatchUi.View {
     }
 
     private function _topPanelHeight() as Number {
-        return _topPanelLines().size() * TOP_PANEL_LINE_HEIGHT + 8;
+        return _topPanelLines().size() * _topPanelLineHeight + 8;
     }
 
     private function _drawTopPanel(
@@ -1084,7 +1282,7 @@ class RadarView extends WatchUi.View {
         radiusPx as Number
     ) as Void {
         var lines = _topPanelLines();
-        var panelH = lines.size() * TOP_PANEL_LINE_HEIGHT + 8;
+        var panelH = lines.size() * _topPanelLineHeight + 8;
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(0, 0, dc.getWidth(), panelH);
@@ -1094,7 +1292,7 @@ class RadarView extends WatchUi.View {
             dc.setColor(line[1] as Number, Graphics.COLOR_TRANSPARENT);
             dc.drawText(
                 cx,
-                4 + i * TOP_PANEL_LINE_HEIGHT,
+                4 + i * _topPanelLineHeight,
                 _fontTiny,
                 line[0] as String,
                 Graphics.TEXT_JUSTIFY_CENTER
@@ -1105,7 +1303,7 @@ class RadarView extends WatchUi.View {
             _drawFetchSpinner(
                 dc,
                 dc.getWidth() - 12,
-                TOP_PANEL_LINE_HEIGHT / 2 + 4
+                _topPanelLineHeight / 2 + 4
             );
         }
 
@@ -1191,7 +1389,7 @@ class RadarView extends WatchUi.View {
             if (pt[1] > topPanelH && pt[1] < bottomLimitY) {
                 _drawGridLabel(
                     dc,
-                    cx - halfW + GRID_LABEL_INSET,
+                    cx - halfW + _gridLabelInset,
                     pt[1],
                     _formatLat(lat, false),
                     COLOR_GRID_LABEL
@@ -1375,7 +1573,7 @@ class RadarView extends WatchUi.View {
     }
 
     private function _withAlpha(color as Number, alpha as Number) as Number {
-        return (alpha << 24) | (color & 0xffffff);
+        return DrawUtil.withAlpha(color, alpha);
     }
 
     // Half-length of the chord of the radar circle at a given perpendicular offset from center.
@@ -1383,9 +1581,7 @@ class RadarView extends WatchUi.View {
         radiusPx as Number,
         offsetPx as Number
     ) as Number {
-        return Math.sqrt(
-            (radiusPx * radiusPx - offsetPx * offsetPx).toFloat()
-        ).toNumber();
+        return DrawUtil.chordHalfExtent(radiusPx, offsetPx);
     }
 
     // Degrees of latitude spanning a given km distance - constant everywhere, unlike longitude.
@@ -1445,6 +1641,15 @@ class RadarView extends WatchUi.View {
         return (r << 16) | (g << 8) | b;
     }
 
+    // Auto-hides on top of the user's own Settings while "too busy" - reverts once a normal response returns.
+    private function _effectiveShowGroundVehicles() as Boolean {
+        return Settings.showGroundVehicles && !_lastFetchTooMuchData;
+    }
+
+    private function _effectiveHideGroundedPlanes() as Boolean {
+        return Settings.hideGroundedPlanes || _lastFetchTooMuchData;
+    }
+
     private function _drawAircraft(
         dc as Dc,
         focusLat as Float,
@@ -1475,14 +1680,14 @@ class RadarView extends WatchUi.View {
             // Selection overrides the decluttering filters below - a selected aircraft always draws.
             if (!isSelected) {
                 var isGroundVehicle = ac.isGroundVehicle();
-                if (!Settings.showGroundVehicles && isGroundVehicle) {
+                if (!_effectiveShowGroundVehicles() && isGroundVehicle) {
                     continue;
                 }
                 if (Settings.hideObstacles && ac.isObstacle()) {
                     continue;
                 }
                 if (
-                    Settings.hideGroundedPlanes &&
+                    _effectiveHideGroundedPlanes() &&
                     ac.onGround &&
                     !isGroundVehicle
                 ) {
@@ -1518,13 +1723,12 @@ class RadarView extends WatchUi.View {
                 );
             }
 
-            // Drawn before the icon itself, so the real icon paints over the outline's interior.
-            if (ac.isEmergency()) {
-                _drawIconHalo(dc, pos[0], pos[1], ac, COLOR_EMERGENCY);
-            }
             _drawAircraftIcon(dc, pos[0], pos[1], ac);
             if (Settings.showVertRateChevron) {
                 _drawVertRateChevron(dc, pos[0], pos[1], ac);
+            }
+            if (ac.isEmergency()) {
+                _drawEmergencyBadge(dc, pos[0], pos[1], ac);
             }
 
             // Reserved for every aircraft, ahead of the label pass - a label must never cover any icon or clip any climb/descend chevron, not just the selected one's.
@@ -1537,6 +1741,9 @@ class RadarView extends WatchUi.View {
                         chevronRect as [Number, Number, Number, Number]
                     );
                 }
+            }
+            if (ac.isEmergency()) {
+                _reserveRect(ac.hex, _emergencyBadgeRect(pos[0], pos[1], ac));
             }
 
             if (isSelected) {
@@ -1639,12 +1846,12 @@ class RadarView extends WatchUi.View {
         y as Number,
         ac as Aircraft
     ) as Void {
-        if (ac.isEmergency()) {
-            _drawIconHalo(dc, x, y, ac, COLOR_EMERGENCY);
-        }
         _drawAircraftIcon(dc, x, y, ac);
         if (Settings.showVertRateChevron) {
             _drawVertRateChevron(dc, x, y, ac);
+        }
+        if (ac.isEmergency()) {
+            _drawEmergencyBadge(dc, x, y, ac);
         }
         _drawSelectionReticle(dc, x, y, ac);
     }
@@ -1741,201 +1948,13 @@ class RadarView extends WatchUi.View {
     // A position this old hasn't actually moved across several poll cycles - likely a fringe-of-coverage ghost.
     private const STALE_POSITION_SEC = 15.0;
     private const STALE_DIM_FACTOR = 0.55;
-    // 0.34 * (2.0/3.0): source PNGs render at 3px/unit now (was 2px/unit) for more retained detail, compensated here so on-screen size is unchanged.
+    // Compensated for source PNGs now rendering at 3px/unit (was 2px/unit) - on-screen size unchanged.
     private const ICON_BASE_SCALE = 0.226667;
     private const ICON_RECT_MARGIN = 2;
 
-    // Half-diagonal (content px, scale 1.0) of each shape's actual rendered art bbox - content size varies far more across this 89-shape tar1090 roster than the old 28, so this is genuinely per-shape, not a shared constant.
-    private const ICON_HALF_DIAGONAL as Dictionary<String, Float> = {
-        "a10" => 49.5,
-        "a225" => 76.0,
-        "a319" => 67.5,
-        "a320" => 64.8,
-        "a321" => 60.9,
-        "a332" => 65.1,
-        "a359" => 65.8,
-        "a380" => 85.6,
-        "a400" => 69.4,
-        "airliner" => 64.8,
-        "alpha_jet" => 55.6,
-        "apache" => 57.3,
-        "asterisk" => 22.6,
-        "b1b_lancer" => 65.8,
-        "b52" => 77.8,
-        "b707" => 67.2,
-        "b737" => 67.5,
-        "b738" => 62.8,
-        "b739" => 61.2,
-        "bae_hawk" => 64.6,
-        "balloon" => 30.9,
-        "beluga" => 55.5,
-        "blackhawk" => 51.6,
-        "blimp" => 50.6,
-        "c130" => 63.1,
-        "c17" => 67.5,
-        "c2" => 58.2,
-        "c5" => 64.8,
-        "cessna" => 48.0,
-        "chinook" => 56.9,
-        "cirrus_sr22" => 46.5,
-        "dauphin" => 51.3,
-        "e390" => 66.8,
-        "e3awacs" => 75.3,
-        "e737" => 67.9,
-        "f18" => 47.1,
-        "f35" => 58.2,
-        "f5_tiger" => 49.1,
-        "gazelle" => 52.5,
-        "glider" => 54.6,
-        "ground_emergency" => 29.5,
-        "ground_fixed" => 25.5,
-        "ground_service" => 29.5,
-        "ground_square" => 23.3,
-        "ground_tower" => 42.0,
-        "ground_unknown" => 29.5,
-        "gyrocopter" => 48.7,
-        "heavy_2e" => 67.7,
-        "heavy_4e" => 69.4,
-        "helicopter" => 53.1,
-        "hi_perf" => 58.5,
-        "hunter" => 48.3,
-        "il_62" => 57.3,
-        "jet_nonswept" => 46.7,
-        "jet_swept" => 46.8,
-        "l159" => 52.5,
-        "lancaster" => 50.5,
-        "m326" => 52.3,
-        "md11" => 73.9,
-        "md_a4" => 46.6,
-        "md_f15" => 50.5,
-        "mil24" => 62.2,
-        "mirage" => 49.9,
-        "miragef1" => 60.2,
-        "p3_orion" => 56.6,
-        "p8" => 66.5,
-        "pa24" => 58.3,
-        "para" => 38.8,
-        "puma" => 50.2,
-        "rafale" => 46.8,
-        "rutan_veze" => 50.7,
-        "s61" => 55.6,
-        "sb39" => 52.0,
-        "single_turbo" => 50.2,
-        "strato" => 69.2,
-        "super_guppy" => 57.7,
-        "t38" => 47.9,
-        "tiger" => 53.7,
-        "tornado" => 49.3,
-        "twin_large" => 51.6,
-        "twin_small" => 49.0,
-        "typhoon" => 45.1,
-        "u2" => 56.6,
-        "uav" => 48.4,
-        "unknown" => 46.0,
-        "v22_fast" => 50.5,
-        "v22_slow" => 50.8,
-        "verhees" => 53.1,
-        "wb57" => 48.6,
-    };
-
-    // [canvasHalfW, canvasHalfH] per shape - the AffineTransform rotation pivot. Canvases are sized per-shape (content + a few px margin), not one shared square, so this can't be a single constant either.
-    private const ICON_PIVOT as Dictionary<String, [Float, Float]> = {
-        "a10" => [42.0, 40.0] as [Float, Float],
-        "a225" => [60.0, 60.0] as [Float, Float],
-        "a319" => [54.0, 54.0] as [Float, Float],
-        "a320" => [50.0, 54.0] as [Float, Float],
-        "a321" => [44.0, 54.0] as [Float, Float],
-        "a332" => [53.0, 52.0] as [Float, Float],
-        "a359" => [52.0, 53.0] as [Float, Float],
-        "a380" => [69.0, 64.0] as [Float, Float],
-        "a400" => [53.0, 57.0] as [Float, Float],
-        "airliner" => [50.0, 54.0] as [Float, Float],
-        "alpha_jet" => [43.0, 48.0] as [Float, Float],
-        "apache" => [40.0, 53.0] as [Float, Float],
-        "asterisk" => [22.0, 23.0] as [Float, Float],
-        "b1b_lancer" => [51.0, 54.0] as [Float, Float],
-        "b52" => [66.0, 56.0] as [Float, Float],
-        "b707" => [54.0, 53.0] as [Float, Float],
-        "b737" => [54.0, 54.0] as [Float, Float],
-        "b738" => [47.0, 54.0] as [Float, Float],
-        "b739" => [44.0, 54.0] as [Float, Float],
-        "bae_hawk" => [48.0, 56.0] as [Float, Float],
-        "balloon" => [24.0, 32.0] as [Float, Float],
-        "beluga" => [41.0, 50.0] as [Float, Float],
-        "blackhawk" => [36.0, 48.0] as [Float, Float],
-        "blimp" => [22.0, 54.0] as [Float, Float],
-        "c130" => [59.0, 41.0] as [Float, Float],
-        "c17" => [54.0, 54.0] as [Float, Float],
-        "c2" => [54.0, 39.0] as [Float, Float],
-        "c5" => [50.0, 54.0] as [Float, Float],
-        "cessna" => [45.0, 34.0] as [Float, Float],
-        "chinook" => [37.0, 54.0] as [Float, Float],
-        "cirrus_sr22" => [44.0, 34.0] as [Float, Float],
-        "dauphin" => [36.0, 48.0] as [Float, Float],
-        "e390" => [54.0, 53.0] as [Float, Float],
-        "e3awacs" => [59.0, 60.0] as [Float, Float],
-        "e737" => [54.0, 54.0] as [Float, Float],
-        "f18" => [35.0, 44.0] as [Float, Float],
-        "f35" => [39.0, 54.0] as [Float, Float],
-        "f5_tiger" => [32.0, 48.0] as [Float, Float],
-        "gazelle" => [38.0, 48.0] as [Float, Float],
-        "glider" => [56.0, 29.0] as [Float, Float],
-        "ground_emergency" => [18.0, 33.0] as [Float, Float],
-        "ground_fixed" => [24.0, 24.0] as [Float, Float],
-        "ground_service" => [18.0, 33.0] as [Float, Float],
-        "ground_square" => [23.0, 23.0] as [Float, Float],
-        "ground_tower" => [39.0, 32.0] as [Float, Float],
-        "ground_unknown" => [18.0, 33.0] as [Float, Float],
-        "gyrocopter" => [47.0, 33.0] as [Float, Float],
-        "heavy_2e" => [51.0, 57.0] as [Float, Float],
-        "heavy_4e" => [53.0, 57.0] as [Float, Float],
-        "helicopter" => [37.0, 50.0] as [Float, Float],
-        "hi_perf" => [40.0, 54.0] as [Float, Float],
-        "hunter" => [35.0, 45.0] as [Float, Float],
-        "il_62" => [42.0, 51.0] as [Float, Float],
-        "jet_nonswept" => [39.0, 39.0] as [Float, Float],
-        "jet_swept" => [34.0, 44.0] as [Float, Float],
-        "l159" => [38.0, 48.0] as [Float, Float],
-        "lancaster" => [48.0, 34.0] as [Float, Float],
-        "m326" => [44.0, 43.0] as [Float, Float],
-        "md11" => [53.0, 63.0] as [Float, Float],
-        "md_a4" => [32.0, 45.0] as [Float, Float],
-        "md_f15" => [34.0, 48.0] as [Float, Float],
-        "mil24" => [46.0, 54.0] as [Float, Float],
-        "mirage" => [33.0, 48.0] as [Float, Float],
-        "miragef1" => [36.0, 59.0] as [Float, Float],
-        "p3_orion" => [44.0, 48.0] as [Float, Float],
-        "p8" => [52.0, 54.0] as [Float, Float],
-        "pa24" => [51.0, 43.0] as [Float, Float],
-        "para" => [44.0, 16.0] as [Float, Float],
-        "puma" => [34.0, 48.0] as [Float, Float],
-        "rafale" => [34.0, 44.0] as [Float, Float],
-        "rutan_veze" => [47.0, 37.0] as [Float, Float],
-        "s61" => [43.0, 48.0] as [Float, Float],
-        "sb39" => [35.0, 50.0] as [Float, Float],
-        "single_turbo" => [41.0, 42.0] as [Float, Float],
-        "strato" => [66.0, 41.0] as [Float, Float],
-        "super_guppy" => [48.0, 46.0] as [Float, Float],
-        "t38" => [29.0, 48.0] as [Float, Float],
-        "tiger" => [40.0, 48.0] as [Float, Float],
-        "tornado" => [38.0, 44.0] as [Float, Float],
-        "twin_large" => [44.0, 42.0] as [Float, Float],
-        "twin_small" => [44.0, 38.0] as [Float, Float],
-        "typhoon" => [31.0, 44.0] as [Float, Float],
-        "u2" => [54.0, 36.0] as [Float, Float],
-        "uav" => [48.0, 30.0] as [Float, Float],
-        "unknown" => [39.0, 38.0] as [Float, Float],
-        "v22_fast" => [48.0, 34.0] as [Float, Float],
-        "v22_slow" => [48.0, 35.0] as [Float, Float],
-        "verhees" => [48.0, 39.0] as [Float, Float],
-        "wb57" => [48.0, 31.0] as [Float, Float],
-    };
-
+    // Per-shape tables/classification live in AircraftClassifier - just a rendering-facing wrapper here.
     private function _iconHalfExtent(ac as Aircraft) as Number {
-        var diag = ICON_HALF_DIAGONAL[_shapeKeyForAircraft(ac)];
-        var srcHalf = diag != null ? diag as Float : 30.0;
-        var scale = ICON_BASE_SCALE * _sizeScaleForAircraft(ac);
-        return (srcHalf * scale).toNumber();
+        return AircraftClassifier.iconHalfExtent(ac, ICON_BASE_SCALE);
     }
 
     private function _iconRect(
@@ -1969,41 +1988,61 @@ class RadarView extends WatchUi.View {
         ) {
             color = _dimColor(color, STALE_DIM_FACTOR);
         }
-        _drawIconVariant(dc, x, y, ac, color, 0, 0);
+        _drawIconVariant(dc, x, y, ac, color);
     }
 
-    private const OUTLINE_PX = 2.0;
-    // 8-direction offset-blit of the same bitmap, not a second dilated asset - see icon_rendering_history memory for why uniform scaling was rejected.
-    private const OUTLINE_OFFSETS as Array<[Float, Float]> = [
-        [1.0, 0.0],
-        [-1.0, 0.0],
-        [0.0, 1.0],
-        [0.0, -1.0],
-        [0.7071, 0.7071],
-        [0.7071, -0.7071],
-        [-0.7071, 0.7071],
-        [-0.7071, -0.7071],
-    ] as Array<[Float, Float]>;
+    // Fixed corner offset, not centered on the icon - centered markers looked off-center against asymmetric icons.
+    private const EMERGENCY_BADGE_R = 7;
+    private const EMERGENCY_BADGE_MARGIN = 2;
+    // Extra separation beyond the shared icon-marker clearance, specific to this badge.
+    private const EMERGENCY_BADGE_EXTRA_CLEARANCE = 10;
+    private const DIAGONAL_FACTOR = 0.7071;
 
-    private function _drawIconHalo(
+    private function _emergencyBadgeCenter(
+        x as Number,
+        y as Number,
+        ac as Aircraft
+    ) as [Number, Number] {
+        var r = (
+            _iconHalfExtent(ac) +
+            ICON_MARKER_CLEARANCE +
+            EMERGENCY_BADGE_EXTRA_CLEARANCE
+        ).toFloat();
+        return (
+            [
+                (x - r * DIAGONAL_FACTOR).toNumber(),
+                (y - r * DIAGONAL_FACTOR).toNumber(),
+            ] as [Number, Number]
+        );
+    }
+
+    private function _drawEmergencyBadge(
         dc as Dc,
         x as Number,
         y as Number,
-        ac as Aircraft,
-        color as Number
+        ac as Aircraft
     ) as Void {
-        for (var i = 0; i < OUTLINE_OFFSETS.size(); i++) {
-            var off = OUTLINE_OFFSETS[i];
-            _drawIconVariant(
-                dc,
-                x,
-                y,
-                ac,
-                color,
-                (off[0] * OUTLINE_PX).toNumber(),
-                (off[1] * OUTLINE_PX).toNumber()
-            );
-        }
+        var c = _emergencyBadgeCenter(x, y, ac);
+        DrawUtil.drawWarningIcon(
+            dc,
+            c[0],
+            c[1],
+            EMERGENCY_BADGE_R,
+            COLOR_EMERGENCY
+        );
+    }
+
+    private function _emergencyBadgeRect(
+        x as Number,
+        y as Number,
+        ac as Aircraft
+    ) as [Number, Number, Number, Number] {
+        var c = _emergencyBadgeCenter(x, y, ac);
+        var r = EMERGENCY_BADGE_R + EMERGENCY_BADGE_MARGIN;
+        return (
+            [c[0] - r, c[1] - r, c[0] + r, c[1] + r] as
+            [Number, Number, Number, Number]
+        );
     }
 
     private const SELECTION_ARROW_LEN = 7.0;
@@ -2064,27 +2103,25 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Rotated bitmap + AffineTransform, tinted via :tintColor. offsetX/Y let _drawIconHalo reuse this call shifted a few px - no default-parameter syntax in Monkey C, so plain draws just pass 0, 0.
+    // Rotated bitmap + AffineTransform, tinted via :tintColor.
     private function _drawIconVariant(
         dc as Dc,
         x as Number,
         y as Number,
         ac as Aircraft,
-        color as Number,
-        offsetX as Number,
-        offsetY as Number
+        color as Number
     ) as Void {
         var track = ac.track;
         var theta = track != null ? Math.toRadians(track) : 0.0;
 
         var scale = ICON_BASE_SCALE * _sizeScaleForAircraft(ac);
         var shape = _shapeKeyForAircraft(ac);
-        var pivot = ICON_PIVOT[shape];
+        var pivot = AircraftClassifier.ICON_PIVOT[shape];
         var halfW = pivot != null ? (pivot as [Float, Float])[0] : 30.0;
         var halfH = pivot != null ? (pivot as [Float, Float])[1] : 30.0;
 
         var tf = new Graphics.AffineTransform();
-        tf.translate((x + offsetX).toFloat(), (y + offsetY).toFloat());
+        tf.translate(x.toFloat(), y.toFloat());
         tf.rotate(theta);
         tf.scale(scale, scale);
         tf.translate(-halfW, -halfH);
@@ -2162,539 +2199,17 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Not exhaustive - just a safety net so a typeCode-recognizable jet with missing category isn't misclassified as light. MTOW-verified real DO-260B tier (75,000-300,000lbs), not guessed.
-    private const LARGE_TYPE_CODES as Array<String> = [
-        "A319",
-        "A320",
-        "A321",
-        "A332",
-        "A333",
-        "A338",
-        "A339",
-        "B737",
-        "B738",
-        "B739",
-        "B37M",
-        "B38M",
-        "B39M",
-        "B752",
-        "B753",
-        "C130",
-    ];
-
-    // MTOW-verified >300,000lbs (real DO-260B A5 threshold) - includes large military transports, which commonly omit category entirely, unlike this list's civilian entries.
-    private const SUPER_HEAVY_TYPE_CODES as Array<String> = [
-        "B762",
-        "B763",
-        "B764",
-        "B772",
-        "B773",
-        "B77L",
-        "B77W",
-        "B788",
-        "B789",
-        "B78X",
-        "B742",
-        "B743",
-        "B744",
-        "B748",
-        "A342",
-        "A343",
-        "A345",
-        "A346",
-        "A388",
-        "MD11",
-        "C5M",
-        "C17",
-        "K35R",
-    ];
-
-    // Exact ICAO type designator -> tar1090 icon shape key, from icao_type_designator_to_icon.csv - checked before category.
-    private const TYPE_TO_ICON as Dictionary<String, String> = {
-        "SHIP" => "blimp",
-        "BALL" => "balloon",
-        "A318" => "a319",
-        "A319" => "a319",
-        "A19N" => "a319",
-        "A320" => "a320",
-        "A20N" => "a320",
-        "A321" => "a321",
-        "A21N" => "a321",
-        "A306" => "heavy_2e",
-        "A330" => "a332",
-        "A332" => "a332",
-        "A333" => "a332",
-        "A338" => "a332",
-        "A339" => "a332",
-        "DC10" => "md11",
-        "MD11" => "md11",
-        "A359" => "a359",
-        "A35K" => "a359",
-        "A388" => "a380",
-        "B731" => "b737",
-        "B732" => "b737",
-        "B735" => "b737",
-        "B733" => "b737",
-        "B734" => "b737",
-        "B736" => "b737",
-        "B737" => "b737",
-        "B738" => "b738",
-        "B739" => "b739",
-        "B37M" => "b737",
-        "B38M" => "b738",
-        "B39M" => "b739",
-        "B3XM" => "b739",
-        "P8" => "p8",
-        "E737" => "e737",
-        "J328" => "airliner",
-        "E170" => "airliner",
-        "E75S/L" => "airliner",
-        "E75L" => "airliner",
-        "E75S" => "airliner",
-        "A148" => "airliner",
-        "RJ70" => "b707",
-        "RJ85" => "b707",
-        "RJ1H" => "b707",
-        "B461" => "b707",
-        "B462" => "b707",
-        "B463" => "b707",
-        "E190" => "airliner",
-        "E195" => "airliner",
-        "E290" => "airliner",
-        "E295" => "airliner",
-        "BCS1" => "airliner",
-        "BCS3" => "airliner",
-        "B741" => "heavy_4e",
-        "B742" => "heavy_4e",
-        "B743" => "heavy_4e",
-        "B744" => "heavy_4e",
-        "B74D" => "heavy_4e",
-        "B74S" => "heavy_4e",
-        "B74R" => "heavy_4e",
-        "BLCF" => "heavy_4e",
-        "BSCA" => "heavy_4e",
-        "B748" => "heavy_4e",
-        "B752" => "heavy_2e",
-        "B753" => "heavy_2e",
-        "B772" => "heavy_2e",
-        "B773" => "heavy_2e",
-        "B77L" => "heavy_2e",
-        "B77W" => "heavy_2e",
-        "B701" => "b707",
-        "B703" => "b707",
-        "K35R" => "b707",
-        "K35E" => "b707",
-        "FA20" => "jet_swept",
-        "C680" => "jet_swept",
-        "C68A" => "jet_swept",
-        "YK40" => "jet_swept",
-        "C750" => "jet_swept",
-        "F2TH" => "jet_swept",
-        "FA50" => "jet_swept",
-        "CL30" => "jet_swept",
-        "CL35" => "jet_swept",
-        "F900" => "jet_swept",
-        "CL60" => "jet_swept",
-        "G200" => "jet_swept",
-        "G280" => "jet_swept",
-        "HA4T" => "jet_swept",
-        "FA7X" => "jet_swept",
-        "FA8X" => "jet_swept",
-        "FA6X" => "jet_swept",
-        "GLF2" => "jet_swept",
-        "GLF3" => "jet_swept",
-        "GLF4" => "jet_swept",
-        "GA5C" => "jet_swept",
-        "GL5T" => "jet_swept",
-        "GLF5" => "jet_swept",
-        "GA6C" => "jet_swept",
-        "GLEX" => "jet_swept",
-        "GL6T" => "jet_swept",
-        "GLF6" => "jet_swept",
-        "GA7C" => "jet_swept",
-        "GA8C" => "jet_swept",
-        "GL7T" => "jet_swept",
-        "E135" => "jet_swept",
-        "E35L" => "jet_swept",
-        "E145" => "jet_swept",
-        "E45X" => "jet_swept",
-        "E390" => "e390",
-        "CRJ1" => "jet_swept",
-        "CRJ2" => "jet_swept",
-        "F28" => "jet_swept",
-        "CRJ7" => "jet_swept",
-        "CRJ9" => "jet_swept",
-        "F70" => "jet_swept",
-        "CRJX" => "jet_swept",
-        "F100" => "jet_swept",
-        "DC91" => "jet_swept",
-        "DC92" => "jet_swept",
-        "DC93" => "jet_swept",
-        "DC94" => "jet_swept",
-        "DC95" => "jet_swept",
-        "MD80" => "jet_swept",
-        "MD81" => "jet_swept",
-        "MD82" => "jet_swept",
-        "MD83" => "jet_swept",
-        "MD87" => "jet_swept",
-        "MD88" => "jet_swept",
-        "MD90" => "jet_swept",
-        "B712" => "jet_swept",
-        "B721" => "jet_swept",
-        "B722" => "jet_swept",
-        "T154" => "jet_swept",
-        "BE40" => "jet_nonswept",
-        "FA10" => "jet_nonswept",
-        "C501" => "jet_nonswept",
-        "C510" => "jet_nonswept",
-        "C25A" => "jet_nonswept",
-        "C25B" => "jet_nonswept",
-        "C25C" => "jet_nonswept",
-        "C525" => "jet_nonswept",
-        "C550" => "jet_nonswept",
-        "C560" => "jet_nonswept",
-        "C56X" => "jet_nonswept",
-        "LJ23" => "jet_nonswept",
-        "LJ24" => "jet_nonswept",
-        "LJ25" => "jet_nonswept",
-        "LJ28" => "jet_nonswept",
-        "LJ31" => "jet_nonswept",
-        "LJ35" => "jet_nonswept",
-        "LR35" => "jet_nonswept",
-        "LJ40" => "jet_nonswept",
-        "LJ45" => "jet_nonswept",
-        "LR45" => "jet_nonswept",
-        "LJ55" => "jet_nonswept",
-        "LJ60" => "jet_nonswept",
-        "LJ70" => "jet_nonswept",
-        "LJ75" => "jet_nonswept",
-        "LJ85" => "jet_nonswept",
-        "C650" => "jet_nonswept",
-        "ASTR" => "jet_nonswept",
-        "G150" => "jet_nonswept",
-        "H25A" => "jet_nonswept",
-        "H25B" => "jet_nonswept",
-        "H25C" => "jet_nonswept",
-        "PRM1" => "jet_nonswept",
-        "E55P" => "jet_nonswept",
-        "E50P" => "jet_nonswept",
-        "EA50" => "jet_nonswept",
-        "HDJT" => "jet_nonswept",
-        "SF50" => "jet_nonswept",
-        "C97" => "super_guppy",
-        "SGUP" => "super_guppy",
-        "A3ST" => "beluga",
-        "A337" => "beluga",
-        "WB57" => "wb57",
-        "A37" => "hi_perf",
-        "A700" => "hi_perf",
-        "LEOP" => "hi_perf",
-        "ME62" => "hi_perf",
-        "T2" => "hi_perf",
-        "T37" => "hi_perf",
-        "T38" => "t38",
-        "F104" => "t38",
-        "A10" => "a10",
-        "A3" => "hi_perf",
-        "A6" => "hi_perf",
-        "AJET" => "alpha_jet",
-        "AT3" => "hi_perf",
-        "CKUO" => "hi_perf",
-        "EUFI" => "typhoon",
-        "SB39" => "sb39",
-        "MIR2" => "mirage",
-        "KFIR" => "mirage",
-        "F1" => "hi_perf",
-        "F111" => "hi_perf",
-        "F117" => "hi_perf",
-        "F14" => "hi_perf",
-        "F15" => "md_f15",
-        "F16" => "hi_perf",
-        "F18" => "f18",
-        "F18H" => "f18",
-        "F18S" => "f18",
-        "F22" => "f35",
-        "F22A" => "f35",
-        "F35" => "f35",
-        "VF35" => "f35",
-        "L159" => "l159",
-        "L39" => "l159",
-        "F4" => "hi_perf",
-        "F5" => "f5_tiger",
-        "HUNT" => "hunter",
-        "LANC" => "lancaster",
-        "B17" => "lancaster",
-        "B29" => "lancaster",
-        "J8A" => "hi_perf",
-        "J8B" => "hi_perf",
-        "JH7" => "hi_perf",
-        "LTNG" => "hi_perf",
-        "M346" => "hi_perf",
-        "METR" => "hi_perf",
-        "MG19" => "hi_perf",
-        "MG25" => "hi_perf",
-        "MG29" => "hi_perf",
-        "MG31" => "hi_perf",
-        "MG44" => "hi_perf",
-        "MIR4" => "hi_perf",
-        "MT2" => "hi_perf",
-        "Q5" => "hi_perf",
-        "RFAL" => "rafale",
-        "S3" => "hi_perf",
-        "S37" => "hi_perf",
-        "SR71" => "hi_perf",
-        "SU15" => "hi_perf",
-        "SU24" => "hi_perf",
-        "SU25" => "hi_perf",
-        "SU27" => "hi_perf",
-        "T22M" => "hi_perf",
-        "T4" => "hi_perf",
-        "TOR" => "tornado",
-        "A4" => "md_a4",
-        "TU22" => "hi_perf",
-        "VAUT" => "hi_perf",
-        "Y130" => "hi_perf",
-        "YK28" => "hi_perf",
-        "BE20" => "twin_large",
-        "IL62" => "il_62",
-        "MRF1" => "miragef1",
-        "M326" => "m326",
-        "M339" => "m326",
-        "FOUG" => "m326",
-        "T33" => "m326",
-        "A225" => "a225",
-        "A124" => "b707",
-        "SLCH" => "strato",
-        "WHK2" => "strato",
-        "C130" => "c130",
-        "C30J" => "c130",
-        "P3" => "p3_orion",
-        "PARA" => "para",
-        "DRON" => "uav",
-        "Q1" => "uav",
-        "Q4" => "uav",
-        "Q9" => "uav",
-        "Q25" => "uav",
-        "HRON" => "uav",
-        "A400" => "a400",
-        "V22F" => "v22_fast",
-        "V22" => "v22_slow",
-        "B609F" => "v22_fast",
-        "B609" => "v22_slow",
-        "H64" => "apache",
-        "H60" => "blackhawk",
-        "S92" => "blackhawk",
-        "NH90" => "blackhawk",
-        "AS32" => "puma",
-        "AS3B" => "puma",
-        "PUMA" => "puma",
-        "TIGR" => "tiger",
-        "MI24" => "mil24",
-        "AS65" => "dauphin",
-        "S76" => "dauphin",
-        "GAZL" => "gazelle",
-        "AS50" => "gazelle",
-        "AS55" => "gazelle",
-        "ALO2" => "gazelle",
-        "ALO3" => "gazelle",
-        "R22" => "helicopter",
-        "R44" => "helicopter",
-        "R66" => "helicopter",
-        "EC55" => "s61",
-        "A169" => "s61",
-        "H160" => "s61",
-        "A139" => "s61",
-        "EC75" => "s61",
-        "A189" => "s61",
-        "A149" => "s61",
-        "S61" => "s61",
-        "S61R" => "s61",
-        "EC25" => "s61",
-        "EH10" => "s61",
-        "H53" => "s61",
-        "H53S" => "s61",
-        "U2" => "u2",
-        "C2" => "c2",
-        "E2" => "c2",
-        "H47" => "chinook",
-        "H46" => "chinook",
-        "HAWK" => "bae_hawk",
-        "GYRO" => "gyrocopter",
-        "DLTA" => "verhees",
-        "B1" => "b1b_lancer",
-        "B52" => "b52",
-        "C17" => "c17",
-        "C5M" => "c5",
-        "E3TF" => "e3awacs",
-        "E3CF" => "e3awacs",
-        "GLID" => "glider",
-        "S6" => "glider",
-        "S10S" => "glider",
-        "S12" => "glider",
-        "S12S" => "glider",
-        "ARCE" => "glider",
-        "ARCP" => "glider",
-        "DISC" => "glider",
-        "DUOD" => "glider",
-        "JANU" => "glider",
-        "NIMB" => "glider",
-        "QINT" => "glider",
-        "VENT" => "glider",
-        "VNTE" => "glider",
-        "A20J" => "glider",
-        "A32E" => "glider",
-        "A32P" => "glider",
-        "A33E" => "glider",
-        "A33P" => "glider",
-        "A34E" => "glider",
-        "AS14" => "glider",
-        "AS16" => "glider",
-        "AS20" => "glider",
-        "AS21" => "glider",
-        "AS22" => "glider",
-        "AS24" => "glider",
-        "AS25" => "glider",
-        "AS26" => "glider",
-        "AS28" => "glider",
-        "AS29" => "glider",
-        "AS30" => "glider",
-        "AS31" => "glider",
-        "DG80" => "glider",
-        "DG1T" => "glider",
-        "LS10" => "glider",
-        "LS9" => "glider",
-        "LS8" => "glider",
-        "TS1J" => "glider",
-        "PK20" => "glider",
-        "LK17" => "glider",
-        "LK19" => "glider",
-        "LK20" => "glider",
-        "ULAC" => "cessna",
-        "EV97" => "cessna",
-        "FDCT" => "cessna",
-        "WT9" => "cessna",
-        "PIVI" => "cessna",
-        "FK9" => "cessna",
-        "AVID" => "cessna",
-        "NG5" => "cessna",
-        "PNR3" => "cessna",
-        "TL20" => "cessna",
-        "SR20" => "cirrus_sr22",
-        "SR22" => "cirrus_sr22",
-        "S22T" => "cirrus_sr22",
-        "VEZE" => "rutan_veze",
-        "VELO" => "rutan_veze",
-        "PRTS" => "rutan_veze",
-        "PA24" => "pa24",
-        "GND" => "ground_unknown",
-        "GRND" => "ground_unknown",
-        "SERV" => "ground_service",
-        "EMER" => "ground_emergency",
-        "TWR" => "ground_tower",
-    };
-
-    // Category -> icon shape key, from adsb_category_to_icon.csv, fallback tier when typeCode misses TYPE_TO_ICON. C4/C5 aren't in that CSV (only C3) - reuse the tower icon.
-    private const CATEGORY_TO_ICON as Dictionary<String, String> = {
-        "A1" => "cessna",
-        "A2" => "jet_swept",
-        "A3" => "airliner",
-        "A4" => "airliner",
-        "A5" => "heavy_2e",
-        "A6" => "hi_perf",
-        "A7" => "helicopter",
-        "B1" => "glider",
-        "B2" => "balloon",
-        "B4" => "cessna",
-        "B6" => "uav",
-        "C0" => "ground_unknown",
-        "C1" => "ground_emergency",
-        "C2" => "ground_service",
-        "C3" => "ground_tower",
-        "C4" => "ground_tower",
-        "C5" => "ground_tower",
-    };
-
-    // TYPE_TO_ICON's source CSV has real gaps for 767/787/Dash-8/ATR (see icon_rendering_history memory) - patched by prefix.
-    private const TYPE_PREFIX_SUPPLEMENT as Array<[String, String]> = [
-        ["B76", "heavy_2e"],
-        ["B78", "heavy_2e"],
-        ["DH8", "twin_large"],
-        ["AT4", "twin_large"],
-        ["AT7", "twin_large"],
-    ] as Array<[String, String]>;
-
-    private function _matchesType(
-        typeCode as String?,
-        list as Array<String>
-    ) as Boolean {
-        if (typeCode == null) {
-            return false;
-        }
-        for (var i = 0; i < list.size(); i++) {
-            if ((typeCode as String).equals(list[i])) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function _startsWith(s as String, prefix as String) as Boolean {
-        return (
-            s.length() >= prefix.length() &&
-            s.substring(0, prefix.length()).equals(prefix)
-        );
-    }
-
-    // Missing category is the norm both for older/cheaper GA transponders (correlates with small aircraft) and for large military transports (correlates with genuinely massive ones) - not a single-direction bias.
+    // Real tables/classification live in AircraftClassifier - thin wrappers only, below.
     private function _effectiveCategory(ac as Aircraft) as String {
-        var cat = ac.category;
-        if (cat != null) {
-            return cat as String;
-        }
-        if (_matchesType(ac.typeCode, SUPER_HEAVY_TYPE_CODES)) {
-            return "A5";
-        }
-        return _matchesType(ac.typeCode, LARGE_TYPE_CODES) ? "A3" : "A1";
+        return AircraftClassifier.effectiveCategory(ac);
     }
 
-    // typeCode exact match, then prefix supplement, then category (covers ground vehicles/obstacles and helicopter bodies too, no separate branches needed) - else "unknown".
     private function _shapeKeyForAircraft(ac as Aircraft) as String {
-        var t = ac.typeCode;
-        if (t != null) {
-            var exact = TYPE_TO_ICON[t as String];
-            if (exact != null) {
-                return exact as String;
-            }
-            for (var i = 0; i < TYPE_PREFIX_SUPPLEMENT.size(); i++) {
-                var rule = TYPE_PREFIX_SUPPLEMENT[i];
-                if (_startsWith(t as String, rule[0])) {
-                    return rule[1];
-                }
-            }
-        }
-        var byCategory = CATEGORY_TO_ICON[_effectiveCategory(ac)];
-        return byCategory != null ? byCategory as String : "unknown";
+        return AircraftClassifier.shapeKey(ac);
     }
 
-    // Rotorcraft (A7) has no size signal in the category, so that shape stays fixed.
     private function _sizeScaleForAircraft(ac as Aircraft) as Float {
-        var cat = _effectiveCategory(ac);
-        if (cat.equals("A1")) {
-            return 0.7;
-        }
-        if (cat.equals("A2")) {
-            return 0.85;
-        }
-        if (cat.equals("A3")) {
-            return 1.1;
-        }
-        if (cat.equals("A4")) {
-            return 1.15;
-        }
-        if (cat.equals("A5")) {
-            return 1.3;
-        }
-        return 1.0;
+        return AircraftClassifier.sizeScale(ac);
     }
 
     private function _colorForAircraft(ac as Aircraft) as Number {
@@ -2724,10 +2239,11 @@ class RadarView extends WatchUi.View {
         return (v + (v >= 0 ? 0.5 : -0.5)).toNumber();
     }
 
-    private const LABEL_OVERLAP_MARGIN_PX = 4;
-    private const LABEL_LINE_GAP_PX = 2;
+    // Was 4/2/18.0 fixed px - now derived from _charW/_charH in onLayout.
+    private var _labelOverlapMarginPx as Number = 4;
+    private var _labelLineGapPx as Number = 2;
     // Scaled by aircraft size like the reticle/icon, with enough margin to clear SELECTION_BRACKET_HALF at every size tier.
-    private const LABEL_VOFFSET_BASE = 18.0;
+    private var _labelVoffsetBase as Float = 18.0;
 
     // Two rows (callsign / speed+altitude) instead of one wide line - narrower footprint, fewer overlap hides. No background rect - reads better floating directly over the radar, per-field colored the same way the compact/full detail views already color these same fields (not one flat aircraft-color line).
     private function _drawAircraftLabel(
@@ -2757,17 +2273,17 @@ class RadarView extends WatchUi.View {
             height += lineH;
         }
         if (top.size() > 0 && bottom.size() > 0) {
-            height += LABEL_LINE_GAP_PX;
+            height += _labelLineGapPx;
         }
 
         var textY =
-            y + (LABEL_VOFFSET_BASE * _sizeScaleForAircraft(ac)).toNumber();
+            y + (_labelVoffsetBase * _sizeScaleForAircraft(ac)).toNumber();
         var rect =
             [
-                x - width / 2 - LABEL_OVERLAP_MARGIN_PX,
-                textY - LABEL_OVERLAP_MARGIN_PX,
-                x + width / 2 + LABEL_OVERLAP_MARGIN_PX,
-                textY + height + LABEL_OVERLAP_MARGIN_PX,
+                x - width / 2 - _labelOverlapMarginPx,
+                textY - _labelOverlapMarginPx,
+                x + width / 2 + _labelOverlapMarginPx,
+                textY + height + _labelOverlapMarginPx,
             ] as [Number, Number, Number, Number];
         // Selection overrides the declutter-by-overlap check too, same as the icon/reticle/trail filters above.
         if (!isSelected && _overlapsReserved(ac.hex, rect)) {
@@ -2778,7 +2294,7 @@ class RadarView extends WatchUi.View {
         var lineY = textY;
         if (top.size() > 0) {
             _drawSegmentedLine(dc, x, lineY, top);
-            lineY += lineH + LABEL_LINE_GAP_PX;
+            lineY += lineH + _labelLineGapPx;
         }
         if (bottom.size() > 0) {
             _drawSegmentedLine(dc, x, lineY, bottom);
@@ -2789,11 +2305,11 @@ class RadarView extends WatchUi.View {
         dc as Dc,
         segments as Array<[String, Number]>
     ) as Number {
-        var totalW = -SEGMENT_GAP_PX;
+        var totalW = -_segmentGapPx;
         for (var i = 0; i < segments.size(); i++) {
             totalW +=
                 dc.getTextDimensions(segments[i][0] as String, _fontTiny)[0] +
-                SEGMENT_GAP_PX;
+                _segmentGapPx;
         }
         return totalW;
     }
@@ -2821,17 +2337,13 @@ class RadarView extends WatchUi.View {
             if (ac.onGround) {
                 bottom.add(["GND", COLOR_ALT]);
             } else if (ac.altBaro != null) {
-                bottom.add([
-                    _formatAltitude(ac.altBaro as Number),
-                    COLOR_ALT,
-                ]);
+                bottom.add([_formatAltitude(ac.altBaro as Number), COLOR_ALT]);
             }
         }
 
-        return [top, bottom] as [
-            Array<[String, Number]>,
-            Array<[String, Number]>,
-        ];
+        return (
+            [top, bottom] as [Array<[String, Number]>, Array<[String, Number]>]
+        );
     }
 
     private function _drawDetailPanel(
@@ -2847,7 +2359,7 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var panelH = lines.size() * DETAIL_PANEL_LINE_HEIGHT + 8;
+        var panelH = lines.size() * _detailPanelLineHeight + 8;
         var panelY = h - panelH;
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
@@ -2858,13 +2370,13 @@ class RadarView extends WatchUi.View {
             _drawSegmentedLine(
                 dc,
                 cx,
-                panelY + 4 + i * DETAIL_PANEL_LINE_HEIGHT,
+                panelY + 4 + i * _detailPanelLineHeight,
                 lines[i] as Array<[String, Number]>
             );
         }
 
         _drawPanelBorder(dc, panelY, cx, cy, radiusPx);
-        _drawChevronUp(dc, cx, panelY - CHEVRON_MARGIN_PX, CHEVRON_SIZE_PX);
+        _drawChevronUp(dc, cx, panelY - _chevronMarginPx, CHEVRON_SIZE_PX);
     }
 
     // 0 when nothing is selected, so callers can treat "no panel" and "empty panel" the same.
@@ -2872,13 +2384,17 @@ class RadarView extends WatchUi.View {
         var lines = _buildDetailLines(ac);
         return lines.size() == 0
             ? 0
-            : lines.size() * DETAIL_PANEL_LINE_HEIGHT + 8;
+            : lines.size() * _detailPanelLineHeight + 8;
     }
 
-    private const CHEVRON_MARGIN_PX = 20;
+    // Gap from the panel edge - was a fixed 20px, now derived from _charH in onLayout.
+    private var _chevronMarginPx as Number = 20;
+    // Glyph size itself stays a fixed pixel constant - it's a plain vector chevron, not text.
     private const CHEVRON_SIZE_PX = 7;
     // Extra tap area above the panel's own top edge, covering the chevron drawn there - lets the chevron itself feel tappable, not just the panel body.
     private const CHEVRON_TAP_MARGIN_PX = 28;
+    // Horizontal tap zone around the chevron, not the full panel width.
+    private const CHEVRON_TAP_HALF_WIDTH_PX = 40;
 
     // "There's more above" - visually extends the panel into the full-detail view opened by tapping it. Mirrors _drawMinusHint/_drawMenuHint's plain-line style, no font glyph involved. Full white, not COLOR_TEXT - it's an affordance, not body text, so it should read as brighter than the panel content around it.
     private function _drawChevronUp(
@@ -2889,18 +2405,11 @@ class RadarView extends WatchUi.View {
     ) as Void {
         // Plain setColor, not _setSolidColor/setStroke - matches AircraftDetailView's own (confirmed working) down chevron exactly, rather than relying solely on the _setSolidColor alpha fix above.
         dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
-        dc.drawLine(x - s, y + s, x, y);
-        dc.drawLine(x, y, x + s, y + s);
+        DrawUtil.drawChevron(dc, x, y, s, true);
     }
 
-    private const SEGMENT_GAP_PX = 6;
-
-    // Embedded in a segment string to mark where a code-drawn degree circle goes, same "°" isn't in the custom bitmap fonts fix used in AircraftDetailView - duplicated here since _drawSegmentedLine is this file's own equivalent of that view's value-segment drawing.
-    private const DEGREE_MARK = "^";
-    private const DEGREE_MARK_GAP_LEFT = 1;
-    private const DEGREE_MARK_GAP_RIGHT = 2;
-    private const DEGREE_MARK_R = 1;
-    private const DEGREE_MARK_Y_OFFSET = 4;
+    // Was a fixed 6px - now one char width, see onLayout.
+    private var _segmentGapPx as Number = 6;
 
     // Draws left-to-right segments as one horizontally-centered group, each in its own color.
     private function _drawSegmentedLine(
@@ -2913,37 +2422,24 @@ class RadarView extends WatchUi.View {
             return;
         }
         var widths = [] as Array<Number>;
-        var totalW = -SEGMENT_GAP_PX;
+        var totalW = -_segmentGapPx;
         for (var i = 0; i < segments.size(); i++) {
             var w = _segmentWidth(dc, segments[i][0] as String);
             widths.add(w);
-            totalW += w + SEGMENT_GAP_PX;
+            totalW += w + _segmentGapPx;
         }
 
         var x = cx - totalW / 2;
         for (var i = 0; i < segments.size(); i++) {
-            dc.setColor(segments[i][1] as Number, Graphics.COLOR_TRANSPARENT);
-            _drawSegmentText(dc, x, y, segments[i][0] as String);
-            x += (widths[i] as Number) + SEGMENT_GAP_PX;
+            var color = segments[i][1] as Number;
+            dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+            _drawSegmentText(dc, x, y, segments[i][0] as String, color);
+            x += (widths[i] as Number) + _segmentGapPx;
         }
     }
 
     private function _segmentWidth(dc as Dc, text as String) as Number {
-        var markIdx = text.find(DEGREE_MARK);
-        if (markIdx == null) {
-            return dc.getTextDimensions(text, _fontTiny)[0];
-        }
-        var idx = markIdx as Number;
-        var before = text.substring(0, idx) as String;
-        var after = text.substring(idx + 1, text.length()) as String;
-        var beforeW = dc.getTextDimensions(before, _fontTiny)[0];
-        var afterW =
-            after.length() > 0 ? dc.getTextDimensions(after, _fontTiny)[0] : 0;
-        var markW =
-            DEGREE_MARK_GAP_LEFT +
-            DEGREE_MARK_R * 2 +
-            (after.length() > 0 ? DEGREE_MARK_GAP_RIGHT : 0);
-        return beforeW + markW + afterW;
+        return DrawUtil.markedTextWidth(dc, _fontTiny, text);
     }
 
     // Left-justified draw starting at x - the caller (_drawSegmentedLine) already handled centering the whole line and setting the color.
@@ -2951,34 +2447,10 @@ class RadarView extends WatchUi.View {
         dc as Dc,
         x as Number,
         y as Number,
-        text as String
+        text as String,
+        color as Number
     ) as Void {
-        var markIdx = text.find(DEGREE_MARK);
-        if (markIdx == null) {
-            dc.drawText(x, y, _fontTiny, text, Graphics.TEXT_JUSTIFY_LEFT);
-            return;
-        }
-
-        var idx = markIdx as Number;
-        var before = text.substring(0, idx) as String;
-        var after = text.substring(idx + 1, text.length()) as String;
-        dc.drawText(x, y, _fontTiny, before, Graphics.TEXT_JUSTIFY_LEFT);
-        var beforeW = dc.getTextDimensions(before, _fontTiny)[0];
-        var circleCx = x + beforeW + DEGREE_MARK_GAP_LEFT + DEGREE_MARK_R;
-        dc.drawCircle(
-            circleCx,
-            y + DEGREE_MARK_R + DEGREE_MARK_Y_OFFSET,
-            DEGREE_MARK_R
-        );
-        if (after.length() > 0) {
-            dc.drawText(
-                circleCx + DEGREE_MARK_R + DEGREE_MARK_GAP_RIGHT,
-                y,
-                _fontTiny,
-                after,
-                Graphics.TEXT_JUSTIFY_LEFT
-            );
-        }
+        DrawUtil.drawMarkedText(dc, x, y, _fontTiny, text, color);
     }
 
     // Deliberately curated, not exhaustive - tas/vert-rate/nav-target/non-emergency squawk moved to _buildFullDetailRows to keep this panel short.
@@ -2986,6 +2458,15 @@ class RadarView extends WatchUi.View {
         ac as Aircraft
     ) as Array<Array<[String, Number]> > {
         var lines = [] as Array<Array<[String, Number]> >;
+
+        // Emergency only - safety-critical, always the first thing shown, not buried below alt/speed/heading.
+        if (ac.isEmergency()) {
+            var label =
+                ac.squawk != null
+                    ? "EMERG " + (ac.squawk as String)
+                    : "EMERGENCY";
+            lines.add([[label, COLOR_EMERGENCY]] as Array<[String, Number]>);
+        }
 
         var idSegs = [] as Array<[String, Number]>;
         idSegs.add([
@@ -2995,7 +2476,7 @@ class RadarView extends WatchUi.View {
             _colorForAircraft(ac),
         ]);
         if (ac.registration != null) {
-            idSegs.add([ac.registration as String, COLOR_DETAIL_VALUE]);
+            idSegs.add([ac.registration as String, COLOR_IDENTITY]);
         }
         var badgeParts = [] as Array<String>;
         if (ac.spi) {
@@ -3019,9 +2500,7 @@ class RadarView extends WatchUi.View {
                   ? ac.typeCode as String
                   : "";
         if (typeStr.length() > 0) {
-            lines.add(
-                [[typeStr, COLOR_DETAIL_VALUE]] as Array<[String, Number]>
-            );
+            lines.add([[typeStr, COLOR_IDENTITY]] as Array<[String, Number]>);
         }
 
         var statSegs = [] as Array<[String, Number]>;
@@ -3046,15 +2525,6 @@ class RadarView extends WatchUi.View {
             lines.add(statSegs);
         }
 
-        // Emergency only - safety-critical, always worth surfacing without opening the full view.
-        if (ac.isEmergency()) {
-            var label =
-                ac.squawk != null
-                    ? "EMERG " + (ac.squawk as String)
-                    : "EMERGENCY";
-            lines.add([[label, COLOR_EMERGENCY]] as Array<[String, Number]>);
-        }
-
         var trackStatus = "";
         var trackColor = COLOR_GRID_LABEL;
         if (_trackFetchInFlight) {
@@ -3065,9 +2535,7 @@ class RadarView extends WatchUi.View {
         } else {
             trackStatus = "No Track History";
         }
-        lines.add(
-            [[trackStatus, trackColor]] as Array<[String, Number]>
-        );
+        lines.add([[trackStatus, trackColor]] as Array<[String, Number]>);
 
         return lines;
     }
@@ -3093,52 +2561,50 @@ class RadarView extends WatchUi.View {
     // Everything the compact panel leaves out, for AircraftDetailView's scrollable grid. Deliberately curated, not a generic "pair everything sequentially" scheme - long identity text (type/operator) always gets its own full-width row, only genuinely short/similar stats share a compact 2-field row (AircraftDetailView draws every row as one centered inline line regardless of field count, so there's no separate font-size treatment to keep in sync here). Colors reuse the compact panel's own semantics (alt=blue, speed=yellow, hdg=cyan, grey=secondary, emergency=red) except grey, which uses the brighter COLOR_DETAIL_VALUE instead of COLOR_GRID_LABEL - this is a dedicated full screen, not a small chrome overlay. `^` embedded in a value string marks where AircraftDetailView should draw a code-drawn degree circle instead of a "°" character - this app's custom bitmap fonts don't have that glyph baked in (see [[selection_declutter_history]]), same fix TerminalWatchface already uses (`_drawSmallTempNum`/`_glowCircle`).
     private function _buildFullDetailRows(
         ac as Aircraft
-    ) as [Array<Array<[String, String, Number]> >, Number] {
+    ) as
+        [
+            Array<Array<[String, String, Number]> >,
+            Number,
+            Number,
+            Array<Boolean>,
+        ]
+    {
         var rows = [] as Array<Array<[String, String, Number]> >;
+        // Row indices where a new visual group begins - converted to a per-row Boolean array at the end.
+        var groupBoundaries = [] as Array<Number>;
 
+        var identityStart = rows.size();
         var regCell =
             ac.registration != null
-                ? [
-                    "Registration",
-                    ac.registration as String,
-                    COLOR_DETAIL_VALUE,
-                  ] as [String, String, Number]
+                ? ["Registration", ac.registration as String, COLOR_IDENTITY] as
+                  [String, String, Number]
                 : null;
-        _gridRow(rows, regCell, [
-            "Hex",
-            ac.hex,
-            COLOR_DETAIL_VALUE,
-        ]);
+        _gridRow(rows, regCell, ["Hex", ac.hex, COLOR_IDENTITY]);
 
         var typeStr = ac.typeDesc != null ? ac.typeDesc : ac.typeCode;
         var typeCell =
             typeStr != null
-                ? ["Type", typeStr as String, COLOR_DETAIL_VALUE] as [
-                    String,
-                    String,
-                    Number,
-                  ]
+                ? ["Type", typeStr as String, COLOR_IDENTITY] as
+                  [String, String, Number]
                 : null;
         var categoryCell =
             ac.category != null
-                ? ["Category", ac.category as String, COLOR_DETAIL_VALUE] as [
-                    String,
-                    String,
-                    Number,
-                  ]
+                ? ["Category", ac.category as String, COLOR_IDENTITY] as
+                  [String, String, Number]
                 : null;
         _gridRow(rows, typeCell, categoryCell);
 
         if (ac.operatorName != null) {
             rows.add([
-                [
-                    "Operator",
-                    ac.operatorName as String,
-                    COLOR_DETAIL_VALUE,
-                ] as [String, String, Number],
+                ["Operator", ac.operatorName as String, COLOR_IDENTITY] as
+                    [String, String, Number],
             ]);
         }
+        if (rows.size() > identityStart) {
+            groupBoundaries.add(identityStart);
+        }
 
+        var performanceStart = rows.size();
         var altCell = null as [String, String, Number]?;
         if (ac.onGround) {
             altCell = ["Altitude", "GND", COLOR_ALT];
@@ -3165,62 +2631,62 @@ class RadarView extends WatchUi.View {
         var gsCell =
             ac.gs != null
                 ? [
-                    "Ground Speed",
-                    _formatSpeedKt((ac.gs as Float).toNumber()),
-                    COLOR_SPEED,
+                      "Ground Speed",
+                      _formatSpeedKt((ac.gs as Float).toNumber()),
+                      COLOR_SPEED,
                   ] as [String, String, Number]
                 : null;
         var iasCell =
             ac.ias != null
-                ? [
-                    "IAS",
-                    _formatSpeedKt(ac.ias as Number),
-                    COLOR_SPEED,
-                  ] as [String, String, Number]
+                ? ["IAS", _formatSpeedKt(ac.ias as Number), COLOR_SPEED] as
+                  [String, String, Number]
                 : null;
         _gridRow(rows, gsCell, iasCell);
 
         var tasCell =
             ac.tas != null
                 ? [
-                    "TAS",
-                    _formatSpeedKt((ac.tas as Float).toNumber()),
-                    COLOR_SPEED,
+                      "TAS",
+                      _formatSpeedKt((ac.tas as Float).toNumber()),
+                      COLOR_SPEED,
                   ] as [String, String, Number]
                 : null;
         var machCell =
             ac.mach != null
-                ? [
-                    "Mach",
-                    (ac.mach as Float).format("%.2f"),
-                    COLOR_SPEED,
-                  ] as [String, String, Number]
+                ? ["Mach", (ac.mach as Float).format("%.2f"), COLOR_SPEED] as
+                  [String, String, Number]
                 : null;
         _gridRow(rows, tasCell, machCell);
+        if (rows.size() > performanceStart) {
+            groupBoundaries.add(performanceStart);
+        }
 
+        var navStatusStart = rows.size();
         var emergency = ac.isEmergency();
         var hdgCell =
             ac.track != null
                 ? [
-                    "Heading",
-                    (ac.track as Float).toNumber().toString() + "^",
-                    COLOR_HDG,
+                      "Heading",
+                      (ac.track as Float).toNumber().toString() + "^",
+                      COLOR_HDG,
                   ] as [String, String, Number]
                 : null;
-        var squawkCell =
-            ac.squawk != null
-                ? [
-                    "Squawk",
-                    ac.squawk as String,
-                    emergency ? COLOR_EMERGENCY : COLOR_SQUAWK,
-                  ] as [String, String, Number]
-                : null;
+        var squawkCell = null as [String, String, Number]?;
+        if (ac.squawk != null || emergency) {
+            var squawkVal = ac.squawk != null ? ac.squawk as String : "";
+            if (emergency) {
+                // Full space before the marker, not DrawUtil's own small fixed gap.
+                squawkVal += " " + DrawUtil.WARNING_MARK;
+            }
+            squawkCell = [
+                "Squawk",
+                squawkVal,
+                emergency ? COLOR_EMERGENCY : COLOR_SQUAWK,
+            ];
+        }
         _gridRow(rows, hdgCell, squawkCell);
 
         var statusParts = [] as Array<String>;
-        if (emergency) {
-            statusParts.add("EMERGENCY");
-        }
         if (ac.spi) {
             statusParts.add("IDENT");
         }
@@ -3236,25 +2702,33 @@ class RadarView extends WatchUi.View {
                 ] as [String, String, Number],
             ]);
         }
+        if (rows.size() > navStatusStart) {
+            groupBoundaries.add(navStatusStart);
+        }
 
+        var targetStart = rows.size();
         var selAltCell =
             ac.navAltitude != null
                 ? [
-                    "Selected Alt",
-                    _formatAltitude(ac.navAltitude as Number),
-                    COLOR_DETAIL_VALUE,
+                      "Selected Alt",
+                      _formatAltitude(ac.navAltitude as Number),
+                      COLOR_DETAIL_VALUE,
                   ] as [String, String, Number]
                 : null;
         var selHdgCell =
             ac.navHeading != null
                 ? [
-                    "Selected Hdg",
-                    (ac.navHeading as Float).toNumber().toString() + "^",
-                    COLOR_DETAIL_VALUE,
+                      "Selected Hdg",
+                      (ac.navHeading as Float).toNumber().toString() + "^",
+                      COLOR_DETAIL_VALUE,
                   ] as [String, String, Number]
                 : null;
         _gridRow(rows, selAltCell, selHdgCell);
+        if (rows.size() > targetStart) {
+            groupBoundaries.add(targetStart);
+        }
 
+        var envStart = rows.size();
         if (ac.windDir != null && ac.windSpeed != null) {
             rows.add([
                 [
@@ -3262,7 +2736,7 @@ class RadarView extends WatchUi.View {
                     (ac.windDir as Number).toString() +
                         "^ @ " +
                         _formatSpeedKt(ac.windSpeed as Number),
-                    COLOR_DETAIL_VALUE,
+                    COLOR_ENV,
                 ] as [String, String, Number],
             ]);
         }
@@ -3270,34 +2744,57 @@ class RadarView extends WatchUi.View {
         var outTempCell =
             ac.outsideAirTemp != null
                 ? [
-                    "Outside Temp",
-                    (ac.outsideAirTemp as Number).toString() + "^C",
-                    COLOR_DETAIL_VALUE,
+                      "Outside Temp",
+                      (ac.outsideAirTemp as Number).toString() + "^C",
+                      COLOR_ENV,
                   ] as [String, String, Number]
                 : null;
         var totalTempCell =
             ac.totalAirTemp != null
                 ? [
-                    "Total Air Temp",
-                    (ac.totalAirTemp as Number).toString() + "^C",
-                    COLOR_DETAIL_VALUE,
+                      "Total Air Temp",
+                      (ac.totalAirTemp as Number).toString() + "^C",
+                      COLOR_ENV,
                   ] as [String, String, Number]
                 : null;
         _gridRow(rows, outTempCell, totalTempCell);
+        if (rows.size() > envStart) {
+            groupBoundaries.add(envStart);
+        }
 
+        // Separate rows, not one joined "dep -> arr" line - a full description is too long for one line.
+        var routeStart = rows.size();
         rows.add([
-            ["Route", "Loading...", COLOR_ROUTE_DIM] as [
-                String,
-                String,
-                Number,
-            ],
+            ["Departure", "Loading...", COLOR_ROUTE_DIM] as
+                [String, String, Number],
         ]);
-        var routeIndex = rows.size() - 1;
+        var depIndex = rows.size() - 1;
+        rows.add([
+            ["Arrival", "Loading...", COLOR_ROUTE_DIM] as
+                [String, String, Number],
+        ]);
+        var arrIndex = rows.size() - 1;
+        if (rows.size() > routeStart) {
+            groupBoundaries.add(routeStart);
+        }
 
-        return [rows, routeIndex] as [
-            Array<Array<[String, String, Number]> >,
-            Number,
-        ];
+        var groupStarts = [] as Array<Boolean>;
+        for (var i = 0; i < rows.size(); i++) {
+            groupStarts.add(false);
+        }
+        for (var i = 0; i < groupBoundaries.size(); i++) {
+            groupStarts[groupBoundaries[i] as Number] = true;
+        }
+
+        return (
+            [rows, depIndex, arrIndex, groupStarts] as
+            [
+                Array<Array<[String, String, Number]> >,
+                Number,
+                Number,
+                Array<Boolean>,
+            ]
+        );
     }
 
     private function _join(parts as Array<String>, sep as String) as String {
