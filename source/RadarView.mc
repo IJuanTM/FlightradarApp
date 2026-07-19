@@ -108,7 +108,8 @@ class RadarView extends WatchUi.View {
     // [hex, x0, y0, x1, y1] - hex-tagged so a label may overlap its own icon/chevron/reticle, only another's clips.
     private var _reservedRects as
         Array<[String, Number, Number, Number, Number]> = [];
-    // hex -> [category, shapeKey, sizeScale, iconHalfExtent], cleared once per _drawAircraft call - see _classify().
+    // hex -> [category, shapeKey, sizeScale, iconHalfExtent] - cleared whenever aircraft
+    // data changes (_onFetchResult), not every redraw - see _classify().
     private var _classifyCache as
         Dictionary<String, [String, String, Float, Number]> = {};
 
@@ -899,6 +900,8 @@ class RadarView extends WatchUi.View {
             }
             _aircraft = aircraft;
             _aircraftByHex = byHex;
+            // Category/shape/scale can only change when the underlying aircraft data does, not every redraw.
+            _classifyCache = {};
 
             var selected = _selectedHex;
             if (selected != null) {
@@ -1647,8 +1650,6 @@ class RadarView extends WatchUi.View {
     ) as Void {
         _lastDrawnPositions = [];
         _reservedRects = [];
-        // Cleared once per frame - caches shape/category/scale/half-extent, each asked for several times per aircraft.
-        _classifyCache = {};
         // Loop-invariant - computed once, not per aircraft.
         var showGroundVehicles = _effectiveShowGroundVehicles();
         var hideGroundedPlanes = _effectiveHideGroundedPlanes();
@@ -1741,6 +1742,10 @@ class RadarView extends WatchUi.View {
 
         // A separate pass, after every icon - otherwise a later label could paint over an earlier icon.
         if (Settings.labelsEnabled) {
+            // Loop-invariant - same for every aircraft's label this frame, not re-looked-up per aircraft.
+            var showCallsign = Settings.isLabelFieldEnabled("callsign");
+            var showSpeed = Settings.isLabelFieldEnabled("speed");
+            var showAltitude = Settings.isLabelFieldEnabled("altitude");
             var selectedIndex = -1;
             if (_selectedHex != null) {
                 for (var i = 0; i < _lastDrawnPositions.size(); i++) {
@@ -1764,7 +1769,10 @@ class RadarView extends WatchUi.View {
                         selEntry[1] as Number,
                         selEntry[2] as Number,
                         selAc as Aircraft,
-                        true
+                        true,
+                        showCallsign,
+                        showSpeed,
+                        showAltitude
                     );
                 }
             }
@@ -1781,7 +1789,10 @@ class RadarView extends WatchUi.View {
                     entry[1] as Number,
                     entry[2] as Number,
                     ac as Aircraft,
-                    false
+                    false,
+                    showCallsign,
+                    showSpeed,
+                    showAltitude
                 );
             }
 
@@ -1802,29 +1813,26 @@ class RadarView extends WatchUi.View {
     }
 
     // Bigger-class aircraft's label wins any overlap - plain insertion sort, cheap since on-screen counts are small.
-    // Scales precomputed once per index, not re-derived on every comparison.
+    // Index and scale travel together as one pair per entry, so a sort step can't move one without the other.
     private function _labelDrawOrder(selectedIndex as Number) as Array<Number> {
-        var order = [] as Array<Number>;
+        var pairs = [] as Array<[Number, Float]>;
         for (var i = 0; i < _lastDrawnPositions.size(); i++) {
             if (i != selectedIndex) {
-                order.add(i);
+                pairs.add([i, _sizeScaleForIndex(i)] as [Number, Float]);
             }
         }
-        var scales = [] as Array<Float>;
-        for (var i = 0; i < order.size(); i++) {
-            scales.add(_sizeScaleForIndex(order[i]));
-        }
-        for (var i = 1; i < order.size(); i++) {
-            var key = order[i];
-            var keyScale = scales[i];
+        for (var i = 1; i < pairs.size(); i++) {
+            var key = pairs[i];
             var j = i - 1;
-            while (j >= 0 && scales[j] < keyScale) {
-                order[j + 1] = order[j];
-                scales[j + 1] = scales[j];
+            while (j >= 0 && (pairs[j] as [Number, Float])[1] < key[1]) {
+                pairs[j + 1] = pairs[j];
                 j -= 1;
             }
-            order[j + 1] = key;
-            scales[j + 1] = keyScale;
+            pairs[j + 1] = key;
+        }
+        var order = [] as Array<Number>;
+        for (var i = 0; i < pairs.size(); i++) {
+            order.add((pairs[i] as [Number, Float])[0]);
         }
         return order;
     }
@@ -1948,7 +1956,7 @@ class RadarView extends WatchUi.View {
     private const ICON_BASE_SCALE = 0.226667;
     private const ICON_RECT_MARGIN = 2;
 
-    // Real tables/classification live in AircraftClassifier - cached per aircraft for the current frame.
+    // Real tables/classification live in AircraftClassifier - cached per aircraft until the next fetch result.
     private function _classify(
         ac as Aircraft
     ) as [String, String, Float, Number] {
@@ -1959,9 +1967,10 @@ class RadarView extends WatchUi.View {
         var cat = AircraftClassifier.effectiveCategory(ac);
         var shape = AircraftClassifier._shapeKeyForCategory(ac, cat);
         var scale = AircraftClassifier._sizeScaleForCategory(cat);
-        var diag = AircraftClassifier.ICON_HALF_DIAGONAL[shape];
-        var srcHalf = diag != null ? diag as Float : 30.0;
-        var halfExtent = (srcHalf * ICON_BASE_SCALE * scale).toNumber();
+        var halfExtent = AircraftClassifier.iconHalfExtentForShape(
+            shape,
+            ICON_BASE_SCALE * scale
+        );
         var result =
             [cat, shape, scale, halfExtent] as [String, String, Float, Number];
         _classifyCache[ac.hex] = result;
@@ -2010,8 +2019,10 @@ class RadarView extends WatchUi.View {
     private const EMERGENCY_BADGE_R = 7;
     private const EMERGENCY_BADGE_MARGIN = 2;
     private const EMERGENCY_BADGE_EXTRA_CLEARANCE = 10;
-    // Up-left - same angle+radius convention as _chevronCenter (theta=0 is up, clockwise), not a hardcoded offset.
-    private const EMERGENCY_BADGE_ANGLE_DEG = 315.0;
+    // Up-left, same angle+radius convention as _chevronCenter (theta=0 is up, clockwise) - sin/cos of a fixed
+    // 315-degree angle, precomputed since the angle itself never varies.
+    private const EMERGENCY_BADGE_SIN = -0.70710678;
+    private const EMERGENCY_BADGE_COS = 0.70710678;
 
     private function _emergencyBadgeCenter(
         x as Number,
@@ -2023,11 +2034,10 @@ class RadarView extends WatchUi.View {
             ICON_MARKER_CLEARANCE +
             EMERGENCY_BADGE_EXTRA_CLEARANCE
         ).toFloat();
-        var theta = Math.toRadians(EMERGENCY_BADGE_ANGLE_DEG);
         return (
             [
-                (x + r * Math.sin(theta)).toNumber(),
-                (y - r * Math.cos(theta)).toNumber(),
+                (x + r * EMERGENCY_BADGE_SIN).toNumber(),
+                (y - r * EMERGENCY_BADGE_COS).toNumber(),
             ] as [Number, Number]
         );
     }
@@ -2266,9 +2276,12 @@ class RadarView extends WatchUi.View {
         x as Number,
         y as Number,
         ac as Aircraft,
-        isSelected as Boolean
+        isSelected as Boolean,
+        showCallsign as Boolean,
+        showSpeed as Boolean,
+        showAltitude as Boolean
     ) as Void {
-        var lines = _buildLabelLines(ac);
+        var lines = _buildLabelLines(ac, showCallsign, showSpeed, showAltitude);
         var top = lines[0] as Array<[String, Number]>;
         var bottom = lines[1] as Array<[String, Number]>;
         if (top.size() == 0 && bottom.size() == 0) {
@@ -2332,10 +2345,13 @@ class RadarView extends WatchUi.View {
     // Same colors as the compact/full detail views (callsign=aircraft, speed=yellow, altitude=blue).
     // A label is just the at-a-glance version of the same data - it should read consistently, not as one flat color.
     private function _buildLabelLines(
-        ac as Aircraft
+        ac as Aircraft,
+        showCallsign as Boolean,
+        showSpeed as Boolean,
+        showAltitude as Boolean
     ) as [Array<[String, Number]>, Array<[String, Number]>] {
         var top = [] as Array<[String, Number]>;
-        if (Settings.isLabelFieldEnabled("callsign")) {
+        if (showCallsign) {
             var cs = ac.flight;
             if (cs != null && cs.length() > 0) {
                 top.add([cs as String, _colorForAircraft(ac)]);
@@ -2343,13 +2359,13 @@ class RadarView extends WatchUi.View {
         }
 
         var bottom = [] as Array<[String, Number]>;
-        if (Settings.isLabelFieldEnabled("speed") && ac.gs != null) {
+        if (showSpeed && ac.gs != null) {
             bottom.add([
                 _formatSpeedKt((ac.gs as Float).toNumber()),
                 COLOR_SPEED,
             ]);
         }
-        if (Settings.isLabelFieldEnabled("altitude")) {
+        if (showAltitude) {
             if (ac.onGround) {
                 bottom.add(["GND", COLOR_ALT]);
             } else if (ac.altBaro != null) {

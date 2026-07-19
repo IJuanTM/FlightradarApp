@@ -687,10 +687,6 @@ module AircraftClassifier {
     }
 
     // typeCode exact match, then prefix supplement, then category, else "unknown".
-    function shapeKey(ac as Aircraft) as String {
-        return _shapeKeyForCategory(ac, effectiveCategory(ac));
-    }
-
     function _shapeKeyForCategory(ac as Aircraft, cat as String) as String {
         var t = ac.typeCode;
         if (t != null) {
@@ -710,10 +706,6 @@ module AircraftClassifier {
     }
 
     // Rotorcraft (A7) has no size signal in the category, so that shape stays fixed.
-    function sizeScale(ac as Aircraft) as Float {
-        return _sizeScaleForCategory(effectiveCategory(ac));
-    }
-
     function _sizeScaleForCategory(cat as String) as Float {
         if (cat.equals("A1")) {
             return 0.7;
@@ -733,12 +725,10 @@ module AircraftClassifier {
         return 1.0;
     }
 
-    // baseScale is RadarView's own render-scale constant, not part of classification.
-    function iconHalfExtent(ac as Aircraft, baseScale as Float) as Number {
-        var cat = effectiveCategory(ac);
-        var diag = ICON_HALF_DIAGONAL[_shapeKeyForCategory(ac, cat)];
+    // Shared by RadarView._classify() - scale is the caller's baseScale * sizeScale already combined.
+    function iconHalfExtentForShape(shape as String, scale as Float) as Number {
+        var diag = ICON_HALF_DIAGONAL[shape];
         var srcHalf = diag != null ? diag as Float : 30.0;
-        var scale = baseScale * _sizeScaleForCategory(cat);
         return (srcHalf * scale).toNumber();
     }
 }
