@@ -22,6 +22,9 @@ module MenuBuilder {
                 null
             )
         );
+        menu.addItem(
+            new WatchUi.MenuItem("v" + $.APP_VERSION, null, :appVersion, null)
+        );
         return menu;
     }
 

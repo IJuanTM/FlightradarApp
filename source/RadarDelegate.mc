@@ -1,7 +1,8 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 
-// Bottom-right (ESC) is repurposed for recenter instead of back/exit - there's no exit button on the radar screen.
+// Bottom-right (ESC) is recenter/deselect while there's a pan or selection to clear, otherwise falls
+// through to the platform's default back behavior (exits the app), like every other watch-app root view.
 class RadarDelegate extends WatchUi.BehaviorDelegate {
     private var _view as RadarView;
 
@@ -20,8 +21,7 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
             _view.zoomOut();
             return true;
         } else if (key == WatchUi.KEY_ESC) {
-            _view.recenter();
-            return true;
+            return _view.recenter();
         } else if (key == WatchUi.KEY_ENTER or key == WatchUi.KEY_MENU) {
             WatchUi.pushView(
                 MenuBuilder.buildMainMenu(),
@@ -35,10 +35,15 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
     }
 
     // Suppressed right after a committed drag and while one is active - a real gesture can leave a stray tap.
+    // Also suppressed briefly after the full-detail view closes - see RadarView.suppressInputBriefly.
     public function onTap(clickEvent as WatchUi.ClickEvent) as Boolean {
         var coords = clickEvent.getCoordinates();
 
-        if (_view.isDragActive() or _view.consumeTapSuppression()) {
+        if (
+            _view.isDragActive() or
+            _view.consumeTapSuppression() or
+            _view.isInputSuppressed()
+        ) {
             return true;
         }
 
@@ -55,7 +60,20 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
         return true;
     }
 
+    public function onSwipe(swipeEvent as WatchUi.SwipeEvent) as Boolean {
+        if (_view.isInputSuppressed()) {
+            return true;
+        }
+        if (swipeEvent.getDirection() == WatchUi.SWIPE_UP) {
+            return _view.trySwipeOpenDetail();
+        }
+        return false;
+    }
+
     public function onDrag(dragEvent as WatchUi.DragEvent) as Boolean {
+        if (_view.isInputSuppressed()) {
+            return true;
+        }
         var coords = dragEvent.getCoordinates();
         var type = dragEvent.getType();
 

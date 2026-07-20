@@ -29,6 +29,15 @@ module DrawUtil {
         return (alpha << 24) | (color & 0xffffff);
     }
 
+    // The only opacities used anywhere in this app.
+    const ALPHA_15 = 0x26;
+    const ALPHA_25 = 0x40;
+    const ALPHA_35 = 0x59;
+    const ALPHA_50 = 0x80;
+    const ALPHA_55 = 0x8c;
+    const ALPHA_75 = 0xc0;
+    const ALPHA_95 = 0xf2;
+
     // [charW, charH] for a monospace font - one character's width is every character's width.
     function measureChar(dc as Dc, font) as [Number, Number] {
         return (

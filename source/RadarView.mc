@@ -6,6 +6,8 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
+const APP_VERSION = "0.5.8";
+
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
     private const POLL_MS_BY_ZOOM as Array<Number> = [1000, 1000, 2000, 3000];
@@ -30,17 +32,17 @@ class RadarView extends WatchUi.View {
         [0x111111, 0x333333, 0x555555, 0x777777, 0xaaaaaa, 0xcccccc] as
         Array<Number>;
     private const COLOR_RING = GRAYS[4];
-    private const COLOR_RING_ALPHA = 0x28;
-    private const COLOR_BOUNDARY_ALPHA = 0x40;
-    private const COLOR_TICK_ALPHA = 0x50;
-    private const COLOR_MINOR_TICK_ALPHA = 0x30;
+    private const COLOR_RING_ALPHA = DrawUtil.ALPHA_25;
+    private const COLOR_BOUNDARY_ALPHA = DrawUtil.ALPHA_50;
+    private const COLOR_TICK_ALPHA = DrawUtil.ALPHA_55;
+    private const COLOR_MINOR_TICK_ALPHA = DrawUtil.ALPHA_35;
     private const COLOR_GRID = GRAYS[3];
-    private const COLOR_GRID_ALPHA = 0x10;
+    private const COLOR_GRID_ALPHA = DrawUtil.ALPHA_15;
     private const COLOR_GRID_LABEL = GRAYS[2];
     private var _gridLabelInset as Number = 22;
     private var _topPanelLineHeight as Number = 18;
     private var _detailPanelLineHeight as Number = 18;
-    private const COLOR_TRAIL_ALPHA = 0x90;
+    private const COLOR_TRAIL_ALPHA = DrawUtil.ALPHA_95;
     private const COLOR_TEXT = GRAYS[5];
 
     // Identical to ../TerminalWatchface's own COLORS array - every accent below indexes into this, not a hand-picked hex.
@@ -99,6 +101,7 @@ class RadarView extends WatchUi.View {
     private var _aircraftByHex as Dictionary<String, Aircraft> = {};
     private var _lastFetchOk as Boolean = true;
     private var _lastFetchTooMuchData as Boolean = false;
+    private var _lastFetchCode as Number = 0;
     private var _fetchInFlight as Boolean = false;
     // Asked to fetch again while one was already in flight - retried once it resolves.
     private var _refetchPending as Boolean = false;
@@ -145,6 +148,9 @@ class RadarView extends WatchUi.View {
     // Timestamp-gated, not a plain flag - a standalone tap may never fire beginDrag on real hardware.
     private var _dragStopAtMs as Number?;
     private const TAP_SUPPRESS_WINDOW_MS = 300;
+    // The gesture that opens/closes the full-detail view can leave trailing touch events for whatever's
+    // on top afterward (e.g. a swipe-down-to-close bleeding into a pan) - swallow input briefly after either.
+    private var _inputSuppressedUntilMs as Number?;
     // Caps continueDrag's redraw rate - unthrottled, it called requestUpdate on every raw mouse-move event.
     private var _lastDragRedrawMs as Number = 0;
     private const DRAG_REDRAW_INTERVAL_MS = 33;
@@ -483,18 +489,19 @@ class RadarView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
-    public function recenter() as Void {
+    // False when there's nothing left to recenter/deselect, so the caller can fall through to the default back/exit behavior.
+    public function recenter() as Boolean {
         if (_manualFocus != null) {
             _manualFocus = null;
             _fetchNow();
             WatchUi.requestUpdate();
-            return;
+            return true;
         }
         if (_selectedHex != null) {
             deselectAircraft();
-            return;
+            return true;
         }
-        _fetchNow();
+        return false;
     }
 
     public function beginDrag(x as Number, y as Number) as Void {
@@ -597,6 +604,15 @@ class RadarView extends WatchUi.View {
         return _dragStartCoords != null;
     }
 
+    public function suppressInputBriefly() as Void {
+        _inputSuppressedUntilMs = System.getTimer() + TAP_SUPPRESS_WINDOW_MS;
+    }
+
+    public function isInputSuppressed() as Boolean {
+        var until = _inputSuppressedUntilMs;
+        return until != null and System.getTimer() < (until as Number);
+    }
+
     public function hitTestAircraft(x as Number, y as Number) as String? {
         var best = null as String?;
         var bestDistSq = HIT_RADIUS_PX * HIT_RADIUS_PX;
@@ -647,7 +663,7 @@ class RadarView extends WatchUi.View {
         deselectAircraft();
     }
 
-    // True (and opens full detail) if (x,y) is within the chevron's own tap zone, not the full panel width.
+    // True (and opens full detail) for a tap anywhere on the compact panel, chevron margin included.
     public function tryOpenDetailPanel(x as Number, y as Number) as Boolean {
         var ac = _selectedAircraft();
         if (ac == null) {
@@ -660,8 +676,14 @@ class RadarView extends WatchUi.View {
         ) {
             return false;
         }
-        var cx = _lastScreenHeight / 2;
-        if ((x - cx).abs() > CHEVRON_TAP_HALF_WIDTH_PX) {
+        openFullDetail();
+        return true;
+    }
+
+    // Same "is the panel showing" gate as tryOpenDetailPanel, without a coordinate - SwipeEvent has none.
+    public function trySwipeOpenDetail() as Boolean {
+        var ac = _selectedAircraft();
+        if (ac == null or _detailPanelHeight(ac as Aircraft) == 0) {
             return false;
         }
         openFullDetail();
@@ -828,6 +850,7 @@ class RadarView extends WatchUi.View {
     // Called from AircraftDetailDelegate once the pushed view is popped, so a late route result has nothing left to update.
     public function onDetailClosed() as Void {
         _detailView = null;
+        suppressInputBriefly();
     }
 
     private function _fetchSelectedTrack() as Void {
@@ -900,12 +923,14 @@ class RadarView extends WatchUi.View {
     public function _onFetchResult(
         aircraft as Array<Aircraft>,
         ok as Boolean,
-        tooMuchData as Boolean
+        tooMuchData as Boolean,
+        code as Number
     ) as Void {
         _fetchInFlight = false;
         _fetchTimedOutDisplay = false;
         _lastFetchOk = ok;
         _lastFetchTooMuchData = tooMuchData;
+        _lastFetchCode = code;
 
         if (ok) {
             var byHex = ({}) as Dictionary<String, Aircraft>;
@@ -1227,7 +1252,7 @@ class RadarView extends WatchUi.View {
 
     // Zoom in (KEY_UP). White, not COLOR_TEXT, to match the chevron's brightness.
     private function _drawPlusHint(dc as Dc, x as Number, y as Number) as Void {
-        _setSolidColor(dc, COLORS[0]);
+        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
         var s = 6;
         dc.drawLine(x - s, y, x + s, y);
         dc.drawLine(x, y - s, x, y + s);
@@ -1239,14 +1264,14 @@ class RadarView extends WatchUi.View {
         x as Number,
         y as Number
     ) as Void {
-        _setSolidColor(dc, COLORS[0]);
+        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
         var s = 6;
         dc.drawLine(x - s, y, x + s, y);
     }
 
     // Menu (KEY_ENTER/KEY_MENU).
     private function _drawMenuHint(dc as Dc, x as Number, y as Number) as Void {
-        _setSolidColor(dc, COLORS[0]);
+        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
         var s = 4;
         dc.drawLine(x - s, y - 3, x + s, y - 3);
         dc.drawLine(x - s, y, x + s, y);
@@ -1259,7 +1284,7 @@ class RadarView extends WatchUi.View {
         x as Number,
         y as Number
     ) as Void {
-        _setSolidColor(dc, COLORS[0]);
+        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
         var s = 6;
         var gap = 2;
         dc.drawLine(x, y - s, x, y - gap);
@@ -1288,9 +1313,9 @@ class RadarView extends WatchUi.View {
             return [_noSignalText, Graphics.COLOR_RED];
         }
         if (!_lastFetchOk) {
-            return _lastFetchTooMuchData
-                ? [_tooBusyText, COLOR_WARN]
-                : [_noSignalText, Graphics.COLOR_RED];
+            var text = _lastFetchTooMuchData ? _tooBusyText : _noSignalText;
+            var color = _lastFetchTooMuchData ? COLOR_WARN : Graphics.COLOR_RED;
+            return [text + " " + _lastFetchCode.toString(), color];
         }
         if (_fetchInFlight) {
             return [_fetchingText, COLOR_GRID_LABEL];
@@ -1352,7 +1377,7 @@ class RadarView extends WatchUi.View {
                 FETCH_SPINNER_PERIOD_MS) *
             2 *
             Math.PI;
-        _setSolidColor(dc, COLOR_TEXT);
+        dc.setColor(COLOR_TEXT, Graphics.COLOR_TRANSPARENT);
         dc.drawCircle(x, y, FETCH_SPINNER_R);
         dc.fillCircle(
             x + (FETCH_SPINNER_R * Math.cos(theta)).toNumber(),
@@ -1539,7 +1564,7 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        _setSolidColor(dc, COLOR_USER);
+        dc.setColor(COLOR_USER, Graphics.COLOR_TRANSPARENT);
         dc.drawCircle(pos[0], pos[1], 5);
         dc.fillCircle(pos[0], pos[1], 2);
     }
@@ -1588,16 +1613,8 @@ class RadarView extends WatchUi.View {
             pts.add([ex + x, ey + y]);
         }
 
-        _setSolidColor(dc, COLOR_USER);
+        dc.setColor(COLOR_USER, Graphics.COLOR_TRANSPARENT);
         dc.fillPolygon(pts);
-    }
-
-    // setStroke needs an explicit alpha byte and isn't reset by setColor - reasserts both for a fully opaque draw.
-    private function _setSolidColor(dc as Dc, color as Number) as Void {
-        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        // 0xfe, not 0xff - white at alpha 0xff packs to -1, the same bits as Graphics.COLOR_TRANSPARENT.
-        // setStroke then silently drops the stroke instead of drawing opaque white (this broke the up-chevron).
-        dc.setStroke(DrawUtil.withAlpha(color, 0xfe));
     }
 
     // Degrees of latitude spanning a given km distance - constant everywhere, unlike longitude.
@@ -1889,7 +1906,7 @@ class RadarView extends WatchUi.View {
     private const TRAIL_DASH_PX = 5.0;
     private const TRAIL_GAP_PX = 4.0;
     private const TRAIL_MAX_DASHES_PER_SEGMENT = 24;
-    private const COLOR_TRAIL_GROUND_ALPHA = 0x50;
+    private const COLOR_TRAIL_GROUND_ALPHA = DrawUtil.ALPHA_55;
 
     private function _drawSelectedTrail(
         dc as Dc,
@@ -2129,7 +2146,7 @@ class RadarView extends WatchUi.View {
         var tipY = geom[0];
         var baseY = geom[1];
         var halfW = geom[2];
-        _setSolidColor(dc, COLOR_SELECTED);
+        dc.setColor(COLOR_SELECTED, Graphics.COLOR_TRANSPARENT);
         dc.fillPolygon([
             [x, tipY],
             [x - halfW, baseY],
@@ -2225,7 +2242,7 @@ class RadarView extends WatchUi.View {
         var cx = center[0] as Number;
         var cy = center[1] as Number;
         var dir = (ac.vertRate as Float) > 0 ? 1 : -1;
-        _setSolidColor(dc, _colorForAircraft(ac));
+        dc.setColor(_colorForAircraft(ac), Graphics.COLOR_TRANSPARENT);
         dc.drawLine(cx - 3, cy + dir * 3, cx, cy);
         dc.drawLine(cx, cy, cx + 3, cy + dir * 3);
     }
@@ -2459,8 +2476,6 @@ class RadarView extends WatchUi.View {
     private const CHEVRON_SIZE_PX = 7;
     // Extra tap area above the panel's top edge, covering the chevron - so the chevron itself feels tappable.
     private const CHEVRON_TAP_MARGIN_PX = 28;
-    // Horizontal tap zone around the chevron, not the full panel width.
-    private const CHEVRON_TAP_HALF_WIDTH_PX = 40;
 
     // "There's more above" affordance - a plain line like _drawMinusHint/_drawMenuHint, no font glyph.
     // Full white, not COLOR_TEXT, since it's an affordance, not body text - reads brighter than the panel content.
@@ -2470,7 +2485,6 @@ class RadarView extends WatchUi.View {
         y as Number,
         s as Number
     ) as Void {
-        // Plain setColor, not _setSolidColor/setStroke - matches AircraftDetailView's own down chevron.
         dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
         DrawUtil.drawChevron(dc, x, y, s, true);
     }

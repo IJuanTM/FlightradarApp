@@ -1,5 +1,6 @@
 import Toybox.Graphics;
 import Toybox.Lang;
+import Toybox.System;
 import Toybox.WatchUi;
 
 // Custom full-screen view, not a system Menu2 - RadarView builds the row data and passes its own ring/panel geometry.
@@ -41,9 +42,9 @@ class AircraftDetailView extends WatchUi.View {
     private var _intraGroupGapPaddingPx as Number = 2;
     private const COLOR_ROW_LABEL = 0x999999;
 
-    // Must match RadarView's own values - duplicated since this class can't see RadarView's private consts.
+    // Must match RadarView's own value - duplicated since this class can't see RadarView's private consts.
     private const COLOR_RING = 0xaaaaaa;
-    private const COLOR_BOUNDARY_ALPHA = 0x40;
+    private const COLOR_BOUNDARY_ALPHA = DrawUtil.ALPHA_50;
     private const COLOR_WHITE = 0xffffff;
 
     // Each row draws as one centered inline line, same style as the compact panel's segmented line.
@@ -51,7 +52,9 @@ class AircraftDetailView extends WatchUi.View {
     private var _fieldGapPx as Number = 16;
 
     private const CHEVRON_SIZE = 7;
-    private const CHEVRON_TAP_PAD = 16;
+    // The swipe/tap that opens this view can leave trailing touch events for it - swallow input briefly on show.
+    private const INPUT_SUPPRESS_WINDOW_MS = 300;
+    private var _inputSuppressedUntilMs as Number = 0;
 
     public function initialize(
         headerText as String,
@@ -136,6 +139,14 @@ class AircraftDetailView extends WatchUi.View {
                 : contentTop0;
     }
 
+    public function onShow() as Void {
+        _inputSuppressedUntilMs = System.getTimer() + INPUT_SUPPRESS_WINDOW_MS;
+    }
+
+    public function isInputSuppressed() as Boolean {
+        return System.getTimer() < _inputSuppressedUntilMs;
+    }
+
     // Departure/arrival update independently - each is its own async lookup, resolving at different times.
     public function setDepartureText(
         segments as Array<DrawUtil.ValueRun>
@@ -177,12 +188,9 @@ class AircraftDetailView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
-    // Tap target for the down chevron - kept generous since it's a small glyph.
-    public function isCloseChevronHit(x as Number, y as Number) as Boolean {
-        return (
-            (x - _ringCx).abs() <= CHEVRON_TAP_PAD &&
-            (y - _closeChevronY).abs() <= CHEVRON_TAP_PAD
-        );
+    // The whole band below the ring is the close affordance - nothing else draws there, so it's all tappable.
+    public function isCloseBandHit(y as Number) as Boolean {
+        return y >= _bottomY;
     }
 
     public function onUpdate(dc as Dc) as Void {
@@ -310,7 +318,11 @@ class AircraftDetailView extends WatchUi.View {
 class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     private var _view as AircraftDetailView;
     private var _radarView as RadarView;
+    private var _dragStartY as Number?;
     private var _dragLastY as Number?;
+    // Below this, movement is jitter from an imprecise tap, not a real scroll intent - matches RadarView's own pan threshold.
+    private var _dragCommitted as Boolean = false;
+    private const DRAG_THRESHOLD_PX = 32;
     private const SCROLL_STEP_PX = 40;
 
     public function initialize(
@@ -338,8 +350,22 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     }
 
     public function onTap(clickEvent as WatchUi.ClickEvent) as Boolean {
+        if (_view.isInputSuppressed()) {
+            return true;
+        }
         var coords = clickEvent.getCoordinates();
-        if (_view.isCloseChevronHit(coords[0], coords[1])) {
+        if (_view.isCloseBandHit(coords[1])) {
+            _close();
+            return true;
+        }
+        return false;
+    }
+
+    public function onSwipe(swipeEvent as WatchUi.SwipeEvent) as Boolean {
+        if (_view.isInputSuppressed()) {
+            return true;
+        }
+        if (swipeEvent.getDirection() == WatchUi.SWIPE_DOWN) {
             _close();
             return true;
         }
@@ -347,19 +373,35 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     }
 
     public function onDrag(dragEvent as WatchUi.DragEvent) as Boolean {
+        if (_view.isInputSuppressed()) {
+            return true;
+        }
         var coords = dragEvent.getCoordinates();
         var type = dragEvent.getType();
 
         if (type == WatchUi.DRAG_TYPE_START) {
+            _dragStartY = coords[1];
             _dragLastY = coords[1];
+            _dragCommitted = false;
         } else if (type == WatchUi.DRAG_TYPE_CONTINUE) {
+            var start = _dragStartY;
             var last = _dragLastY;
-            if (last != null) {
-                _view.scroll((last as Number) - coords[1]);
+            if (start == null or last == null) {
+                return true;
             }
+            if (!_dragCommitted) {
+                if ((coords[1] - (start as Number)).abs() < DRAG_THRESHOLD_PX) {
+                    _dragLastY = coords[1];
+                    return true;
+                }
+                _dragCommitted = true;
+            }
+            _view.scroll((last as Number) - coords[1]);
             _dragLastY = coords[1];
         } else if (type == WatchUi.DRAG_TYPE_STOP) {
+            _dragStartY = null;
             _dragLastY = null;
+            _dragCommitted = false;
         }
         return true;
     }
