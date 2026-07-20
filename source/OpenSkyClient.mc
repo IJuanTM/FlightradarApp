@@ -282,13 +282,32 @@ class OpenSkyClient {
             _completeRoute(null, null, true);
             return;
         }
-        // Most recent segment - flights/aircraft returns them in chronological order.
-        var last = flights[flights.size() - 1];
+        // Array order isn't documented/guaranteed by the API - pick by lastSeen instead of array position.
+        var best = null as Dictionary?;
+        var bestLastSeen = null as Number?;
+        for (var i = 0; i < flights.size(); i++) {
+            var f = flights[i];
+            if (!(f instanceof Dictionary)) {
+                continue;
+            }
+            var lastSeen = (f as Dictionary)["lastSeen"];
+            if (lastSeen == null) {
+                continue;
+            }
+            var lastSeenNum = lastSeen.toNumber();
+            if (
+                bestLastSeen == null ||
+                lastSeenNum > (bestLastSeen as Number)
+            ) {
+                best = f as Dictionary;
+                bestLastSeen = lastSeenNum;
+            }
+        }
         var dep = null as String?;
         var arr = null as String?;
-        if (last instanceof Dictionary) {
-            var depRaw = last["estDepartureAirport"];
-            var arrRaw = last["estArrivalAirport"];
+        if (best != null) {
+            var depRaw = (best as Dictionary)["estDepartureAirport"];
+            var arrRaw = (best as Dictionary)["estArrivalAirport"];
             dep = depRaw instanceof String ? depRaw : null;
             arr = arrRaw instanceof String ? arrRaw : null;
         }

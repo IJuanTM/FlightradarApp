@@ -100,6 +100,8 @@ class RadarView extends WatchUi.View {
     private var _lastFetchOk as Boolean = true;
     private var _lastFetchTooMuchData as Boolean = false;
     private var _fetchInFlight as Boolean = false;
+    // Asked to fetch again while one was already in flight - retried once it resolves.
+    private var _refetchPending as Boolean = false;
     private var _fetchStartMs as Number?;
     // Display-only, doesn't clear _fetchInFlight or cancel anything - cancelAllRequests() crashed on real hardware.
     private var _fetchTimedOutDisplay as Boolean = false;
@@ -795,8 +797,12 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var color = text != null ? COLOR_SUCCESS : COLOR_ROUTE_DIM;
-        var display = text != null ? text as String : icao;
+        // ICAO itself is still a resolved value even if the detail lookup failed.
+        var color = COLOR_SUCCESS;
+        var display =
+            text != null
+                ? text as String
+                : icao + DrawUtil.DIM_MARK + " (no info)";
         if (
             _pendingDepIcao != null &&
             (_pendingDepIcao as String).equals(icao)
@@ -867,11 +873,13 @@ class RadarView extends WatchUi.View {
 
     private function _fetchNow() as Void {
         if (_fetchInFlight) {
+            _refetchPending = true;
             return;
         }
         if (!_hasFix or _centerLat == null or _centerLon == null) {
             return;
         }
+        _refetchPending = false;
         var focus = _focusPoint();
         _fetchInFlight = true;
         _fetchStartMs = System.getTimer();
@@ -924,6 +932,11 @@ class RadarView extends WatchUi.View {
                     _appendLiveTrackPoint(selectedAc as Aircraft);
                 }
             }
+        }
+
+        if (_refetchPending) {
+            _ticksSincePoll = 0;
+            _fetchNow();
         }
 
         WatchUi.requestUpdate();

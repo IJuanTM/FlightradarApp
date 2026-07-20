@@ -45,6 +45,7 @@ class AircraftDetailView extends WatchUi.View {
     private const COLOR_RING = 0xaaaaaa;
     private const COLOR_BOUNDARY_ALPHA = 0x40;
     private const COLOR_WHITE = 0xffffff;
+    private const COLOR_VALUE_DIM = 0x555555;
 
     // Each row draws as one centered inline line, same style as the compact panel's segmented line.
     private var _labelValueGapPx as Number = 4;
@@ -95,7 +96,7 @@ class AircraftDetailView extends WatchUi.View {
         _maxRowHeight = _charH + 14;
         _contentPadding = _charH / 2;
         _intraGroupGapPaddingPx = _charW / 4;
-        _labelValueGapPx = _charW / 2;
+        _labelValueGapPx = _charW;
         _fieldGapPx = _charW * 2;
 
         var h = dc.getHeight();
@@ -284,7 +285,7 @@ class AircraftDetailView extends WatchUi.View {
     }
 
     private function _valueSegmentWidth(dc as Dc, value as String) as Number {
-        return DrawUtil.markedTextWidth(dc, _fontTiny, value);
+        return DrawUtil.dimSplitTextWidth(dc, _fontTiny, value);
     }
 
     // Left-justified draw starting at x - the caller (_drawGridRow) already handled centering the whole row.
@@ -296,7 +297,15 @@ class AircraftDetailView extends WatchUi.View {
         color as Number
     ) as Void {
         dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        DrawUtil.drawMarkedText(dc, x, y, _fontTiny, value, color);
+        DrawUtil.drawDimSplitText(
+            dc,
+            x,
+            y,
+            _fontTiny,
+            value,
+            color,
+            COLOR_VALUE_DIM
+        );
     }
 
     private function _drawChevronDown(

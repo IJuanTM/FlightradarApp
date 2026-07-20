@@ -17,6 +17,9 @@ module DrawUtil {
     const WARNING_MARK = "!";
     const WARNING_MARK_R = 4;
 
+    // Splits a value into two colors instead of a glyph, e.g. "KJFK" + dim " (no info)".
+    const DIM_MARK = "~";
+
     // Half-length of the chord of a circle of the given radius at a given perpendicular offset from center.
     function chordHalfExtent(radiusPx as Number, offsetPx as Number) as Number {
         return Math.sqrt(
@@ -124,6 +127,47 @@ module DrawUtil {
                 Graphics.TEXT_JUSTIFY_LEFT
             );
         }
+    }
+
+    function dimSplitTextWidth(dc as Dc, font, text as String) as Number {
+        var idx = text.find(DIM_MARK);
+        if (idx == null) {
+            return markedTextWidth(dc, font, text);
+        }
+        var before = text.substring(0, idx as Number) as String;
+        var after =
+            text.substring((idx as Number) + 1, text.length()) as String;
+        return (
+            markedTextWidth(dc, font, before) + markedTextWidth(dc, font, after)
+        );
+    }
+
+    function drawDimSplitText(
+        dc as Dc,
+        x as Number,
+        y as Number,
+        font,
+        text as String,
+        color as Number,
+        dimColor as Number
+    ) as Void {
+        var idx = text.find(DIM_MARK);
+        if (idx == null) {
+            drawMarkedText(dc, x, y, font, text, color);
+            return;
+        }
+        var before = text.substring(0, idx as Number) as String;
+        var after =
+            text.substring((idx as Number) + 1, text.length()) as String;
+        drawMarkedText(dc, x, y, font, before, color);
+        drawMarkedText(
+            dc,
+            x + markedTextWidth(dc, font, before),
+            y,
+            font,
+            after,
+            dimColor
+        );
     }
 
     // Filled triangle with a black cutout exclamation mark - canvas is always black, so no color sampling needed.
