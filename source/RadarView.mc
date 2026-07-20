@@ -6,7 +6,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.5.8";
+const APP_VERSION = "0.5.9";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -143,13 +143,13 @@ class RadarView extends WatchUi.View {
     private var _dragStartCoords as [Number, Number]?;
     private var _dragLastCoords as [Number, Number]?;
     private var _dragCommitted as Boolean = false;
+    private var _touchDownInDetailPanel as Boolean = false;
     private var _lastRadiusPx as Number = 1;
     private var _lastScreenHeight as Number = 1;
     // Timestamp-gated, not a plain flag - a standalone tap may never fire beginDrag on real hardware.
     private var _dragStopAtMs as Number?;
     private const TAP_SUPPRESS_WINDOW_MS = 300;
-    // The gesture that opens/closes the full-detail view can leave trailing touch events for whatever's
-    // on top afterward (e.g. a swipe-down-to-close bleeding into a pan) - swallow input briefly after either.
+    // Trailing touch events from opening/closing the full-detail view can bleed into whatever's on top next.
     private var _inputSuppressedUntilMs as Number?;
     // Caps continueDrag's redraw rate - unthrottled, it called requestUpdate on every raw mouse-move event.
     private var _lastDragRedrawMs as Number = 0;
@@ -398,7 +398,8 @@ class RadarView extends WatchUi.View {
         var charSize = DrawUtil.measureChar(dc, _fontTiny);
         _charW = charSize[0];
         _charH = charSize[1];
-        _edgeMargin = _charW * 2;
+        // Sized to fit the button hints with a visible gap on both sides - see BUTTON_HINT_REACH_PX.
+        _edgeMargin = (BUTTON_HINT_REACH_PX + CENTER_BIAS_PX) * 2;
         _gridLabelInset = _charH + _charW;
         _topPanelLineHeight = _charH + 4;
         _detailPanelLineHeight = _charH + 4;
@@ -489,7 +490,7 @@ class RadarView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
-    // False when there's nothing left to recenter/deselect, so the caller can fall through to the default back/exit behavior.
+    // False when nothing's left to clear - lets the caller fall through to exit.
     public function recenter() as Boolean {
         if (_manualFocus != null) {
             _manualFocus = null;
@@ -505,7 +506,14 @@ class RadarView extends WatchUi.View {
     }
 
     public function beginDrag(x as Number, y as Number) as Void {
-        if (!_hasFix or _centerLat == null or _centerLon == null) {
+        // Never cleared by endDrag - trySwipeOpenDetail reads this later since SwipeEvent has no coordinates.
+        _touchDownInDetailPanel = _isInDetailPanelZone(x, y);
+        if (
+            _touchDownInDetailPanel or
+            !_hasFix or
+            _centerLat == null or
+            _centerLon == null
+        ) {
             return;
         }
         _dragStartCoords = [x, y];
@@ -663,27 +671,30 @@ class RadarView extends WatchUi.View {
         deselectAircraft();
     }
 
-    // True (and opens full detail) for a tap anywhere on the compact panel, chevron margin included.
-    public function tryOpenDetailPanel(x as Number, y as Number) as Boolean {
+    private function _isInDetailPanelZone(x as Number, y as Number) as Boolean {
         var ac = _selectedAircraft();
         if (ac == null) {
             return false;
         }
         var panelH = _detailPanelHeight(ac as Aircraft);
-        if (
-            panelH == 0 ||
-            y < _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX
-        ) {
+        return (
+            panelH != 0 &&
+            y >= _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX
+        );
+    }
+
+    // True (and opens full detail) for a tap anywhere on the compact panel, chevron margin included.
+    public function tryOpenDetailPanel(x as Number, y as Number) as Boolean {
+        if (!_isInDetailPanelZone(x, y)) {
             return false;
         }
         openFullDetail();
         return true;
     }
 
-    // Same "is the panel showing" gate as tryOpenDetailPanel, without a coordinate - SwipeEvent has none.
+    // SwipeEvent has no coordinates, so this reads where the gesture's touch-down landed instead - see beginDrag.
     public function trySwipeOpenDetail() as Boolean {
-        var ac = _selectedAircraft();
-        if (ac == null or _detailPanelHeight(ac as Aircraft) == 0) {
+        if (!_touchDownInDetailPanel) {
             return false;
         }
         openFullDetail();
@@ -1237,6 +1248,10 @@ class RadarView extends WatchUi.View {
 
     // Coordinate math truncates toward zero, which biases icons slightly inward without this.
     private const CENTER_BIAS_PX = 1;
+
+    // Farthest a hint icon's own drawn pixels reach from its center - hints aren't rotated to the ring's
+    // radial direction, so the worst case is the full diagonal of the largest icon (s=6 -> 6*sqrt(2) =~ 8.5px).
+    private const BUTTON_HINT_REACH_PX = _charW;
 
     private function _buttonHintPos(
         cx as Number,

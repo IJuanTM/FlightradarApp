@@ -320,7 +320,7 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     private var _radarView as RadarView;
     private var _dragStartY as Number?;
     private var _dragLastY as Number?;
-    // Below this, movement is jitter from an imprecise tap, not a real scroll intent - matches RadarView's own pan threshold.
+    // Jitter from an imprecise tap, not real scroll intent - matches RadarView's own pan threshold.
     private var _dragCommitted as Boolean = false;
     private const DRAG_THRESHOLD_PX = 32;
     private const SCROLL_STEP_PX = 40;

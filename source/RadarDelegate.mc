@@ -1,8 +1,7 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 
-// Bottom-right (ESC) is recenter/deselect while there's a pan or selection to clear, otherwise falls
-// through to the platform's default back behavior (exits the app), like every other watch-app root view.
+// Bottom-right (ESC) recenters/deselects when there's something to clear, else falls through to exit.
 class RadarDelegate extends WatchUi.BehaviorDelegate {
     private var _view as RadarView;
 

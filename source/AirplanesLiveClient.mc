@@ -85,11 +85,10 @@ class AirplanesLiveClient {
             (_pendingLon as Float).toString() +
             "/" +
             radiusNm.format("%.1f");
-        // JSON, not TEXT_PLAIN - real devices reject a responseType that doesn't match the server's
-        // actual Content-Type header (application/json here), which was the real cause of a persistent -400.
+        // No :responseType - this endpoint's Content-Type varies (JSON normally, text/plain on a 429),
+        // and a fixed responseType gets rejected outright on real devices when it doesn't match.
         var options = {
             :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
         };
 
         Communications.makeWebRequest(url, null, options, method(:_onReceive));
