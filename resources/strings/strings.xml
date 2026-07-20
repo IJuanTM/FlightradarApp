@@ -37,5 +37,5 @@
   <string id="TooBusy">Too Busy</string>
   <string id="NoGps">Waiting for GPS...</string>
   <string id="Fetching">Fetching...</string>
-  <string id="Fetched">Fetched</string>
+  <string id="Fetched">Live</string>
 </strings>

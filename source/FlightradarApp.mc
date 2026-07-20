@@ -1,6 +1,7 @@
 import Toybox.Application;
 import Toybox.Lang;
 import Toybox.Position;
+import Toybox.System;
 import Toybox.WatchUi;
 
 class FlightradarApp extends Application.AppBase {
@@ -10,6 +11,11 @@ class FlightradarApp extends Application.AppBase {
         AppBase.initialize();
         Settings.load();
         _radarView = new RadarView();
+    }
+
+    // Only AppBase gets this, not View - relayed to RadarView, which owns the poll timer.
+    public function onDisplayModeChanged() as Void {
+        _radarView.onDisplayModeChanged(System.getDisplayMode());
     }
 
     public function onStart(state as Dictionary?) as Void {

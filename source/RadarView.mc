@@ -6,7 +6,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.5.9";
+const APP_VERSION = "0.5.10";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -101,7 +101,9 @@ class RadarView extends WatchUi.View {
     private var _aircraftByHex as Dictionary<String, Aircraft> = {};
     private var _lastFetchOk as Boolean = true;
     private var _lastFetchTooMuchData as Boolean = false;
-    private var _lastFetchCode as Number = 0;
+    // True once at least one fetch has ever succeeded - distinguishes "still on the first load" from
+    // "already showing real data, just polling again" for the top panel status text.
+    private var _hasEverFetchedOk as Boolean = false;
     private var _fetchInFlight as Boolean = false;
     // Asked to fetch again while one was already in flight - retried once it resolves.
     private var _refetchPending as Boolean = false;
@@ -159,12 +161,24 @@ class RadarView extends WatchUi.View {
     private var _ticksSincePoll as Number = 0;
     // Drives the fetch spinner's orbit animation, without redrawing so often it hurts battery.
     private const ANIM_TICK_MS = 200;
+    // The screen going dark (wrist down) doesn't hide this view - _onTick keeps polling for nobody unless told.
+    private var _displayOff as Boolean = false;
+
+    // Both piggyback on _onTick's existing cadence, not their own Timer - a second resident Timer
+    // already crashed this app once with "Too Many Timers Error" (see [[connectiq_gotchas]]).
+    private var _zoomChangedAtMs as Number?;
+    // Not lower - _onTick's own cadence (ANIM_TICK_MS) is the real floor on how fast this can fire.
+    private const ZOOM_DEBOUNCE_MS = ANIM_TICK_MS;
+    private var _nextRetryAtMs as Number?;
+    private var _retryBackoffMs as Number = INITIAL_RETRY_BACKOFF_MS;
+    private const INITIAL_RETRY_BACKOFF_MS = 2000;
+    private const MAX_RETRY_BACKOFF_MS = 30000;
 
     private var _noGpsText as String = "";
     private var _noSignalText as String = "";
     private var _tooBusyText as String = "";
     private var _fetchingText as String = "";
-    private var _fetchedText as String = "";
+    private var _liveText as String = "";
     private var _fontSmall as Graphics.FontType = Graphics.FONT_SMALL;
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
     private var _client as AirplanesLiveClient = new AirplanesLiveClient();
@@ -184,7 +198,7 @@ class RadarView extends WatchUi.View {
         _noSignalText = WatchUi.loadResource(Rez.Strings.NoSignal) as String;
         _tooBusyText = WatchUi.loadResource(Rez.Strings.TooBusy) as String;
         _fetchingText = WatchUi.loadResource(Rez.Strings.Fetching) as String;
-        _fetchedText = WatchUi.loadResource(Rez.Strings.Fetched) as String;
+        _liveText = WatchUi.loadResource(Rez.Strings.Fetched) as String;
         _fontSmall =
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
@@ -427,7 +441,20 @@ class RadarView extends WatchUi.View {
         }
     }
 
+    public function onDisplayModeChanged(mode as System.DisplayMode) as Void {
+        var wasOff = _displayOff;
+        _displayOff = mode == System.DISPLAY_MODE_OFF;
+        if (wasOff && !_displayOff) {
+            _ticksSincePoll = 0;
+            _fetchNow();
+        }
+    }
+
     public function _onTick() as Void {
+        if (_displayOff) {
+            return;
+        }
+
         var startedAt = _fetchStartMs;
         if (
             _fetchInFlight &&
@@ -439,14 +466,36 @@ class RadarView extends WatchUi.View {
             WatchUi.requestUpdate();
         }
 
-        _ticksSincePoll += 1;
-        var pollMs = POLL_MS_BY_ZOOM[Settings.zoomIndex];
-        if (Settings.batterySaverMode) {
-            pollMs *= BATTERY_SAVER_MULTIPLIER;
-        }
-        if (_ticksSincePoll * ANIM_TICK_MS >= pollMs) {
-            _ticksSincePoll = 0;
+        var now = System.getTimer();
+
+        // Debounced: a burst of zoom taps only fetches once, shortly after the last one.
+        var changedAt = _zoomChangedAtMs;
+        if (
+            changedAt != null &&
+            now - (changedAt as Number) >= ZOOM_DEBOUNCE_MS
+        ) {
+            _zoomChangedAtMs = null;
             _fetchNow();
+        }
+
+        var nextRetry = _nextRetryAtMs;
+        if (nextRetry != null) {
+            // A failure (e.g. rate-limited) retries on its own backoff, not the normal poll cadence,
+            // so it recovers faster than a full poll period and without immediately re-triggering the limit.
+            if (now >= (nextRetry as Number)) {
+                _nextRetryAtMs = null;
+                _fetchNow();
+            }
+        } else {
+            _ticksSincePoll += 1;
+            var pollMs = POLL_MS_BY_ZOOM[Settings.zoomIndex];
+            if (Settings.batterySaverMode) {
+                pollMs *= BATTERY_SAVER_MULTIPLIER;
+            }
+            if (_ticksSincePoll * ANIM_TICK_MS >= pollMs) {
+                _ticksSincePoll = 0;
+                _fetchNow();
+            }
         }
 
         if (_fetchInFlight && !_fetchTimedOutDisplay) {
@@ -478,16 +527,21 @@ class RadarView extends WatchUi.View {
 
     public function zoomIn() as Void {
         Settings.zoomIn();
-        _ticksSincePoll = 0;
-        _fetchNow();
+        _scheduleDebouncedFetch();
         WatchUi.requestUpdate();
     }
 
     public function zoomOut() as Void {
         Settings.zoomOut();
-        _ticksSincePoll = 0;
-        _fetchNow();
+        _scheduleDebouncedFetch();
         WatchUi.requestUpdate();
+    }
+
+    // A fresh zoom action supersedes any pending failure retry for the old level.
+    private function _scheduleDebouncedFetch() as Void {
+        _zoomChangedAtMs = System.getTimer();
+        _nextRetryAtMs = null;
+        _retryBackoffMs = INITIAL_RETRY_BACKOFF_MS;
     }
 
     // False when nothing's left to clear - lets the caller fall through to exit.
@@ -934,16 +988,19 @@ class RadarView extends WatchUi.View {
     public function _onFetchResult(
         aircraft as Array<Aircraft>,
         ok as Boolean,
-        tooMuchData as Boolean,
-        code as Number
+        tooMuchData as Boolean
     ) as Void {
         _fetchInFlight = false;
         _fetchTimedOutDisplay = false;
         _lastFetchOk = ok;
         _lastFetchTooMuchData = tooMuchData;
-        _lastFetchCode = code;
 
         if (ok) {
+            _ticksSincePoll = 0;
+            _nextRetryAtMs = null;
+            _retryBackoffMs = INITIAL_RETRY_BACKOFF_MS;
+            _hasEverFetchedOk = true;
+
             var byHex = ({}) as Dictionary<String, Aircraft>;
             for (var i = 0; i < aircraft.size(); i++) {
                 byHex[aircraft[i].hex] = aircraft[i];
@@ -973,6 +1030,12 @@ class RadarView extends WatchUi.View {
                     ];
                     _appendLiveTrackPoint(selectedAc as Aircraft);
                 }
+            }
+        } else {
+            _nextRetryAtMs = System.getTimer() + _retryBackoffMs;
+            _retryBackoffMs *= 2;
+            if (_retryBackoffMs > MAX_RETRY_BACKOFF_MS) {
+                _retryBackoffMs = MAX_RETRY_BACKOFF_MS;
             }
         }
 
@@ -1328,14 +1391,16 @@ class RadarView extends WatchUi.View {
             return [_noSignalText, Graphics.COLOR_RED];
         }
         if (!_lastFetchOk) {
-            var text = _lastFetchTooMuchData ? _tooBusyText : _noSignalText;
-            var color = _lastFetchTooMuchData ? COLOR_WARN : Graphics.COLOR_RED;
-            return [text + " " + _lastFetchCode.toString(), color];
+            return _lastFetchTooMuchData
+                ? [_tooBusyText, COLOR_WARN]
+                : [_noSignalText, Graphics.COLOR_RED];
         }
-        if (_fetchInFlight) {
+        // Nothing on screen yet to call "live" - true on first load, and briefly true again
+        // whenever a poll legitimately finds zero aircraft (small zoom radii, sparse traffic).
+        if (_fetchInFlight && (!_hasEverFetchedOk || _aircraft.size() == 0)) {
             return [_fetchingText, COLOR_GRID_LABEL];
         }
-        return [_fetchedText, COLOR_SUCCESS];
+        return [_liveText, COLOR_SUCCESS];
     }
 
     private function _topPanelHeight() as Number {
@@ -1805,6 +1870,7 @@ class RadarView extends WatchUi.View {
             var showCallsign = Settings.isLabelFieldEnabled("callsign");
             var showSpeed = Settings.isLabelFieldEnabled("speed");
             var showAltitude = Settings.isLabelFieldEnabled("altitude");
+            var lineH = dc.getTextDimensions("Ag", _fontTiny)[1];
             var selectedIndex = -1;
             if (_selectedHex != null) {
                 for (var i = 0; i < _lastDrawnPositions.size(); i++) {
@@ -1831,7 +1897,8 @@ class RadarView extends WatchUi.View {
                         true,
                         showCallsign,
                         showSpeed,
-                        showAltitude
+                        showAltitude,
+                        lineH
                     );
                 }
             }
@@ -1851,7 +1918,8 @@ class RadarView extends WatchUi.View {
                     false,
                     showCallsign,
                     showSpeed,
-                    showAltitude
+                    showAltitude,
+                    lineH
                 );
             }
 
@@ -2338,7 +2406,8 @@ class RadarView extends WatchUi.View {
         isSelected as Boolean,
         showCallsign as Boolean,
         showSpeed as Boolean,
-        showAltitude as Boolean
+        showAltitude as Boolean,
+        lineH as Number
     ) as Void {
         var lines = _buildLabelLines(ac, showCallsign, showSpeed, showAltitude);
         var top = lines[0] as Array<DrawUtil.ValueRun>;
@@ -2347,9 +2416,13 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var topW = top.size() > 0 ? _segmentedLineWidth(dc, top) : 0;
-        var bottomW = bottom.size() > 0 ? _segmentedLineWidth(dc, bottom) : 0;
-        var lineH = dc.getTextDimensions("Ag", _fontTiny)[1];
+        // Measured once here and reused below for drawing - runWidth() is a real getTextDimensions() call
+        // per run, and this runs for every visible labeled aircraft, every redraw.
+        var topM = top.size() > 0 ? _measureSegments(dc, top) : null;
+        var bottomM = bottom.size() > 0 ? _measureSegments(dc, bottom) : null;
+        var topW = topM != null ? (topM as [Number, Array<Number>])[0] : 0;
+        var bottomW =
+            bottomM != null ? (bottomM as [Number, Array<Number>])[0] : 0;
 
         var width = topW > bottomW ? topW : bottomW;
         var height = 0;
@@ -2379,25 +2452,45 @@ class RadarView extends WatchUi.View {
         _reserveRect(ac.hex, rect);
 
         var lineY = textY;
-        if (top.size() > 0) {
-            _drawSegmentedLine(dc, x, lineY, top);
+        if (topM != null) {
+            var m = topM as [Number, Array<Number>];
+            _drawMeasuredSegments(dc, x, lineY, top, m[1], m[0]);
             lineY += lineH + _labelLineGapPx;
         }
-        if (bottom.size() > 0) {
-            _drawSegmentedLine(dc, x, lineY, bottom);
+        if (bottomM != null) {
+            var m = bottomM as [Number, Array<Number>];
+            _drawMeasuredSegments(dc, x, lineY, bottom, m[1], m[0]);
         }
     }
 
-    private function _segmentedLineWidth(
+    private function _measureSegments(
         dc as Dc,
         segments as Array<DrawUtil.ValueRun>
-    ) as Number {
+    ) as [Number, Array<Number>] {
+        var widths = [] as Array<Number>;
         var totalW = -_segmentGapPx;
         for (var i = 0; i < segments.size(); i++) {
-            totalW +=
-                DrawUtil.runWidth(dc, _fontTiny, segments[i]) + _segmentGapPx;
+            var w = DrawUtil.runWidth(dc, _fontTiny, segments[i]);
+            widths.add(w);
+            totalW += w + _segmentGapPx;
         }
-        return totalW;
+        return [totalW, widths] as [Number, Array<Number>];
+    }
+
+    // Draws with widths already known - unlike _drawSegmentedLine, doesn't re-measure each run itself.
+    private function _drawMeasuredSegments(
+        dc as Dc,
+        cx as Number,
+        y as Number,
+        segments as Array<DrawUtil.ValueRun>,
+        widths as Array<Number>,
+        totalW as Number
+    ) as Void {
+        var x = cx - totalW / 2;
+        for (var i = 0; i < segments.size(); i++) {
+            DrawUtil.drawRun(dc, x, y, _fontTiny, segments[i]);
+            x += (widths[i] as Number) + _segmentGapPx;
+        }
     }
 
     // Same colors as the compact/full detail views (callsign=aircraft, speed=yellow, altitude=blue).

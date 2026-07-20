@@ -8,14 +8,12 @@ class AirplanesLiveClient {
     private const BASE_URL = "https://api.airplanes.live/v2/point";
 
     // tooMuchData distinguishes the known response-size-ceiling failure (-402/-403) from a generic failure.
-    // code is the raw Communications response code, for on-watch diagnosis.
     typedef FetchCallback as
         (Method
             (
                 aircraft as Array<Aircraft>,
                 ok as Boolean,
-                tooMuchData as Boolean,
-                code as Number
+                tooMuchData as Boolean
             ) as Void
         );
 
@@ -104,18 +102,13 @@ class AirplanesLiveClient {
         }
 
         if (responseCode != 200 or !(data instanceof Dictionary)) {
-            cb.invoke(
-                [],
-                false,
-                _isSizeCeilingError(responseCode),
-                responseCode
-            );
+            cb.invoke([], false, _isSizeCeilingError(responseCode));
             return;
         }
 
         var acRaw = (data as Dictionary).get("ac");
         if (!(acRaw instanceof Array)) {
-            cb.invoke([], false, false, responseCode);
+            cb.invoke([], false, false);
             return;
         }
 
@@ -124,7 +117,7 @@ class AirplanesLiveClient {
         for (var i = 0; i < arr.size(); i++) {
             result.add(new Aircraft(arr[i] as Dictionary));
         }
-        cb.invoke(result, true, false, responseCode);
+        cb.invoke(result, true, false);
     }
 
     // -402/-403 are Communications' own response-size/memory-ceiling codes - distinct from a real connectivity failure.
