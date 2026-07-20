@@ -6,7 +6,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.6.2";
+const APP_VERSION = "0.6.3";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -101,9 +101,9 @@ class RadarView extends WatchUi.View {
     private var _aircraftByHex as Dictionary<String, Aircraft> = {};
     private var _lastFetchOk as Boolean = true;
     private var _lastFetchTooMuchData as Boolean = false;
-    // True once at least one fetch has ever succeeded - distinguishes "still on the first load" from
-    // "already showing real data, just polling again" for the top panel status text.
-    private var _hasEverFetchedOk as Boolean = false;
+    // True once the current view (location/zoom) has a successful fetch - reset on pan/zoom so the
+    // status text shows "Fetching" for a genuine new-view load, not a same-view background poll.
+    private var _viewHasFreshData as Boolean = false;
     private var _fetchInFlight as Boolean = false;
     // Asked to fetch again while one was already in flight - retried once it resolves.
     private var _refetchPending as Boolean = false;
@@ -527,12 +527,14 @@ class RadarView extends WatchUi.View {
         _zoomChangedAtMs = System.getTimer();
         _nextRetryAtMs = null;
         _retryBackoffMs = INITIAL_RETRY_BACKOFF_MS;
+        _viewHasFreshData = false;
     }
 
     // False when nothing's left to clear - lets the caller fall through to exit.
     public function recenter() as Boolean {
         if (_manualFocus != null) {
             _manualFocus = null;
+            _viewHasFreshData = false;
             _fetchNow();
             WatchUi.requestUpdate();
             return true;
@@ -630,6 +632,7 @@ class RadarView extends WatchUi.View {
         _dragCommitted = false;
         if (wasCommitted) {
             _dragStopAtMs = System.getTimer();
+            _viewHasFreshData = false;
             _fetchNow();
             WatchUi.requestUpdate();
         }
@@ -984,7 +987,7 @@ class RadarView extends WatchUi.View {
             _ticksSincePoll = 0;
             _nextRetryAtMs = null;
             _retryBackoffMs = INITIAL_RETRY_BACKOFF_MS;
-            _hasEverFetchedOk = true;
+            _viewHasFreshData = true;
 
             var byHex = ({}) as Dictionary<String, Aircraft>;
             for (var i = 0; i < aircraft.size(); i++) {
@@ -1380,9 +1383,7 @@ class RadarView extends WatchUi.View {
                 ? [_tooBusyText, COLOR_WARN]
                 : [_noSignalText, Graphics.COLOR_RED];
         }
-        // Nothing on screen yet to call "live" - true on first load, and briefly true again
-        // whenever a poll legitimately finds zero aircraft (small zoom radii, sparse traffic).
-        if (_fetchInFlight && (!_hasEverFetchedOk || _aircraft.size() == 0)) {
+        if (_fetchInFlight && !_viewHasFreshData) {
             return [_fetchingText, COLOR_GRID_LABEL];
         }
         return [_liveText, COLOR_SUCCESS];
