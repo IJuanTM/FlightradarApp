@@ -163,6 +163,7 @@ class RadarView extends WatchUi.View {
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
     private var _client as AirplanesLiveClient = new AirplanesLiveClient();
     private var _openSky as OpenSkyClient = new OpenSkyClient();
+    private var _routeClient as RouteClient = new RouteClient();
     private var _airportClient as AirportClient = new AirportClient();
 
     // One bitmap per shape - emergency halo is drawn via an offset-blit outline, not a second dilated variant.
@@ -709,7 +710,14 @@ class RadarView extends WatchUi.View {
         }
         _routeFetchInFlight = true;
         _routeFetchHex = hex;
-        _openSky.fetchRoute(hex as String, method(:_onRouteResult));
+        var ac = _selectedAircraft();
+        var callsign = ac != null ? (ac as Aircraft).flight : null;
+        if (callsign == null) {
+            // No callsign to look up by - same "no route found" outcome as a 404.
+            _onRouteResult(null, null, true);
+            return;
+        }
+        _routeClient.fetchRoute(callsign as String, method(:_onRouteResult));
     }
 
     public function _onRouteResult(

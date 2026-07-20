@@ -1,22 +1,16 @@
 import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.System;
-import Toybox.Time;
 import Toybox.WatchUi;
 
-// Fetched on-demand for the selected aircraft only, never polled continuously.
+// Fetched on-demand for the selected aircraft's historical track only, never polled continuously.
+// Route lookup lives in RouteClient instead (free, no-auth, callsign-keyed - see its own header comment).
 class OpenSkyClient {
     private const TOKEN_URL =
         "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
     // "/tracks/all", not "/tracks" - OpenSky's own prose REST doc is stale on this.
     private const TRACKS_URL = "https://opensky-network.org/api/tracks/all";
-    private const FLIGHTS_URL =
-        "https://opensky-network.org/api/flights/aircraft";
     private const TOKEN_SAFETY_MARGIN_MS = 60000;
-    // flights/aircraft needs a begin/end window - wide enough to reliably catch a flight that started hours ago.
-    private const ROUTE_LOOKBACK_SEC = 24 * 3600;
-    // Beyond this, the last completed flight is treated as too stale to plausibly still be relevant.
-    private const MAX_ROUTE_AGE_SEC = 12 * 3600;
 
     typedef TrackCallback as
         (Method
@@ -25,21 +19,14 @@ class OpenSkyClient {
                 ok as Boolean
             ) as Void
         );
-    typedef RouteCallback as
-        (Method(dep as String?, arr as String?, ok as Boolean) as Void);
-    typedef TokenDispatch as (Method(token as String) as Void);
 
     private var _clientId as String?;
     private var _clientSecret as String?;
     private var _accessToken as String?;
     private var _tokenExpiresAtMs as Number?;
-    // Track and route requests are independent - each gets its own pending slot so one can't clobber the other.
     private var _pendingTrackHex as String?;
     private var _pendingTrackCallback as TrackCallback?;
     private var _retriedTrackAuth as Boolean = false;
-    private var _pendingRouteHex as String?;
-    private var _pendingRouteCallback as RouteCallback?;
-    private var _retriedRouteAuth as Boolean = false;
 
     public function initialize() {}
 
@@ -50,21 +37,6 @@ class OpenSkyClient {
         _pendingTrackHex = hex;
         _pendingTrackCallback = callback;
         _retriedTrackAuth = false;
-        _withToken(method(:_fetchTrackWithToken));
-    }
-
-    public function fetchRoute(
-        hex as String,
-        callback as RouteCallback
-    ) as Void {
-        _pendingRouteHex = hex;
-        _pendingRouteCallback = callback;
-        _retriedRouteAuth = false;
-        _withToken(method(:_fetchRouteWithToken));
-    }
-
-    // Shared by fetchTrack/fetchRoute, so token acquisition isn't duplicated.
-    private function _withToken(dispatch as TokenDispatch) as Void {
         var token = _accessToken;
         var expiresAt = _tokenExpiresAtMs;
         if (
@@ -72,7 +44,7 @@ class OpenSkyClient {
             expiresAt != null &&
             System.getTimer() < expiresAt
         ) {
-            dispatch.invoke(token);
+            _fetchTrackWithToken(token);
             return;
         }
         _requestToken();
@@ -81,7 +53,6 @@ class OpenSkyClient {
     private function _requestToken() as Void {
         if (!_ensureCredentialsLoaded()) {
             _failPendingTrack();
-            _failPendingRoute();
             return;
         }
 
@@ -131,7 +102,6 @@ class OpenSkyClient {
     ) as Void {
         if (responseCode != 200 or !(data instanceof Dictionary)) {
             _failPendingTrack();
-            _failPendingRoute();
             return;
         }
 
@@ -140,7 +110,6 @@ class OpenSkyClient {
         var expiresIn = dict["expires_in"];
         if (!(token instanceof String) or expiresIn == null) {
             _failPendingTrack();
-            _failPendingRoute();
             return;
         }
 
@@ -152,9 +121,6 @@ class OpenSkyClient {
 
         if (_pendingTrackHex != null) {
             _fetchTrackWithToken(token);
-        }
-        if (_pendingRouteHex != null) {
-            _fetchRouteWithToken(token);
         }
     }
 
@@ -227,119 +193,6 @@ class OpenSkyClient {
         }
     }
 
-    public function _fetchRouteWithToken(token as String) as Void {
-        var hex = _pendingRouteHex;
-        if (hex == null) {
-            return;
-        }
-        // Already Unix-epoch seconds on real hardware, despite SDK docs claiming a Garmin epoch - confirmed live.
-        var now = Time.now().value();
-        var url =
-            FLIGHTS_URL +
-            "?icao24=" +
-            hex +
-            "&begin=" +
-            (now - ROUTE_LOOKBACK_SEC).toString() +
-            "&end=" +
-            now.toString();
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :headers => { "Authorization" => "Bearer " + token },
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-        };
-        Communications.makeWebRequest(
-            url,
-            null,
-            options,
-            method(:_onRouteReceive)
-        );
-    }
-
-    public function _onRouteReceive(
-        responseCode as Number,
-        data as Dictionary or String or Null
-    ) as Void {
-        if (responseCode == 401 && !_retriedRouteAuth) {
-            _retriedRouteAuth = true;
-            _accessToken = null;
-            _tokenExpiresAtMs = null;
-            _requestToken();
-            return;
-        }
-
-        // 404 just means "no flight found for this window" - a normal outcome, not a failure.
-        if (responseCode == 404) {
-            _completeRoute(null, null, true);
-            return;
-        }
-        // This endpoint's JSON root is an array, but the callback type is fixed to Dictionary|String|Null - widen first.
-        var raw = data as Object;
-        if (responseCode != 200 or !(raw instanceof Array)) {
-            _failPendingRoute();
-            return;
-        }
-
-        var flights = raw as Array;
-        if (flights.size() == 0) {
-            _completeRoute(null, null, true);
-            return;
-        }
-        // Array order isn't documented/guaranteed by the API - pick by lastSeen instead of array position.
-        var best = null as Dictionary?;
-        var bestLastSeen = null as Number?;
-        for (var i = 0; i < flights.size(); i++) {
-            var f = flights[i];
-            if (!(f instanceof Dictionary)) {
-                continue;
-            }
-            var lastSeen = (f as Dictionary)["lastSeen"];
-            if (lastSeen == null) {
-                continue;
-            }
-            var lastSeenNum = lastSeen.toNumber();
-            if (
-                bestLastSeen == null ||
-                lastSeenNum > (bestLastSeen as Number)
-            ) {
-                best = f as Dictionary;
-                bestLastSeen = lastSeenNum;
-            }
-        }
-        // This endpoint only ever returns the aircraft's last *completed* flight (batch-processed overnight,
-        // never the in-progress one) - if that segment is old enough, the aircraft has very plausibly flown
-        // again since, so showing it as "the route" would likely be a different, wrong flight. Treat it the
-        // same as no route found rather than risk a confidently-wrong dep/arr.
-        if (
-            best != null &&
-            bestLastSeen != null &&
-            Time.now().value() - (bestLastSeen as Number) > MAX_ROUTE_AGE_SEC
-        ) {
-            best = null;
-        }
-        var dep = null as String?;
-        var arr = null as String?;
-        if (best != null) {
-            var depRaw = (best as Dictionary)["estDepartureAirport"];
-            var arrRaw = (best as Dictionary)["estArrivalAirport"];
-            dep = depRaw instanceof String ? depRaw : null;
-            arr = arrRaw instanceof String ? arrRaw : null;
-        }
-        _completeRoute(dep, arr, true);
-    }
-
-    private function _completeRoute(
-        dep as String?,
-        arr as String?,
-        ok as Boolean
-    ) as Void {
-        var cb = _pendingRouteCallback;
-        _pendingRouteCallback = null;
-        _pendingRouteHex = null;
-        if (cb != null) {
-            cb.invoke(dep, arr, ok);
-        }
-    }
-
     private function _failPendingTrack() as Void {
         var cb = _pendingTrackCallback;
         _pendingTrackCallback = null;
@@ -347,9 +200,5 @@ class OpenSkyClient {
         if (cb != null) {
             cb.invoke([], false);
         }
-    }
-
-    private function _failPendingRoute() as Void {
-        _completeRoute(null, null, false);
     }
 }

@@ -708,21 +708,21 @@ module AircraftClassifier {
     // Rotorcraft (A7) has no size signal in the category, so that shape stays fixed.
     function _sizeScaleForCategory(cat as String) as Float {
         if (cat.equals("A1")) {
-            return 0.7;
+            return 0.96;
         }
         if (cat.equals("A2")) {
-            return 0.85;
+            return 1.04;
         }
         if (cat.equals("A3")) {
-            return 1.1;
+            return 1.12;
         }
         if (cat.equals("A4")) {
-            return 1.15;
+            return 1.2;
         }
         if (cat.equals("A5")) {
-            return 1.3;
+            return 1.28;
         }
-        return 1.0;
+        return 1.04;
     }
 
     // Shared by RadarView._classify() - scale is the caller's baseScale * sizeScale already combined.
