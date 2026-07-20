@@ -118,8 +118,7 @@ module DrawUtil {
         }
     }
 
-    // A value is one or more runs drawn contiguously, e.g. a plain run, or two runs of different
-    // colors for a dim-split value like "KJFK" + dim " (no info)".
+    // Runs drawn contiguously - a dim-split value like "KJFK" + dim " (no info)" is just two runs.
     function segmentsWidth(dc as Dc, font, runs as Array<ValueRun>) as Number {
         var w = 0;
         for (var i = 0; i < runs.size(); i++) {

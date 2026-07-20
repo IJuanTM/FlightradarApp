@@ -1,11 +1,9 @@
 import Toybox.Communications;
 import Toybox.Lang;
 
-// Free, no-auth, static route lookup keyed by callsign (VRS standing data, the same source tar1090 itself
-// uses for route display) - not by flight instance, so unlike OpenSky's /flights/aircraft (batch-processed
-// overnight, only ever the last *completed* flight) this also works for a flight still in progress.
-// Reflects the usual/scheduled route for that flight number, not a live diversion - a real but much rarer
-// failure mode than showing a different flight entirely. No in-flight guard needed - stateless per fetch.
+// Free, no-auth, stateless route lookup keyed by callsign (VRS standing data, same source tar1090 uses) -
+// not by flight instance like OpenSky's /flights/aircraft, so this also works for an in-progress flight.
+// Reflects the scheduled route for that callsign, not a live diversion.
 class RouteClient {
     private const BASE_URL = "https://vrs-standing-data.adsb.lol/routes/";
 

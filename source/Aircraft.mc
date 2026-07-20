@@ -89,7 +89,9 @@ class Aircraft {
             seenPos != null ? seenPos : dict["seen"]
         );
 
-        operatorName = _toTrimmedStringOrNull(dict["ownOp"]);
+        var ownOp = _toTrimmedStringOrNull(dict["ownOp"]);
+        operatorName =
+            ownOp != null ? TextUtil.foldDiacritics(ownOp as String) : null;
         var iasVal = dict["ias"];
         ias = iasVal != null ? iasVal.toNumber() : null;
         mach = _toFloatOrNull(dict["mach"]);

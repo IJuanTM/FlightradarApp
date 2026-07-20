@@ -1011,14 +1011,7 @@ class RadarView extends WatchUi.View {
             );
         }
         _drawChrome(dc, cx, cy, radiusPx, radiusKm, topPanelH);
-        _drawAircraft(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
-
-        if (selected != null) {
-            _drawDetailPanel(dc, cx, cy, h, radiusPx, selected as Aircraft);
-        }
-
-        _drawTopPanel(dc, cx, cy, radiusPx);
-
+        // Drawn before aircraft, not after - the user's own marker should never sit on top of a craft icon.
         _drawUserMarker(
             dc,
             focusLat,
@@ -1030,6 +1023,13 @@ class RadarView extends WatchUi.View {
             topPanelH,
             h - bottomPanelH
         );
+        _drawAircraft(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
+
+        if (selected != null) {
+            _drawDetailPanel(dc, cx, cy, h, radiusPx, selected as Aircraft);
+        }
+
+        _drawTopPanel(dc, cx, cy, radiusPx);
 
         if (Settings.showButtonHints) {
             _drawButtonHints(dc, cx, cy, radiusPx);
@@ -1041,9 +1041,17 @@ class RadarView extends WatchUi.View {
         if (manual != null) {
             return manual as [Float, Float];
         }
-        var selected = _selectedAircraft();
-        if (selected != null) {
-            return [(selected as Aircraft).lat, (selected as Aircraft).lon];
+        if (_selectedHex != null) {
+            var selected = _selectedAircraft();
+            if (selected != null) {
+                return [(selected as Aircraft).lat, (selected as Aircraft).lon];
+            }
+            // Missing from just this one poll (a normal gap, tolerated up to MAX_SELECTED_MISSES) - hold the
+            // last known position instead of falling through to the user's own, which read as a random recenter.
+            var lastPos = _selectedLastPos;
+            if (lastPos != null) {
+                return lastPos as [Float, Float];
+            }
         }
         return [_centerLat as Float, _centerLon as Float];
     }

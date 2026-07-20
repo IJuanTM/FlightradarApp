@@ -53,9 +53,9 @@ class AirportClient {
                 ? icao + "/" + (iata as String)
                 : icao;
         var text =
-            _asciiSanitize(_cleanLocation(location as String)) +
+            TextUtil.foldDiacritics(_cleanLocation(location as String)) +
             ", " +
-            _asciiSanitize(country as String) +
+            TextUtil.foldDiacritics(country as String) +
             " (" +
             codes +
             ")";
@@ -71,18 +71,5 @@ class AirportClient {
         return (
             location.substring((idx as Number) + 5, location.length()) as String
         );
-    }
-
-    // This app's fonts only bake in ASCII glyphs - drop anything else rather than risk a missing-glyph box.
-    private function _asciiSanitize(s as String) as String {
-        var chars = s.toCharArray();
-        var out = "";
-        for (var i = 0; i < chars.size(); i++) {
-            var c = chars[i];
-            if (c >= ' ' && c <= '~') {
-                out += c.toString();
-            }
-        }
-        return out;
     }
 }
