@@ -683,7 +683,7 @@ class RadarView extends WatchUi.View {
         var view = new AircraftDetailView(
             header,
             _colorForAircraft(ac as Aircraft),
-            built[0] as Array<Array<[String, String, Number]> >,
+            built[0] as Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
             built[1] as Number,
             built[2] as Number,
             built[3] as Array<Boolean>,
@@ -747,8 +747,7 @@ class RadarView extends WatchUi.View {
                 );
             } else {
                 (view as AircraftDetailView).setDepartureText(
-                    "Unknown",
-                    COLOR_ROUTE_DIM
+                    DrawUtil.plainRuns("Unknown", COLOR_ROUTE_DIM)
                 );
             }
             if (arr != null) {
@@ -758,8 +757,7 @@ class RadarView extends WatchUi.View {
                 );
             } else {
                 (view as AircraftDetailView).setArrivalText(
-                    "Unknown",
-                    COLOR_ROUTE_DIM
+                    DrawUtil.plainRuns("Unknown", COLOR_ROUTE_DIM)
                 );
             }
             return;
@@ -771,12 +769,10 @@ class RadarView extends WatchUi.View {
             return;
         }
         (view as AircraftDetailView).setDepartureText(
-            "Unavailable",
-            COLOR_ROUTE_DIM
+            DrawUtil.plainRuns("Unavailable", COLOR_ROUTE_DIM)
         );
         (view as AircraftDetailView).setArrivalText(
-            "Unavailable",
-            COLOR_ROUTE_DIM
+            DrawUtil.plainRuns("Unavailable", COLOR_ROUTE_DIM)
         );
     }
 
@@ -798,24 +794,26 @@ class RadarView extends WatchUi.View {
         }
 
         // ICAO itself is still a resolved value even if the detail lookup failed.
-        var color = COLOR_SUCCESS;
-        var display =
+        var segments =
             text != null
-                ? text as String
-                : icao + DrawUtil.DIM_MARK + " (no info)";
+                ? DrawUtil.plainRuns(text as String, COLOR_SUCCESS)
+                : [
+                      DrawUtil.plainRun(icao, COLOR_SUCCESS),
+                      DrawUtil.plainRun(" (no info)", COLOR_ROUTE_DIM),
+                  ] as Array<DrawUtil.ValueRun>;
         if (
             _pendingDepIcao != null &&
             (_pendingDepIcao as String).equals(icao)
         ) {
             _pendingDepIcao = null;
-            (view as AircraftDetailView).setDepartureText(display, color);
+            (view as AircraftDetailView).setDepartureText(segments);
         }
         if (
             _pendingArrIcao != null &&
             (_pendingArrIcao as String).equals(icao)
         ) {
             _pendingArrIcao = null;
-            (view as AircraftDetailView).setArrivalText(display, color);
+            (view as AircraftDetailView).setArrivalText(segments);
         }
     }
 
@@ -2295,8 +2293,8 @@ class RadarView extends WatchUi.View {
         showAltitude as Boolean
     ) as Void {
         var lines = _buildLabelLines(ac, showCallsign, showSpeed, showAltitude);
-        var top = lines[0] as Array<[String, Number]>;
-        var bottom = lines[1] as Array<[String, Number]>;
+        var top = lines[0] as Array<DrawUtil.ValueRun>;
+        var bottom = lines[1] as Array<DrawUtil.ValueRun>;
         if (top.size() == 0 && bottom.size() == 0) {
             return;
         }
@@ -2344,13 +2342,12 @@ class RadarView extends WatchUi.View {
 
     private function _segmentedLineWidth(
         dc as Dc,
-        segments as Array<[String, Number]>
+        segments as Array<DrawUtil.ValueRun>
     ) as Number {
         var totalW = -_segmentGapPx;
         for (var i = 0; i < segments.size(); i++) {
             totalW +=
-                dc.getTextDimensions(segments[i][0] as String, _fontTiny)[0] +
-                _segmentGapPx;
+                DrawUtil.runWidth(dc, _fontTiny, segments[i]) + _segmentGapPx;
         }
         return totalW;
     }
@@ -2362,32 +2359,40 @@ class RadarView extends WatchUi.View {
         showCallsign as Boolean,
         showSpeed as Boolean,
         showAltitude as Boolean
-    ) as [Array<[String, Number]>, Array<[String, Number]>] {
-        var top = [] as Array<[String, Number]>;
+    ) as [Array<DrawUtil.ValueRun>, Array<DrawUtil.ValueRun>] {
+        var top = [] as Array<DrawUtil.ValueRun>;
         if (showCallsign) {
             var cs = ac.flight;
             if (cs != null && cs.length() > 0) {
-                top.add([cs as String, _colorForAircraft(ac)]);
+                top.add(DrawUtil.plainRun(cs as String, _colorForAircraft(ac)));
             }
         }
 
-        var bottom = [] as Array<[String, Number]>;
+        var bottom = [] as Array<DrawUtil.ValueRun>;
         if (showSpeed && ac.gs != null) {
-            bottom.add([
-                _formatSpeedKt((ac.gs as Float).toNumber()),
-                COLOR_SPEED,
-            ]);
+            bottom.add(
+                DrawUtil.plainRun(
+                    _formatSpeedKt((ac.gs as Float).toNumber()),
+                    COLOR_SPEED
+                )
+            );
         }
         if (showAltitude) {
             if (ac.onGround) {
-                bottom.add(["GND", COLOR_ALT]);
+                bottom.add(DrawUtil.plainRun("GND", COLOR_ALT));
             } else if (ac.altBaro != null) {
-                bottom.add([_formatAltitude(ac.altBaro as Number), COLOR_ALT]);
+                bottom.add(
+                    DrawUtil.plainRun(
+                        _formatAltitude(ac.altBaro as Number),
+                        COLOR_ALT
+                    )
+                );
             }
         }
 
         return (
-            [top, bottom] as [Array<[String, Number]>, Array<[String, Number]>]
+            [top, bottom] as
+            [Array<DrawUtil.ValueRun>, Array<DrawUtil.ValueRun>]
         );
     }
 
@@ -2417,7 +2422,7 @@ class RadarView extends WatchUi.View {
                 dc,
                 cx,
                 panelY + 4 + i * _detailPanelLineHeight,
-                lines[i] as Array<[String, Number]>
+                lines[i] as Array<DrawUtil.ValueRun>
             );
         }
 
@@ -2460,7 +2465,7 @@ class RadarView extends WatchUi.View {
         dc as Dc,
         cx as Number,
         y as Number,
-        segments as Array<[String, Number]>
+        segments as Array<DrawUtil.ValueRun>
     ) as Void {
         if (segments.size() == 0) {
             return;
@@ -2468,40 +2473,23 @@ class RadarView extends WatchUi.View {
         var widths = [] as Array<Number>;
         var totalW = -_segmentGapPx;
         for (var i = 0; i < segments.size(); i++) {
-            var w = _segmentWidth(dc, segments[i][0] as String);
+            var w = DrawUtil.runWidth(dc, _fontTiny, segments[i]);
             widths.add(w);
             totalW += w + _segmentGapPx;
         }
 
         var x = cx - totalW / 2;
         for (var i = 0; i < segments.size(); i++) {
-            var color = segments[i][1] as Number;
-            dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-            _drawSegmentText(dc, x, y, segments[i][0] as String, color);
+            DrawUtil.drawRun(dc, x, y, _fontTiny, segments[i]);
             x += (widths[i] as Number) + _segmentGapPx;
         }
-    }
-
-    private function _segmentWidth(dc as Dc, text as String) as Number {
-        return DrawUtil.markedTextWidth(dc, _fontTiny, text);
-    }
-
-    // Left-justified from x - the caller (_drawSegmentedLine) already centered the line and set the color.
-    private function _drawSegmentText(
-        dc as Dc,
-        x as Number,
-        y as Number,
-        text as String,
-        color as Number
-    ) as Void {
-        DrawUtil.drawMarkedText(dc, x, y, _fontTiny, text, color);
     }
 
     // Curated, not exhaustive - tas/vert-rate/nav-target/squawk moved to _buildFullDetailRows to keep this panel short.
     private function _buildDetailLines(
         ac as Aircraft
-    ) as Array<Array<[String, Number]> > {
-        var lines = [] as Array<Array<[String, Number]> >;
+    ) as Array<Array<DrawUtil.ValueRun> > {
+        var lines = [] as Array<Array<DrawUtil.ValueRun> >;
 
         // Emergency only - safety-critical, always the first thing shown, not buried below alt/speed/heading.
         if (ac.isEmergency()) {
@@ -2509,18 +2497,22 @@ class RadarView extends WatchUi.View {
                 ac.squawk != null
                     ? "EMERG " + (ac.squawk as String)
                     : "EMERGENCY";
-            lines.add([[label, COLOR_EMERGENCY]] as Array<[String, Number]>);
+            lines.add([DrawUtil.plainRun(label, COLOR_EMERGENCY)]);
         }
 
-        var idSegs = [] as Array<[String, Number]>;
-        idSegs.add([
-            ac.flight != null && (ac.flight as String).length() > 0
-                ? ac.flight as String
-                : ac.hex,
-            _colorForAircraft(ac),
-        ]);
+        var idSegs = [] as Array<DrawUtil.ValueRun>;
+        idSegs.add(
+            DrawUtil.plainRun(
+                ac.flight != null && (ac.flight as String).length() > 0
+                    ? ac.flight as String
+                    : ac.hex,
+                _colorForAircraft(ac)
+            )
+        );
         if (ac.registration != null) {
-            idSegs.add([ac.registration as String, COLOR_IDENTITY]);
+            idSegs.add(
+                DrawUtil.plainRun(ac.registration as String, COLOR_IDENTITY)
+            );
         }
         var badgeParts = [] as Array<String>;
         if (ac.spi) {
@@ -2530,10 +2522,12 @@ class RadarView extends WatchUi.View {
             badgeParts.add("ALERT");
         }
         if (badgeParts.size() > 0) {
-            idSegs.add([
-                _join(badgeParts, " "),
-                ac.isEmergency() ? COLOR_EMERGENCY : COLOR_WARN,
-            ]);
+            idSegs.add(
+                DrawUtil.plainRun(
+                    _join(badgeParts, " "),
+                    ac.isEmergency() ? COLOR_EMERGENCY : COLOR_WARN
+                )
+            );
         }
         lines.add(idSegs);
 
@@ -2544,26 +2538,37 @@ class RadarView extends WatchUi.View {
                   ? ac.typeCode as String
                   : "";
         if (typeStr.length() > 0) {
-            lines.add([[typeStr, COLOR_IDENTITY]] as Array<[String, Number]>);
+            lines.add([DrawUtil.plainRun(typeStr, COLOR_IDENTITY)]);
         }
 
-        var statSegs = [] as Array<[String, Number]>;
+        var statSegs = [] as Array<DrawUtil.ValueRun>;
         if (ac.onGround) {
-            statSegs.add(["GND", COLOR_ALT]);
+            statSegs.add(DrawUtil.plainRun("GND", COLOR_ALT));
         } else if (ac.altBaro != null) {
-            statSegs.add([_formatAltitude(ac.altBaro as Number), COLOR_ALT]);
+            statSegs.add(
+                DrawUtil.plainRun(
+                    _formatAltitude(ac.altBaro as Number),
+                    COLOR_ALT
+                )
+            );
         }
         if (ac.gs != null) {
-            statSegs.add([
-                _formatSpeedKt((ac.gs as Float).toNumber()),
-                COLOR_SPEED,
-            ]);
+            statSegs.add(
+                DrawUtil.plainRun(
+                    _formatSpeedKt((ac.gs as Float).toNumber()),
+                    COLOR_SPEED
+                )
+            );
         }
         if (ac.track != null) {
-            statSegs.add([
-                (ac.track as Float).toNumber().toString() + "^",
-                COLOR_HDG,
-            ]);
+            statSegs.add(
+                [
+                    (ac.track as Float).toNumber().toString(),
+                    COLOR_HDG,
+                    :degree,
+                    "",
+                ] as DrawUtil.ValueRun
+            );
         }
         if (statSegs.size() > 0) {
             lines.add(statSegs);
@@ -2579,32 +2584,57 @@ class RadarView extends WatchUi.View {
         } else {
             trackStatus = "No Track History";
         }
-        lines.add([[trackStatus, trackColor]] as Array<[String, Number]>);
+        lines.add([DrawUtil.plainRun(trackStatus, trackColor)]);
 
         return lines;
     }
 
+    // Plain (non-glyph) grid cell - the common case.
+    private function _cell(
+        label as String,
+        text as String,
+        color as Number
+    ) as [String, Array<DrawUtil.ValueRun>] {
+        return (
+            [label, DrawUtil.plainRuns(text, color)] as
+            [String, Array<DrawUtil.ValueRun>]
+        );
+    }
+
+    // Grid cell whose value has a trailing code-drawn degree glyph, optionally followed by more text.
+    private function _degreeCell(
+        label as String,
+        text as String,
+        color as Number,
+        suffix as String
+    ) as [String, Array<DrawUtil.ValueRun>] {
+        return (
+            [label, [[text, color, :degree, suffix] as DrawUtil.ValueRun]] as
+            [String, Array<DrawUtil.ValueRun>]
+        );
+    }
+
     // Pairs both cells if both exist; otherwise adds whichever one exists as its own row; otherwise adds nothing.
     private function _gridRow(
-        rows as Array<Array<[String, String, Number]> >,
-        cellA as [String, String, Number]?,
-        cellB as [String, String, Number]?
+        rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
+        cellA as [String, Array<DrawUtil.ValueRun>]?,
+        cellB as [String, Array<DrawUtil.ValueRun>]?
     ) as Void {
         if (cellA != null && cellB != null) {
             rows.add([
-                cellA as [String, String, Number],
-                cellB as [String, String, Number],
+                cellA as [String, Array<DrawUtil.ValueRun>],
+                cellB as [String, Array<DrawUtil.ValueRun>],
             ]);
         } else if (cellA != null) {
-            rows.add([cellA as [String, String, Number]]);
+            rows.add([cellA as [String, Array<DrawUtil.ValueRun>]]);
         } else if (cellB != null) {
-            rows.add([cellB as [String, String, Number]]);
+            rows.add([cellB as [String, Array<DrawUtil.ValueRun>]]);
         }
     }
 
     // A group that added no rows (all its fields were absent) doesn't get a boundary marker.
     private function _markGroupIfNonEmpty(
-        rows as Array<Array<[String, String, Number]> >,
+        rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
         groupBoundaries as Array<Number>,
         start as Number
     ) as Void {
@@ -2616,101 +2646,98 @@ class RadarView extends WatchUi.View {
     // Everything the compact panel leaves out, for AircraftDetailView's scrollable grid.
     // Curated: long identity text (type/operator) gets its own row; only short/similar stats share a row.
     // Colors match the compact panel (alt=blue, speed=yellow, hdg=cyan, emergency=red); grey uses COLOR_DETAIL_VALUE here.
-    // `^` in a value marks a code-drawn degree circle, same convention as DrawUtil.DEGREE_MARK.
     private function _buildFullDetailRows(
         ac as Aircraft
     ) as
         [
-            Array<Array<[String, String, Number]> >,
+            Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
             Number,
             Number,
             Array<Boolean>,
         ]
     {
-        var rows = [] as Array<Array<[String, String, Number]> >;
+        var rows = [] as Array<Array<[String, Array<DrawUtil.ValueRun>]> >;
         // Row indices where a new visual group begins - converted to a per-row Boolean array at the end.
         var groupBoundaries = [] as Array<Number>;
 
         var identityStart = rows.size();
         var regCell =
             ac.registration != null
-                ? ["Registration", ac.registration as String, COLOR_IDENTITY] as
-                  [String, String, Number]
+                ? _cell(
+                      "Registration",
+                      ac.registration as String,
+                      COLOR_IDENTITY
+                  )
                 : null;
-        _gridRow(rows, regCell, ["Hex", ac.hex, COLOR_IDENTITY]);
+        _gridRow(rows, regCell, _cell("Hex", ac.hex, COLOR_IDENTITY));
 
         var typeStr = ac.typeDesc != null ? ac.typeDesc : ac.typeCode;
         var typeCell =
             typeStr != null
-                ? ["Type", typeStr as String, COLOR_IDENTITY] as
-                  [String, String, Number]
+                ? _cell("Type", typeStr as String, COLOR_IDENTITY)
                 : null;
         var categoryCell =
             ac.category != null
-                ? ["Category", ac.category as String, COLOR_IDENTITY] as
-                  [String, String, Number]
+                ? _cell("Category", ac.category as String, COLOR_IDENTITY)
                 : null;
         _gridRow(rows, typeCell, categoryCell);
 
         if (ac.operatorName != null) {
             rows.add([
-                ["Operator", ac.operatorName as String, COLOR_IDENTITY] as
-                    [String, String, Number],
+                _cell("Operator", ac.operatorName as String, COLOR_IDENTITY),
             ]);
         }
         _markGroupIfNonEmpty(rows, groupBoundaries, identityStart);
 
         var performanceStart = rows.size();
-        var altCell = null as [String, String, Number]?;
+        var altCell = null as [String, Array<DrawUtil.ValueRun>]?;
         if (ac.onGround) {
-            altCell = ["Altitude", "GND", COLOR_ALT];
+            altCell = _cell("Altitude", "GND", COLOR_ALT);
         } else if (ac.altBaro != null) {
-            altCell = [
+            altCell = _cell(
                 "Altitude",
                 _formatAltitude(ac.altBaro as Number),
-                COLOR_ALT,
-            ];
+                COLOR_ALT
+            );
         }
-        var vertRateCell = null as [String, String, Number]?;
+        var vertRateCell = null as [String, Array<DrawUtil.ValueRun>]?;
         if (ac.vertRate != null) {
             var vr = ac.vertRate as Float;
             var climbing = vr > 0;
             var sign = climbing ? "+" : "";
-            vertRateCell = [
+            vertRateCell = _cell(
                 "Vertical Rate",
                 sign + _formatVertRate(vr.toNumber()),
-                climbing ? COLOR_SUCCESS : COLOR_WARN,
-            ];
+                climbing ? COLOR_SUCCESS : COLOR_WARN
+            );
         }
         _gridRow(rows, altCell, vertRateCell);
 
         var gsCell =
             ac.gs != null
-                ? [
+                ? _cell(
                       "Ground Speed",
                       _formatSpeedKt((ac.gs as Float).toNumber()),
-                      COLOR_SPEED,
-                  ] as [String, String, Number]
+                      COLOR_SPEED
+                  )
                 : null;
         var iasCell =
             ac.ias != null
-                ? ["IAS", _formatSpeedKt(ac.ias as Number), COLOR_SPEED] as
-                  [String, String, Number]
+                ? _cell("IAS", _formatSpeedKt(ac.ias as Number), COLOR_SPEED)
                 : null;
         _gridRow(rows, gsCell, iasCell);
 
         var tasCell =
             ac.tas != null
-                ? [
+                ? _cell(
                       "TAS",
                       _formatSpeedKt((ac.tas as Float).toNumber()),
-                      COLOR_SPEED,
-                  ] as [String, String, Number]
+                      COLOR_SPEED
+                  )
                 : null;
         var machCell =
             ac.mach != null
-                ? ["Mach", (ac.mach as Float).format("%.2f"), COLOR_SPEED] as
-                  [String, String, Number]
+                ? _cell("Mach", (ac.mach as Float).format("%.2f"), COLOR_SPEED)
                 : null;
         _gridRow(rows, tasCell, machCell);
         _markGroupIfNonEmpty(rows, groupBoundaries, performanceStart);
@@ -2719,24 +2746,27 @@ class RadarView extends WatchUi.View {
         var emergency = ac.isEmergency();
         var hdgCell =
             ac.track != null
-                ? [
+                ? _degreeCell(
                       "Heading",
-                      (ac.track as Float).toNumber().toString() + "^",
+                      (ac.track as Float).toNumber().toString(),
                       COLOR_HDG,
-                  ] as [String, String, Number]
+                      ""
+                  )
                 : null;
-        var squawkCell = null as [String, String, Number]?;
+        var squawkCell = null as [String, Array<DrawUtil.ValueRun>]?;
         if (ac.squawk != null || emergency) {
-            var squawkVal = ac.squawk != null ? ac.squawk as String : "";
-            if (emergency) {
-                // Full space before the marker, not DrawUtil's own small fixed gap.
-                squawkVal += " " + DrawUtil.WARNING_MARK;
-            }
-            squawkCell = [
-                "Squawk",
-                squawkVal,
-                emergency ? COLOR_EMERGENCY : COLOR_SQUAWK,
-            ];
+            var squawkColor = emergency ? COLOR_EMERGENCY : COLOR_SQUAWK;
+            var squawkText = ac.squawk != null ? ac.squawk as String : "";
+            // Full space before the icon, not DrawUtil's own small fixed gap.
+            squawkCell = emergency
+                ? [
+                      "Squawk",
+                      [
+                          [squawkText + " ", squawkColor, :warning, ""] as
+                              DrawUtil.ValueRun,
+                      ],
+                  ]
+                : _cell("Squawk", squawkText, squawkColor);
         }
         _gridRow(rows, hdgCell, squawkCell);
 
@@ -2749,11 +2779,11 @@ class RadarView extends WatchUi.View {
         }
         if (statusParts.size() > 0) {
             rows.add([
-                [
+                _cell(
                     "Status",
                     _join(statusParts, " "),
-                    emergency ? COLOR_EMERGENCY : COLOR_WARN,
-                ] as [String, String, Number],
+                    emergency ? COLOR_EMERGENCY : COLOR_WARN
+                ),
             ]);
         }
         _markGroupIfNonEmpty(rows, groupBoundaries, navStatusStart);
@@ -2761,19 +2791,20 @@ class RadarView extends WatchUi.View {
         var targetStart = rows.size();
         var selAltCell =
             ac.navAltitude != null
-                ? [
+                ? _cell(
                       "Selected Alt",
                       _formatAltitude(ac.navAltitude as Number),
-                      COLOR_DETAIL_VALUE,
-                  ] as [String, String, Number]
+                      COLOR_DETAIL_VALUE
+                  )
                 : null;
         var selHdgCell =
             ac.navHeading != null
-                ? [
+                ? _degreeCell(
                       "Selected Hdg",
-                      (ac.navHeading as Float).toNumber().toString() + "^",
+                      (ac.navHeading as Float).toNumber().toString(),
                       COLOR_DETAIL_VALUE,
-                  ] as [String, String, Number]
+                      ""
+                  )
                 : null;
         _gridRow(rows, selAltCell, selHdgCell);
         _markGroupIfNonEmpty(rows, groupBoundaries, targetStart);
@@ -2781,46 +2812,41 @@ class RadarView extends WatchUi.View {
         var envStart = rows.size();
         if (ac.windDir != null && ac.windSpeed != null) {
             rows.add([
-                [
+                _degreeCell(
                     "Wind",
-                    (ac.windDir as Number).toString() +
-                        "^ @ " +
-                        _formatSpeedKt(ac.windSpeed as Number),
+                    (ac.windDir as Number).toString(),
                     COLOR_ENV,
-                ] as [String, String, Number],
+                    " @ " + _formatSpeedKt(ac.windSpeed as Number)
+                ),
             ]);
         }
 
         var outTempCell =
             ac.outsideAirTemp != null
-                ? [
+                ? _degreeCell(
                       "Outside Temp",
-                      (ac.outsideAirTemp as Number).toString() + "^C",
+                      (ac.outsideAirTemp as Number).toString(),
                       COLOR_ENV,
-                  ] as [String, String, Number]
+                      "C"
+                  )
                 : null;
         var totalTempCell =
             ac.totalAirTemp != null
-                ? [
+                ? _degreeCell(
                       "Total Air Temp",
-                      (ac.totalAirTemp as Number).toString() + "^C",
+                      (ac.totalAirTemp as Number).toString(),
                       COLOR_ENV,
-                  ] as [String, String, Number]
+                      "C"
+                  )
                 : null;
         _gridRow(rows, outTempCell, totalTempCell);
         _markGroupIfNonEmpty(rows, groupBoundaries, envStart);
 
         // Separate rows, not one joined "dep -> arr" line - a full description is too long for one line.
         var routeStart = rows.size();
-        rows.add([
-            ["Departure", "Loading...", COLOR_ROUTE_DIM] as
-                [String, String, Number],
-        ]);
+        rows.add([_cell("Departure", "Loading...", COLOR_ROUTE_DIM)]);
         var depIndex = rows.size() - 1;
-        rows.add([
-            ["Arrival", "Loading...", COLOR_ROUTE_DIM] as
-                [String, String, Number],
-        ]);
+        rows.add([_cell("Arrival", "Loading...", COLOR_ROUTE_DIM)]);
         var arrIndex = rows.size() - 1;
         _markGroupIfNonEmpty(rows, groupBoundaries, routeStart);
 
@@ -2835,7 +2861,7 @@ class RadarView extends WatchUi.View {
         return (
             [rows, depIndex, arrIndex, groupStarts] as
             [
-                Array<Array<[String, String, Number]> >,
+                Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
                 Number,
                 Number,
                 Array<Boolean>,

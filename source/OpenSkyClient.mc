@@ -15,6 +15,8 @@ class OpenSkyClient {
     private const TOKEN_SAFETY_MARGIN_MS = 60000;
     // flights/aircraft needs a begin/end window - wide enough to reliably catch a flight that started hours ago.
     private const ROUTE_LOOKBACK_SEC = 24 * 3600;
+    // Beyond this, the last completed flight is treated as too stale to plausibly still be relevant.
+    private const MAX_ROUTE_AGE_SEC = 12 * 3600;
 
     typedef TrackCallback as
         (Method
@@ -302,6 +304,17 @@ class OpenSkyClient {
                 best = f as Dictionary;
                 bestLastSeen = lastSeenNum;
             }
+        }
+        // This endpoint only ever returns the aircraft's last *completed* flight (batch-processed overnight,
+        // never the in-progress one) - if that segment is old enough, the aircraft has very plausibly flown
+        // again since, so showing it as "the route" would likely be a different, wrong flight. Treat it the
+        // same as no route found rather than risk a confidently-wrong dep/arr.
+        if (
+            best != null &&
+            bestLastSeen != null &&
+            Time.now().value() - (bestLastSeen as Number) > MAX_ROUTE_AGE_SEC
+        ) {
+            best = null;
         }
         var dep = null as String?;
         var arr = null as String?;

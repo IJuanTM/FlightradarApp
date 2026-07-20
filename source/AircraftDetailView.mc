@@ -6,7 +6,7 @@ import Toybox.WatchUi;
 class AircraftDetailView extends WatchUi.View {
     private var _headerText as String;
     private var _headerColor as Number;
-    private var _rows as Array<Array<[String, String, Number]> >;
+    private var _rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >;
     private var _depRowIndex as Number;
     private var _arrRowIndex as Number;
     // True at row i if row i starts a new visual group - those get a bigger gap than rows within the same group.
@@ -45,7 +45,6 @@ class AircraftDetailView extends WatchUi.View {
     private const COLOR_RING = 0xaaaaaa;
     private const COLOR_BOUNDARY_ALPHA = 0x40;
     private const COLOR_WHITE = 0xffffff;
-    private const COLOR_VALUE_DIM = 0x555555;
 
     // Each row draws as one centered inline line, same style as the compact panel's segmented line.
     private var _labelValueGapPx as Number = 4;
@@ -57,7 +56,7 @@ class AircraftDetailView extends WatchUi.View {
     public function initialize(
         headerText as String,
         headerColor as Number,
-        rows as Array<Array<[String, String, Number]> >,
+        rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
         depRowIndex as Number,
         arrRowIndex as Number,
         groupStarts as Array<Boolean>,
@@ -138,27 +137,30 @@ class AircraftDetailView extends WatchUi.View {
     }
 
     // Departure/arrival update independently - each is its own async lookup, resolving at different times.
-    public function setDepartureText(text as String, color as Number) as Void {
-        _setRowText(_depRowIndex, text, color);
+    public function setDepartureText(
+        segments as Array<DrawUtil.ValueRun>
+    ) as Void {
+        _setRowSegments(_depRowIndex, segments);
         WatchUi.requestUpdate();
     }
 
-    public function setArrivalText(text as String, color as Number) as Void {
-        _setRowText(_arrRowIndex, text, color);
+    public function setArrivalText(
+        segments as Array<DrawUtil.ValueRun>
+    ) as Void {
+        _setRowSegments(_arrRowIndex, segments);
         WatchUi.requestUpdate();
     }
 
-    private function _setRowText(
+    private function _setRowSegments(
         rowIndex as Number,
-        text as String,
-        color as Number
+        segments as Array<DrawUtil.ValueRun>
     ) as Void {
         if (rowIndex < 0 || rowIndex >= _rows.size()) {
             return;
         }
         var row = _rows[rowIndex];
         var cell = row[0];
-        row[0] = [cell[0], text, color];
+        row[0] = [cell[0], segments];
     }
 
     public function scroll(dyPx as Number) as Void {
@@ -253,7 +255,7 @@ class AircraftDetailView extends WatchUi.View {
         dc as Dc,
         cx as Number,
         y as Number,
-        row as Array<[String, String, Number]>
+        row as Array<[String, Array<DrawUtil.ValueRun>]>
     ) as Void {
         var labelWidths = [] as Array<Number>;
         var valueWidths = [] as Array<Number>;
@@ -261,7 +263,11 @@ class AircraftDetailView extends WatchUi.View {
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
             var labelW = dc.getTextDimensions(cell[0] as String, _fontTiny)[0];
-            var valueW = _valueSegmentWidth(dc, cell[1] as String);
+            var valueW = DrawUtil.segmentsWidth(
+                dc,
+                _fontTiny,
+                cell[1] as Array<DrawUtil.ValueRun>
+            );
             labelWidths.add(labelW);
             valueWidths.add(valueW);
             totalW += labelW + _labelValueGapPx + valueW + _fieldGapPx;
@@ -279,33 +285,15 @@ class AircraftDetailView extends WatchUi.View {
                 Graphics.TEXT_JUSTIFY_LEFT
             );
             x += (labelWidths[i] as Number) + _labelValueGapPx;
-            _drawValueSegment(dc, x, y, cell[1] as String, cell[2] as Number);
+            DrawUtil.drawSegments(
+                dc,
+                x,
+                y,
+                _fontTiny,
+                cell[1] as Array<DrawUtil.ValueRun>
+            );
             x += (valueWidths[i] as Number) + _fieldGapPx;
         }
-    }
-
-    private function _valueSegmentWidth(dc as Dc, value as String) as Number {
-        return DrawUtil.dimSplitTextWidth(dc, _fontTiny, value);
-    }
-
-    // Left-justified draw starting at x - the caller (_drawGridRow) already handled centering the whole row.
-    private function _drawValueSegment(
-        dc as Dc,
-        x as Number,
-        y as Number,
-        value as String,
-        color as Number
-    ) as Void {
-        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        DrawUtil.drawDimSplitText(
-            dc,
-            x,
-            y,
-            _fontTiny,
-            value,
-            color,
-            COLOR_VALUE_DIM
-        );
     }
 
     private function _drawChevronDown(

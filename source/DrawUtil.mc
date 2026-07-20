@@ -4,8 +4,11 @@ import Toybox.Math;
 
 // Stateless drawing-geometry helpers shared between RadarView and AircraftDetailView.
 module DrawUtil {
-    // Marks where a code-drawn degree circle goes - this app's fonts have no "°" glyph.
-    const DEGREE_MARK = "^";
+    // One same-colored run of text, with an optional code-drawn glyph (this app's fonts have no "°" glyph
+    // or warning triangle) inserted after `text` and before `suffix` - e.g. ["270", COLOR_HDG, :degree, ""]
+    // or ["1200 ", color, :warning, ""]. glyph is null for a plain run.
+    typedef ValueRun as [String, Number, Symbol?, String];
+
     // Right biased larger - digits carry more right-side bearing than letters carry left-side.
     const DEGREE_MARK_GAP_LEFT = 1;
     const DEGREE_MARK_GAP_RIGHT = 2;
@@ -13,12 +16,7 @@ module DrawUtil {
     // Text y is the glyph box's top, not center - nudges the circle down to the text's visual middle.
     const DEGREE_MARK_Y_OFFSET = 4;
 
-    // Marks where a code-drawn warning icon goes - never collides with DEGREE_MARK, no value has both.
-    const WARNING_MARK = "!";
     const WARNING_MARK_R = 4;
-
-    // Splits a value into two colors instead of a glyph, e.g. "KJFK" + dim " (no info)".
-    const DIM_MARK = "~";
 
     // Half-length of the chord of a circle of the given radius at a given perpendicular offset from center.
     function chordHalfExtent(radiusPx as Number, offsetPx as Number) as Number {
@@ -39,62 +37,53 @@ module DrawUtil {
         );
     }
 
-    // Locates whichever embedded marker (if any) is present - a value never contains both kinds.
-    function _findMarker(text as String) as [Number, String]? {
-        var d = text.find(DEGREE_MARK);
-        if (d != null) {
-            return [d as Number, DEGREE_MARK];
-        }
-        var w = text.find(WARNING_MARK);
-        if (w != null) {
-            return [w as Number, WARNING_MARK];
-        }
-        return null;
+    function plainRun(text as String, color as Number) as ValueRun {
+        return [text, color, null, ""] as ValueRun;
     }
 
-    function markedTextWidth(dc as Dc, font, text as String) as Number {
-        var found = _findMarker(text);
-        if (found == null) {
-            return dc.getTextDimensions(text, font)[0];
+    function plainRuns(text as String, color as Number) as Array<ValueRun> {
+        return [plainRun(text, color)] as Array<ValueRun>;
+    }
+
+    function runWidth(dc as Dc, font, run as ValueRun) as Number {
+        var before = run[0] as String;
+        var glyph = run[2] as Symbol?;
+        var after = run[3] as String;
+        if (glyph == null) {
+            return dc.getTextDimensions(before, font)[0];
         }
-        var idx = (found as [Number, String])[0];
-        var kind = (found as [Number, String])[1];
-        var before = text.substring(0, idx) as String;
-        var after = text.substring(idx + 1, text.length()) as String;
         var beforeW = dc.getTextDimensions(before, font)[0];
         var afterW =
             after.length() > 0 ? dc.getTextDimensions(after, font)[0] : 0;
-        var markW = kind.equals(DEGREE_MARK)
-            ? DEGREE_MARK_GAP_LEFT +
-              DEGREE_MARK_R * 2 +
-              (after.length() > 0 ? DEGREE_MARK_GAP_RIGHT : 0)
-            : WARNING_MARK_R * 2;
-        return beforeW + markW + afterW;
+        var glyphW =
+            glyph == :degree
+                ? DEGREE_MARK_GAP_LEFT +
+                  DEGREE_MARK_R * 2 +
+                  (after.length() > 0 ? DEGREE_MARK_GAP_RIGHT : 0)
+                : WARNING_MARK_R * 2;
+        return beforeW + glyphW + afterW;
     }
 
-    // color is only needed for the warning-icon branch, which resets color twice internally (fill, then cutout).
-    function drawMarkedText(
+    function drawRun(
         dc as Dc,
         x as Number,
         y as Number,
         font,
-        text as String,
-        color as Number
+        run as ValueRun
     ) as Void {
-        var found = _findMarker(text);
-        if (found == null) {
-            dc.drawText(x, y, font, text, Graphics.TEXT_JUSTIFY_LEFT);
+        var before = run[0] as String;
+        var color = run[1] as Number;
+        var glyph = run[2] as Symbol?;
+        var after = run[3] as String;
+
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(x, y, font, before, Graphics.TEXT_JUSTIFY_LEFT);
+        if (glyph == null) {
             return;
         }
-
-        var idx = (found as [Number, String])[0];
-        var kind = (found as [Number, String])[1];
-        var before = text.substring(0, idx) as String;
-        var after = text.substring(idx + 1, text.length()) as String;
-        dc.drawText(x, y, font, before, Graphics.TEXT_JUSTIFY_LEFT);
         var beforeW = dc.getTextDimensions(before, font)[0];
 
-        if (kind.equals(DEGREE_MARK)) {
+        if (glyph == :degree) {
             var circleCx = x + beforeW + DEGREE_MARK_GAP_LEFT + DEGREE_MARK_R;
             dc.drawCircle(
                 circleCx,
@@ -129,45 +118,27 @@ module DrawUtil {
         }
     }
 
-    function dimSplitTextWidth(dc as Dc, font, text as String) as Number {
-        var idx = text.find(DIM_MARK);
-        if (idx == null) {
-            return markedTextWidth(dc, font, text);
+    // A value is one or more runs drawn contiguously, e.g. a plain run, or two runs of different
+    // colors for a dim-split value like "KJFK" + dim " (no info)".
+    function segmentsWidth(dc as Dc, font, runs as Array<ValueRun>) as Number {
+        var w = 0;
+        for (var i = 0; i < runs.size(); i++) {
+            w += runWidth(dc, font, runs[i]);
         }
-        var before = text.substring(0, idx as Number) as String;
-        var after =
-            text.substring((idx as Number) + 1, text.length()) as String;
-        return (
-            markedTextWidth(dc, font, before) + markedTextWidth(dc, font, after)
-        );
+        return w;
     }
 
-    function drawDimSplitText(
+    function drawSegments(
         dc as Dc,
         x as Number,
         y as Number,
         font,
-        text as String,
-        color as Number,
-        dimColor as Number
+        runs as Array<ValueRun>
     ) as Void {
-        var idx = text.find(DIM_MARK);
-        if (idx == null) {
-            drawMarkedText(dc, x, y, font, text, color);
-            return;
+        for (var i = 0; i < runs.size(); i++) {
+            drawRun(dc, x, y, font, runs[i]);
+            x += runWidth(dc, font, runs[i]);
         }
-        var before = text.substring(0, idx as Number) as String;
-        var after =
-            text.substring((idx as Number) + 1, text.length()) as String;
-        drawMarkedText(dc, x, y, font, before, color);
-        drawMarkedText(
-            dc,
-            x + markedTextWidth(dc, font, before),
-            y,
-            font,
-            after,
-            dimColor
-        );
     }
 
     // Filled triangle with a black cutout exclamation mark - canvas is always black, so no color sampling needed.
