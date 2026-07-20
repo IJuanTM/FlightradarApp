@@ -6,7 +6,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -232,9 +232,6 @@ class RadarView extends WatchUi.View {
             ) as Graphics.BitmapType,
             "apache" => WatchUi.loadResource(Rez.Drawables.AircraftApache) as
             Graphics.BitmapType,
-            "asterisk" => WatchUi.loadResource(
-                Rez.Drawables.AircraftAsterisk
-            ) as Graphics.BitmapType,
             "b1b_lancer" => WatchUi.loadResource(
                 Rez.Drawables.AircraftB1bLancer
             ) as Graphics.BitmapType,
@@ -295,14 +292,8 @@ class RadarView extends WatchUi.View {
             "ground_emergency" => WatchUi.loadResource(
                 Rez.Drawables.AircraftGroundEmergency
             ) as Graphics.BitmapType,
-            "ground_fixed" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGroundFixed
-            ) as Graphics.BitmapType,
             "ground_service" => WatchUi.loadResource(
                 Rez.Drawables.AircraftGroundService
-            ) as Graphics.BitmapType,
-            "ground_square" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGroundSquare
             ) as Graphics.BitmapType,
             "ground_tower" => WatchUi.loadResource(
                 Rez.Drawables.AircraftGroundTower
@@ -371,9 +362,6 @@ class RadarView extends WatchUi.View {
             Graphics.BitmapType,
             "sb39" => WatchUi.loadResource(Rez.Drawables.AircraftSb39) as
             Graphics.BitmapType,
-            "single_turbo" => WatchUi.loadResource(
-                Rez.Drawables.AircraftSingleTurbo
-            ) as Graphics.BitmapType,
             "strato" => WatchUi.loadResource(Rez.Drawables.AircraftStrato) as
             Graphics.BitmapType,
             "super_guppy" => WatchUi.loadResource(
@@ -387,9 +375,6 @@ class RadarView extends WatchUi.View {
             Graphics.BitmapType,
             "twin_large" => WatchUi.loadResource(
                 Rez.Drawables.AircraftTwinLarge
-            ) as Graphics.BitmapType,
-            "twin_small" => WatchUi.loadResource(
-                Rez.Drawables.AircraftTwinSmall
             ) as Graphics.BitmapType,
             "typhoon" => WatchUi.loadResource(Rez.Drawables.AircraftTyphoon) as
             Graphics.BitmapType,
@@ -2263,11 +2248,14 @@ class RadarView extends WatchUi.View {
         ac as Aircraft,
         color as Number
     ) as Void {
+        var shape = _shapeKeyForAircraft(ac);
         var track = ac.track;
-        var theta = track != null ? Math.toRadians(track) : 0.0;
+        var theta =
+            track != null && AircraftClassifier.shapeRotates(shape)
+                ? Math.toRadians(track)
+                : 0.0;
 
         var scale = ICON_BASE_SCALE * _sizeScaleForAircraft(ac);
-        var shape = _shapeKeyForAircraft(ac);
         var pivot = AircraftClassifier.ICON_PIVOT[shape];
         var halfW = pivot != null ? (pivot as [Float, Float])[0] : 30.0;
         var halfH = pivot != null ? (pivot as [Float, Float])[1] : 30.0;

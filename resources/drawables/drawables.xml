@@ -13,7 +13,6 @@
     <bitmap id="AircraftAirliner" filename="aircraft_airliner.png" automaticPalette="false" />
     <bitmap id="AircraftAlphaJet" filename="aircraft_alpha_jet.png" automaticPalette="false" />
     <bitmap id="AircraftApache" filename="aircraft_apache.png" automaticPalette="false" />
-    <bitmap id="AircraftAsterisk" filename="aircraft_asterisk.png" automaticPalette="false" />
     <bitmap id="AircraftB1bLancer" filename="aircraft_b1b_lancer.png" automaticPalette="false" />
     <bitmap id="AircraftB52" filename="aircraft_b52.png" automaticPalette="false" />
     <bitmap id="AircraftB707" filename="aircraft_b707.png" automaticPalette="false" />
@@ -42,9 +41,7 @@
     <bitmap id="AircraftGazelle" filename="aircraft_gazelle.png" automaticPalette="false" />
     <bitmap id="AircraftGlider" filename="aircraft_glider.png" automaticPalette="false" />
     <bitmap id="AircraftGroundEmergency" filename="aircraft_ground_emergency.png" automaticPalette="false" />
-    <bitmap id="AircraftGroundFixed" filename="aircraft_ground_fixed.png" automaticPalette="false" />
     <bitmap id="AircraftGroundService" filename="aircraft_ground_service.png" automaticPalette="false" />
-    <bitmap id="AircraftGroundSquare" filename="aircraft_ground_square.png" automaticPalette="false" />
     <bitmap id="AircraftGroundTower" filename="aircraft_ground_tower.png" automaticPalette="false" />
     <bitmap id="AircraftGroundUnknown" filename="aircraft_ground_unknown.png" automaticPalette="false" />
     <bitmap id="AircraftGyrocopter" filename="aircraft_gyrocopter.png" automaticPalette="false" />
@@ -74,14 +71,12 @@
     <bitmap id="AircraftRutanVeze" filename="aircraft_rutan_veze.png" automaticPalette="false" />
     <bitmap id="AircraftS61" filename="aircraft_s61.png" automaticPalette="false" />
     <bitmap id="AircraftSb39" filename="aircraft_sb39.png" automaticPalette="false" />
-    <bitmap id="AircraftSingleTurbo" filename="aircraft_single_turbo.png" automaticPalette="false" />
     <bitmap id="AircraftStrato" filename="aircraft_strato.png" automaticPalette="false" />
     <bitmap id="AircraftSuperGuppy" filename="aircraft_super_guppy.png" automaticPalette="false" />
     <bitmap id="AircraftT38" filename="aircraft_t38.png" automaticPalette="false" />
     <bitmap id="AircraftTiger" filename="aircraft_tiger.png" automaticPalette="false" />
     <bitmap id="AircraftTornado" filename="aircraft_tornado.png" automaticPalette="false" />
     <bitmap id="AircraftTwinLarge" filename="aircraft_twin_large.png" automaticPalette="false" />
-    <bitmap id="AircraftTwinSmall" filename="aircraft_twin_small.png" automaticPalette="false" />
     <bitmap id="AircraftTyphoon" filename="aircraft_typhoon.png" automaticPalette="false" />
     <bitmap id="AircraftU2" filename="aircraft_u2.png" automaticPalette="false" />
     <bitmap id="AircraftUav" filename="aircraft_uav.png" automaticPalette="false" />

@@ -16,7 +16,6 @@ module AircraftClassifier {
         "airliner" => 64.8,
         "alpha_jet" => 55.6,
         "apache" => 57.3,
-        "asterisk" => 22.6,
         "b1b_lancer" => 65.8,
         "b52" => 77.8,
         "b707" => 67.2,
@@ -45,9 +44,7 @@ module AircraftClassifier {
         "gazelle" => 52.5,
         "glider" => 54.6,
         "ground_emergency" => 29.5,
-        "ground_fixed" => 25.5,
         "ground_service" => 29.5,
-        "ground_square" => 23.3,
         "ground_tower" => 42.0,
         "ground_unknown" => 29.5,
         "gyrocopter" => 48.7,
@@ -77,14 +74,12 @@ module AircraftClassifier {
         "rutan_veze" => 50.7,
         "s61" => 55.6,
         "sb39" => 52.0,
-        "single_turbo" => 50.2,
         "strato" => 69.2,
         "super_guppy" => 57.7,
         "t38" => 47.9,
         "tiger" => 53.7,
         "tornado" => 49.3,
         "twin_large" => 51.6,
-        "twin_small" => 49.0,
         "typhoon" => 45.1,
         "u2" => 56.6,
         "uav" => 48.4,
@@ -109,7 +104,6 @@ module AircraftClassifier {
         "airliner" => [50.0, 54.0] as [Float, Float],
         "alpha_jet" => [43.0, 48.0] as [Float, Float],
         "apache" => [40.0, 53.0] as [Float, Float],
-        "asterisk" => [22.0, 23.0] as [Float, Float],
         "b1b_lancer" => [51.0, 54.0] as [Float, Float],
         "b52" => [66.0, 56.0] as [Float, Float],
         "b707" => [54.0, 53.0] as [Float, Float],
@@ -138,9 +132,7 @@ module AircraftClassifier {
         "gazelle" => [38.0, 48.0] as [Float, Float],
         "glider" => [56.0, 29.0] as [Float, Float],
         "ground_emergency" => [18.0, 33.0] as [Float, Float],
-        "ground_fixed" => [24.0, 24.0] as [Float, Float],
         "ground_service" => [18.0, 33.0] as [Float, Float],
-        "ground_square" => [23.0, 23.0] as [Float, Float],
         "ground_tower" => [39.0, 32.0] as [Float, Float],
         "ground_unknown" => [18.0, 33.0] as [Float, Float],
         "gyrocopter" => [47.0, 33.0] as [Float, Float],
@@ -170,14 +162,12 @@ module AircraftClassifier {
         "rutan_veze" => [47.0, 37.0] as [Float, Float],
         "s61" => [43.0, 48.0] as [Float, Float],
         "sb39" => [35.0, 50.0] as [Float, Float],
-        "single_turbo" => [41.0, 42.0] as [Float, Float],
         "strato" => [66.0, 41.0] as [Float, Float],
         "super_guppy" => [48.0, 46.0] as [Float, Float],
         "t38" => [29.0, 48.0] as [Float, Float],
         "tiger" => [40.0, 48.0] as [Float, Float],
         "tornado" => [38.0, 44.0] as [Float, Float],
         "twin_large" => [44.0, 42.0] as [Float, Float],
-        "twin_small" => [44.0, 38.0] as [Float, Float],
         "typhoon" => [31.0, 44.0] as [Float, Float],
         "u2" => [54.0, 36.0] as [Float, Float],
         "uav" => [48.0, 30.0] as [Float, Float],
@@ -651,6 +641,14 @@ module AircraftClassifier {
             ["AT4", "twin_large"],
             ["AT7", "twin_large"],
         ] as Array<[String, String]>;
+
+    // Shapes with no meaningful "nose heading" to point: a free balloon has no directional control,
+    // and ground_tower is a fixed obstacle (C3-C5 - towers/masts) that never moves at all.
+    const NON_ROTATING_SHAPES = ["balloon", "ground_tower"] as Array<String>;
+
+    function shapeRotates(shape as String) as Boolean {
+        return !matchesType(shape, NON_ROTATING_SHAPES);
+    }
 
     function matchesType(
         typeCode as String?,
