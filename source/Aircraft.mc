@@ -107,10 +107,6 @@ class Aircraft {
         totalAirTemp = tatVal != null ? tatVal.toNumber() : null;
     }
 
-    public function isHelicopter() as Boolean {
-        return category != null && category.equals("A7");
-    }
-
     // DO-260B C1/C2 = surface vehicles, never an airborne class, distinct from a plane that's merely onGround.
     public function isGroundVehicle() as Boolean {
         return (

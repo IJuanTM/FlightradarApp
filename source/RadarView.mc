@@ -6,7 +6,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.6.3";
+const APP_VERSION = "0.7.0";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -153,9 +153,6 @@ class RadarView extends WatchUi.View {
     private const TAP_SUPPRESS_WINDOW_MS = 300;
     // Trailing touch events from opening/closing the full-detail view can bleed into whatever's on top next.
     private var _inputSuppressedUntilMs as Number?;
-    // Caps continueDrag's redraw rate - unthrottled, it called requestUpdate on every raw mouse-move event.
-    private var _lastDragRedrawMs as Number = 0;
-    private const DRAG_REDRAW_INTERVAL_MS = 33;
 
     private var _pollTimer as Timer.Timer?;
     private var _ticksSincePoll as Number = 0;
@@ -186,7 +183,7 @@ class RadarView extends WatchUi.View {
     private var _routeClient as RouteClient = new RouteClient();
     private var _airportClient as AirportClient = new AirportClient();
 
-    // One bitmap per shape - emergency halo is drawn via an offset-blit outline, not a second dilated variant.
+    // One bitmap per shape - emergency is a separate fixed-offset badge, not a variant of this bitmap.
     private var _iconBitmaps as Dictionary<String, Graphics.BitmapType> = {};
 
     public function initialize() {
@@ -584,18 +581,11 @@ class RadarView extends WatchUi.View {
             _dragCommitted = true;
         }
 
-        // Drop this raw event if it's arriving too soon - _dragLastCoords stays at the last processed point.
-        var now = System.getTimer();
-        if (now - _lastDragRedrawMs < DRAG_REDRAW_INTERVAL_MS) {
-            return;
-        }
-        _lastDragRedrawMs = now;
-
         _applyDragDelta(x, y);
         WatchUi.requestUpdate();
     }
 
-    // Shared by continueDrag and endDrag, so a release inside a throttled window doesn't lose motion.
+    // Shared by continueDrag and endDrag.
     private function _applyDragDelta(x as Number, y as Number) as Void {
         var last = _dragLastCoords;
         if (last == null) {
@@ -1062,7 +1052,8 @@ class RadarView extends WatchUi.View {
         var radiusKm = Settings.zoomRadiusKm();
         _lastRadiusPx = radiusPx;
         _lastScreenHeight = h;
-        var topPanelH = _topPanelHeight();
+        var topLines = _topPanelLines();
+        var topPanelH = _topPanelHeightFor(topLines);
 
         if (!_hasFix or _centerLat == null or _centerLon == null) {
             dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
@@ -1081,8 +1072,11 @@ class RadarView extends WatchUi.View {
         var focusLon = focus[1];
 
         var selected = _selectedAircraft();
-        var bottomPanelH =
-            selected != null ? _detailPanelHeight(selected as Aircraft) : 0;
+        var detailLines =
+            selected != null
+                ? _buildDetailLines(selected as Aircraft)
+                : [] as Array<Array<DrawUtil.ValueRun> >;
+        var bottomPanelH = _detailPanelHeightFor(detailLines);
 
         if (Settings.showGridLines) {
             _drawLatLonGrid(
@@ -1113,10 +1107,10 @@ class RadarView extends WatchUi.View {
         _drawAircraft(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
 
         if (selected != null) {
-            _drawDetailPanel(dc, cx, cy, h, radiusPx, selected as Aircraft);
+            _drawDetailPanel(dc, cx, cy, h, radiusPx, detailLines);
         }
 
-        _drawTopPanel(dc, cx, cy, radiusPx);
+        _drawTopPanel(dc, cx, cy, radiusPx, topLines);
 
         if (Settings.showButtonHints) {
             _drawButtonHints(dc, cx, cy, radiusPx);
@@ -1390,17 +1384,24 @@ class RadarView extends WatchUi.View {
     }
 
     private function _topPanelHeight() as Number {
-        return _topPanelLines().size() * _topPanelLineHeight + 8;
+        return _topPanelHeightFor(_topPanelLines());
     }
 
+    private function _topPanelHeightFor(
+        lines as Array<[String, Number]>
+    ) as Number {
+        return lines.size() * _topPanelLineHeight + 8;
+    }
+
+    // Takes lines rather than recomputing them - onUpdate already built them once for the height calc.
     private function _drawTopPanel(
         dc as Dc,
         cx as Number,
         cy as Number,
-        radiusPx as Number
+        radiusPx as Number,
+        lines as Array<[String, Number]>
     ) as Void {
-        var lines = _topPanelLines();
-        var panelH = lines.size() * _topPanelLineHeight + 8;
+        var panelH = _topPanelHeightFor(lines);
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(0, 0, dc.getWidth(), panelH);
@@ -2526,20 +2527,20 @@ class RadarView extends WatchUi.View {
         );
     }
 
+    // Takes lines rather than recomputing them - onUpdate already built them once for the height calc.
     private function _drawDetailPanel(
         dc as Dc,
         cx as Number,
         cy as Number,
         h as Number,
         radiusPx as Number,
-        ac as Aircraft
+        lines as Array<Array<DrawUtil.ValueRun> >
     ) as Void {
-        var lines = _buildDetailLines(ac);
         if (lines.size() == 0) {
             return;
         }
 
-        var panelH = lines.size() * _detailPanelLineHeight + 8;
+        var panelH = _detailPanelHeightFor(lines);
         var panelY = h - panelH;
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
@@ -2562,7 +2563,12 @@ class RadarView extends WatchUi.View {
 
     // 0 when nothing is selected, so callers can treat "no panel" and "empty panel" the same.
     private function _detailPanelHeight(ac as Aircraft) as Number {
-        var lines = _buildDetailLines(ac);
+        return _detailPanelHeightFor(_buildDetailLines(ac));
+    }
+
+    private function _detailPanelHeightFor(
+        lines as Array<Array<DrawUtil.ValueRun> >
+    ) as Number {
         return lines.size() == 0
             ? 0
             : lines.size() * _detailPanelLineHeight + 8;
