@@ -30,6 +30,7 @@ class FlightradarApp extends Application.AppBase {
             Position.LOCATION_DISABLE,
             method(:onPosition)
         );
+        _radarView.persistLastKnownPosition();
     }
 
     public function onPosition(info as Position.Info) as Void {

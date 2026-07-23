@@ -1,3 +1,5 @@
+import Toybox.Activity;
+import Toybox.Application.Storage;
 import Toybox.Graphics;
 import Toybox.Lang;
 import Toybox.Math;
@@ -6,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.7.1";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -92,6 +94,10 @@ class RadarView extends WatchUi.View {
 
     // Indexed alongside Settings.ZOOM_LEVELS_KM - real round-number distances, not derived from it.
     private const GRID_STEP_KM as Array<Float> = [1.0, 5.0, 10.0, 25.0];
+
+    // Persisted in onHide so a future cold app-open (currentLocation gone stale) still has a seed.
+    private const STORAGE_KEY_LAT = "lastKnownLat";
+    private const STORAGE_KEY_LON = "lastKnownLon";
 
     private var _centerLat as Float?;
     private var _centerLon as Float?;
@@ -184,7 +190,97 @@ class RadarView extends WatchUi.View {
     private var _airportClient as AirportClient = new AirportClient();
 
     // One bitmap per shape - emergency is a separate fixed-offset badge, not a variant of this bitmap.
-    private var _iconBitmaps as Dictionary<String, Graphics.BitmapType> = {};
+    // Loaded lazily via _bitmapForShape (loading all 84 up front in onLayout cost real time on app open).
+    private var _iconBitmapCache as Dictionary<String, Graphics.BitmapType> =
+        {};
+
+    private const ICON_RESOURCE_IDS as Dictionary<String, ResourceId> =
+        ({
+            "a10" => Rez.Drawables.AircraftA10,
+            "a225" => Rez.Drawables.AircraftA225,
+            "a319" => Rez.Drawables.AircraftA319,
+            "a320" => Rez.Drawables.AircraftA320,
+            "a321" => Rez.Drawables.AircraftA321,
+            "a332" => Rez.Drawables.AircraftA332,
+            "a359" => Rez.Drawables.AircraftA359,
+            "a380" => Rez.Drawables.AircraftA380,
+            "a400" => Rez.Drawables.AircraftA400,
+            "airliner" => Rez.Drawables.AircraftAirliner,
+            "alpha_jet" => Rez.Drawables.AircraftAlphaJet,
+            "apache" => Rez.Drawables.AircraftApache,
+            "b1b_lancer" => Rez.Drawables.AircraftB1bLancer,
+            "b52" => Rez.Drawables.AircraftB52,
+            "b707" => Rez.Drawables.AircraftB707,
+            "b737" => Rez.Drawables.AircraftB737,
+            "b738" => Rez.Drawables.AircraftB738,
+            "b739" => Rez.Drawables.AircraftB739,
+            "bae_hawk" => Rez.Drawables.AircraftBaeHawk,
+            "balloon" => Rez.Drawables.AircraftBalloon,
+            "beluga" => Rez.Drawables.AircraftBeluga,
+            "blackhawk" => Rez.Drawables.AircraftBlackhawk,
+            "blimp" => Rez.Drawables.AircraftBlimp,
+            "c130" => Rez.Drawables.AircraftC130,
+            "c17" => Rez.Drawables.AircraftC17,
+            "c2" => Rez.Drawables.AircraftC2,
+            "c5" => Rez.Drawables.AircraftC5,
+            "cessna" => Rez.Drawables.AircraftCessna,
+            "chinook" => Rez.Drawables.AircraftChinook,
+            "cirrus_sr22" => Rez.Drawables.AircraftCirrusSr22,
+            "dauphin" => Rez.Drawables.AircraftDauphin,
+            "e390" => Rez.Drawables.AircraftE390,
+            "e3awacs" => Rez.Drawables.AircraftE3awacs,
+            "e737" => Rez.Drawables.AircraftE737,
+            "f18" => Rez.Drawables.AircraftF18,
+            "f35" => Rez.Drawables.AircraftF35,
+            "f5_tiger" => Rez.Drawables.AircraftF5Tiger,
+            "gazelle" => Rez.Drawables.AircraftGazelle,
+            "glider" => Rez.Drawables.AircraftGlider,
+            "ground_emergency" => Rez.Drawables.AircraftGroundEmergency,
+            "ground_service" => Rez.Drawables.AircraftGroundService,
+            "ground_tower" => Rez.Drawables.AircraftGroundTower,
+            "ground_unknown" => Rez.Drawables.AircraftGroundUnknown,
+            "gyrocopter" => Rez.Drawables.AircraftGyrocopter,
+            "heavy_2e" => Rez.Drawables.AircraftHeavy2e,
+            "heavy_4e" => Rez.Drawables.AircraftHeavy4e,
+            "helicopter" => Rez.Drawables.AircraftHelicopter,
+            "hi_perf" => Rez.Drawables.AircraftHiPerf,
+            "hunter" => Rez.Drawables.AircraftHunter,
+            "il_62" => Rez.Drawables.AircraftIl62,
+            "jet_nonswept" => Rez.Drawables.AircraftJetNonswept,
+            "jet_swept" => Rez.Drawables.AircraftJetSwept,
+            "l159" => Rez.Drawables.AircraftL159,
+            "lancaster" => Rez.Drawables.AircraftLancaster,
+            "m326" => Rez.Drawables.AircraftM326,
+            "md11" => Rez.Drawables.AircraftMd11,
+            "md_a4" => Rez.Drawables.AircraftMdA4,
+            "md_f15" => Rez.Drawables.AircraftMdF15,
+            "mil24" => Rez.Drawables.AircraftMil24,
+            "mirage" => Rez.Drawables.AircraftMirage,
+            "miragef1" => Rez.Drawables.AircraftMiragef1,
+            "p3_orion" => Rez.Drawables.AircraftP3Orion,
+            "p8" => Rez.Drawables.AircraftP8,
+            "pa24" => Rez.Drawables.AircraftPa24,
+            "para" => Rez.Drawables.AircraftPara,
+            "puma" => Rez.Drawables.AircraftPuma,
+            "rafale" => Rez.Drawables.AircraftRafale,
+            "rutan_veze" => Rez.Drawables.AircraftRutanVeze,
+            "s61" => Rez.Drawables.AircraftS61,
+            "sb39" => Rez.Drawables.AircraftSb39,
+            "strato" => Rez.Drawables.AircraftStrato,
+            "super_guppy" => Rez.Drawables.AircraftSuperGuppy,
+            "t38" => Rez.Drawables.AircraftT38,
+            "tiger" => Rez.Drawables.AircraftTiger,
+            "tornado" => Rez.Drawables.AircraftTornado,
+            "twin_large" => Rez.Drawables.AircraftTwinLarge,
+            "typhoon" => Rez.Drawables.AircraftTyphoon,
+            "u2" => Rez.Drawables.AircraftU2,
+            "uav" => Rez.Drawables.AircraftUav,
+            "unknown" => Rez.Drawables.AircraftUnknown,
+            "v22_fast" => Rez.Drawables.AircraftV22Fast,
+            "v22_slow" => Rez.Drawables.AircraftV22Slow,
+            "verhees" => Rez.Drawables.AircraftVerhees,
+            "wb57" => Rez.Drawables.AircraftWb57,
+        }) as Dictionary<String, ResourceId>;
 
     public function initialize() {
         View.initialize();
@@ -202,195 +298,6 @@ class RadarView extends WatchUi.View {
         _fontTiny =
             WatchUi.loadResource(Rez.Fonts.SpaceMono_TINY) as
             Graphics.FontDefinition;
-        _iconBitmaps = {
-            "a10" => WatchUi.loadResource(Rez.Drawables.AircraftA10) as
-            Graphics.BitmapType,
-            "a225" => WatchUi.loadResource(Rez.Drawables.AircraftA225) as
-            Graphics.BitmapType,
-            "a319" => WatchUi.loadResource(Rez.Drawables.AircraftA319) as
-            Graphics.BitmapType,
-            "a320" => WatchUi.loadResource(Rez.Drawables.AircraftA320) as
-            Graphics.BitmapType,
-            "a321" => WatchUi.loadResource(Rez.Drawables.AircraftA321) as
-            Graphics.BitmapType,
-            "a332" => WatchUi.loadResource(Rez.Drawables.AircraftA332) as
-            Graphics.BitmapType,
-            "a359" => WatchUi.loadResource(Rez.Drawables.AircraftA359) as
-            Graphics.BitmapType,
-            "a380" => WatchUi.loadResource(Rez.Drawables.AircraftA380) as
-            Graphics.BitmapType,
-            "a400" => WatchUi.loadResource(Rez.Drawables.AircraftA400) as
-            Graphics.BitmapType,
-            "airliner" => WatchUi.loadResource(
-                Rez.Drawables.AircraftAirliner
-            ) as Graphics.BitmapType,
-            "alpha_jet" => WatchUi.loadResource(
-                Rez.Drawables.AircraftAlphaJet
-            ) as Graphics.BitmapType,
-            "apache" => WatchUi.loadResource(Rez.Drawables.AircraftApache) as
-            Graphics.BitmapType,
-            "b1b_lancer" => WatchUi.loadResource(
-                Rez.Drawables.AircraftB1bLancer
-            ) as Graphics.BitmapType,
-            "b52" => WatchUi.loadResource(Rez.Drawables.AircraftB52) as
-            Graphics.BitmapType,
-            "b707" => WatchUi.loadResource(Rez.Drawables.AircraftB707) as
-            Graphics.BitmapType,
-            "b737" => WatchUi.loadResource(Rez.Drawables.AircraftB737) as
-            Graphics.BitmapType,
-            "b738" => WatchUi.loadResource(Rez.Drawables.AircraftB738) as
-            Graphics.BitmapType,
-            "b739" => WatchUi.loadResource(Rez.Drawables.AircraftB739) as
-            Graphics.BitmapType,
-            "bae_hawk" => WatchUi.loadResource(Rez.Drawables.AircraftBaeHawk) as
-            Graphics.BitmapType,
-            "balloon" => WatchUi.loadResource(Rez.Drawables.AircraftBalloon) as
-            Graphics.BitmapType,
-            "beluga" => WatchUi.loadResource(Rez.Drawables.AircraftBeluga) as
-            Graphics.BitmapType,
-            "blackhawk" => WatchUi.loadResource(
-                Rez.Drawables.AircraftBlackhawk
-            ) as Graphics.BitmapType,
-            "blimp" => WatchUi.loadResource(Rez.Drawables.AircraftBlimp) as
-            Graphics.BitmapType,
-            "c130" => WatchUi.loadResource(Rez.Drawables.AircraftC130) as
-            Graphics.BitmapType,
-            "c17" => WatchUi.loadResource(Rez.Drawables.AircraftC17) as
-            Graphics.BitmapType,
-            "c2" => WatchUi.loadResource(Rez.Drawables.AircraftC2) as
-            Graphics.BitmapType,
-            "c5" => WatchUi.loadResource(Rez.Drawables.AircraftC5) as
-            Graphics.BitmapType,
-            "cessna" => WatchUi.loadResource(Rez.Drawables.AircraftCessna) as
-            Graphics.BitmapType,
-            "chinook" => WatchUi.loadResource(Rez.Drawables.AircraftChinook) as
-            Graphics.BitmapType,
-            "cirrus_sr22" => WatchUi.loadResource(
-                Rez.Drawables.AircraftCirrusSr22
-            ) as Graphics.BitmapType,
-            "dauphin" => WatchUi.loadResource(Rez.Drawables.AircraftDauphin) as
-            Graphics.BitmapType,
-            "e390" => WatchUi.loadResource(Rez.Drawables.AircraftE390) as
-            Graphics.BitmapType,
-            "e3awacs" => WatchUi.loadResource(Rez.Drawables.AircraftE3awacs) as
-            Graphics.BitmapType,
-            "e737" => WatchUi.loadResource(Rez.Drawables.AircraftE737) as
-            Graphics.BitmapType,
-            "f18" => WatchUi.loadResource(Rez.Drawables.AircraftF18) as
-            Graphics.BitmapType,
-            "f35" => WatchUi.loadResource(Rez.Drawables.AircraftF35) as
-            Graphics.BitmapType,
-            "f5_tiger" => WatchUi.loadResource(Rez.Drawables.AircraftF5Tiger) as
-            Graphics.BitmapType,
-            "gazelle" => WatchUi.loadResource(Rez.Drawables.AircraftGazelle) as
-            Graphics.BitmapType,
-            "glider" => WatchUi.loadResource(Rez.Drawables.AircraftGlider) as
-            Graphics.BitmapType,
-            "ground_emergency" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGroundEmergency
-            ) as Graphics.BitmapType,
-            "ground_service" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGroundService
-            ) as Graphics.BitmapType,
-            "ground_tower" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGroundTower
-            ) as Graphics.BitmapType,
-            "ground_unknown" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGroundUnknown
-            ) as Graphics.BitmapType,
-            "gyrocopter" => WatchUi.loadResource(
-                Rez.Drawables.AircraftGyrocopter
-            ) as Graphics.BitmapType,
-            "heavy_2e" => WatchUi.loadResource(Rez.Drawables.AircraftHeavy2e) as
-            Graphics.BitmapType,
-            "heavy_4e" => WatchUi.loadResource(Rez.Drawables.AircraftHeavy4e) as
-            Graphics.BitmapType,
-            "helicopter" => WatchUi.loadResource(
-                Rez.Drawables.AircraftHelicopter
-            ) as Graphics.BitmapType,
-            "hi_perf" => WatchUi.loadResource(Rez.Drawables.AircraftHiPerf) as
-            Graphics.BitmapType,
-            "hunter" => WatchUi.loadResource(Rez.Drawables.AircraftHunter) as
-            Graphics.BitmapType,
-            "il_62" => WatchUi.loadResource(Rez.Drawables.AircraftIl62) as
-            Graphics.BitmapType,
-            "jet_nonswept" => WatchUi.loadResource(
-                Rez.Drawables.AircraftJetNonswept
-            ) as Graphics.BitmapType,
-            "jet_swept" => WatchUi.loadResource(
-                Rez.Drawables.AircraftJetSwept
-            ) as Graphics.BitmapType,
-            "l159" => WatchUi.loadResource(Rez.Drawables.AircraftL159) as
-            Graphics.BitmapType,
-            "lancaster" => WatchUi.loadResource(
-                Rez.Drawables.AircraftLancaster
-            ) as Graphics.BitmapType,
-            "m326" => WatchUi.loadResource(Rez.Drawables.AircraftM326) as
-            Graphics.BitmapType,
-            "md11" => WatchUi.loadResource(Rez.Drawables.AircraftMd11) as
-            Graphics.BitmapType,
-            "md_a4" => WatchUi.loadResource(Rez.Drawables.AircraftMdA4) as
-            Graphics.BitmapType,
-            "md_f15" => WatchUi.loadResource(Rez.Drawables.AircraftMdF15) as
-            Graphics.BitmapType,
-            "mil24" => WatchUi.loadResource(Rez.Drawables.AircraftMil24) as
-            Graphics.BitmapType,
-            "mirage" => WatchUi.loadResource(Rez.Drawables.AircraftMirage) as
-            Graphics.BitmapType,
-            "miragef1" => WatchUi.loadResource(
-                Rez.Drawables.AircraftMiragef1
-            ) as Graphics.BitmapType,
-            "p3_orion" => WatchUi.loadResource(Rez.Drawables.AircraftP3Orion) as
-            Graphics.BitmapType,
-            "p8" => WatchUi.loadResource(Rez.Drawables.AircraftP8) as
-            Graphics.BitmapType,
-            "pa24" => WatchUi.loadResource(Rez.Drawables.AircraftPa24) as
-            Graphics.BitmapType,
-            "para" => WatchUi.loadResource(Rez.Drawables.AircraftPara) as
-            Graphics.BitmapType,
-            "puma" => WatchUi.loadResource(Rez.Drawables.AircraftPuma) as
-            Graphics.BitmapType,
-            "rafale" => WatchUi.loadResource(Rez.Drawables.AircraftRafale) as
-            Graphics.BitmapType,
-            "rutan_veze" => WatchUi.loadResource(
-                Rez.Drawables.AircraftRutanVeze
-            ) as Graphics.BitmapType,
-            "s61" => WatchUi.loadResource(Rez.Drawables.AircraftS61) as
-            Graphics.BitmapType,
-            "sb39" => WatchUi.loadResource(Rez.Drawables.AircraftSb39) as
-            Graphics.BitmapType,
-            "strato" => WatchUi.loadResource(Rez.Drawables.AircraftStrato) as
-            Graphics.BitmapType,
-            "super_guppy" => WatchUi.loadResource(
-                Rez.Drawables.AircraftSuperGuppy
-            ) as Graphics.BitmapType,
-            "t38" => WatchUi.loadResource(Rez.Drawables.AircraftT38) as
-            Graphics.BitmapType,
-            "tiger" => WatchUi.loadResource(Rez.Drawables.AircraftTiger) as
-            Graphics.BitmapType,
-            "tornado" => WatchUi.loadResource(Rez.Drawables.AircraftTornado) as
-            Graphics.BitmapType,
-            "twin_large" => WatchUi.loadResource(
-                Rez.Drawables.AircraftTwinLarge
-            ) as Graphics.BitmapType,
-            "typhoon" => WatchUi.loadResource(Rez.Drawables.AircraftTyphoon) as
-            Graphics.BitmapType,
-            "u2" => WatchUi.loadResource(Rez.Drawables.AircraftU2) as
-            Graphics.BitmapType,
-            "uav" => WatchUi.loadResource(Rez.Drawables.AircraftUav) as
-            Graphics.BitmapType,
-            "unknown" => WatchUi.loadResource(Rez.Drawables.AircraftUnknown) as
-            Graphics.BitmapType,
-            "v22_fast" => WatchUi.loadResource(Rez.Drawables.AircraftV22Fast) as
-            Graphics.BitmapType,
-            "v22_slow" => WatchUi.loadResource(Rez.Drawables.AircraftV22Slow) as
-            Graphics.BitmapType,
-            "verhees" => WatchUi.loadResource(Rez.Drawables.AircraftVerhees) as
-            Graphics.BitmapType,
-            "wb57" => WatchUi.loadResource(Rez.Drawables.AircraftWb57) as
-            Graphics.BitmapType,
-        };
-
         var charSize = DrawUtil.measureChar(dc, _fontTiny);
         _charW = charSize[0];
         _charH = charSize[1];
@@ -413,13 +320,56 @@ class RadarView extends WatchUi.View {
         _pollTimer = timer;
         _ticksSincePoll = 0;
 
+        if (!_hasFix) {
+            _tryLastKnownPosition();
+        }
         _fetchNow();
+    }
+
+    // A cold GPS fix can take 30s+, longer than the screen stays on - seed from the system's cached
+    // last-known fix instead; onPosition() overwrites it once a live fix arrives.
+    private function _tryLastKnownPosition() as Void {
+        var loc = Activity.getActivityInfo().currentLocation;
+        if (loc != null) {
+            var deg = (loc as Position.Location).toDegrees();
+            var lat = deg[0].toFloat();
+            var lon = deg[1].toFloat();
+            // A few devices are known to report (0,0) or (180,180) instead of null when there's no cached fix.
+            if (
+                !(lat == 0.0 and lon == 0.0 or (lat == 180.0 and lon == 180.0))
+            ) {
+                _centerLat = lat;
+                _centerLon = lon;
+                _hasFix = true;
+                return;
+            }
+        }
+
+        // currentLocation only reflects the last time something actually used GPS, and goes stale/null
+        // after roughly an hour of no GPS use - the watch never polls GPS just from being worn. Fall
+        // back to wherever this app last had a real fix, persisted in onHide.
+        var storedLat = Storage.getValue(STORAGE_KEY_LAT);
+        var storedLon = Storage.getValue(STORAGE_KEY_LON);
+        if (storedLat != null and storedLon != null) {
+            _centerLat = storedLat as Float;
+            _centerLon = storedLon as Float;
+            _hasFix = true;
+        }
     }
 
     public function onHide() as Void {
         if (_pollTimer != null) {
             (_pollTimer as Timer.Timer).stop();
             _pollTimer = null;
+        }
+    }
+
+    // Called from FlightradarApp.onStop (real app exit), not onHide - onHide also fires every time a
+    // menu/detail view is pushed on top, which would write far more often than needed.
+    public function persistLastKnownPosition() as Void {
+        if (_hasFix) {
+            Storage.setValue(STORAGE_KEY_LAT, _centerLat);
+            Storage.setValue(STORAGE_KEY_LON, _centerLon);
         }
     }
 
@@ -2243,6 +2193,18 @@ class RadarView extends WatchUi.View {
         );
     }
 
+    private function _bitmapForShape(shape as String) as Graphics.BitmapType {
+        var cached = _iconBitmapCache[shape];
+        if (cached != null) {
+            return cached as Graphics.BitmapType;
+        }
+        var bmp =
+            WatchUi.loadResource(ICON_RESOURCE_IDS[shape] as ResourceId) as
+            Graphics.BitmapType;
+        _iconBitmapCache[shape] = bmp;
+        return bmp;
+    }
+
     private function _drawIconVariant(
         dc as Dc,
         x as Number,
@@ -2268,7 +2230,7 @@ class RadarView extends WatchUi.View {
         tf.scale(scale, scale);
         tf.translate(-halfW, -halfH);
 
-        dc.drawBitmap2(0, 0, _iconBitmaps[shape] as Graphics.BitmapType, {
+        dc.drawBitmap2(0, 0, _bitmapForShape(shape), {
             :transform => tf,
             :tintColor => color,
             // Default (nearest-neighbor) is jagged at this rotation/downscale ratio - bilinear smooths it.
