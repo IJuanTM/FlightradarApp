@@ -1,5 +1,6 @@
 import Toybox.Graphics;
 import Toybox.Lang;
+import Toybox.Math;
 import Toybox.System;
 import Toybox.WatchUi;
 
@@ -281,7 +282,7 @@ class AircraftDetailView extends WatchUi.View {
             totalW += labelW + _labelValueGapPx + valueW + _fieldGapPx;
         }
 
-        var x = cx - totalW / 2;
+        var x = cx - Math.round(totalW / 2.0).toNumber();
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
             dc.setColor(COLOR_ROW_LABEL, Graphics.COLOR_TRANSPARENT);

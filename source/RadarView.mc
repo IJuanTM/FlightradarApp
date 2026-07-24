@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.8.0";
+const APP_VERSION = "0.8.1";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -1366,8 +1366,9 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var bmpLeft = center[0] - realFetchW / 2;
-        var bmpTop = center[1] - realFetchH / 2;
+        // Rounded, not truncated - truncation biased the whole bitmap right/down when odd-sized.
+        var bmpLeft = center[0] - Math.round(realFetchW / 2.0).toNumber();
+        var bmpTop = center[1] - Math.round(realFetchH / 2.0).toNumber();
         dc.drawBitmap(bmpLeft, bmpTop, bitmap as Graphics.BitmapType);
 
         // Covers the attribution bar - drawBitmap2's :bitmapX/:bitmapY crop measurably mispositioned the image.
@@ -2768,7 +2769,7 @@ class RadarView extends WatchUi.View {
         widths as Array<Number>,
         totalW as Number
     ) as Void {
-        var x = cx - totalW / 2;
+        var x = cx - Math.round(totalW / 2.0).toNumber();
         for (var i = 0; i < segments.size(); i++) {
             DrawUtil.drawRun(dc, x, y, _fontTiny, segments[i]);
             x += (widths[i] as Number) + _segmentGapPx;
@@ -2903,7 +2904,7 @@ class RadarView extends WatchUi.View {
             totalW += w + _segmentGapPx;
         }
 
-        var x = cx - totalW / 2;
+        var x = cx - Math.round(totalW / 2.0).toNumber();
         for (var i = 0; i < segments.size(); i++) {
             DrawUtil.drawRun(dc, x, y, _fontTiny, segments[i]);
             x += (widths[i] as Number) + _segmentGapPx;

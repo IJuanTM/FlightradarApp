@@ -67,8 +67,7 @@ module Projection {
 
     const WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 = 156543.03392;
 
-    // Web Mercator zoom matching this app's own radiusKm/radiusPx scale at lat. The -1 is empirical -
-    // Geoapify's renderer measured 2x finer than the classic 256px-tile formula predicts (512px tile).
+    // The -1 is empirical - Geoapify's renderer measured 2x finer than the classic 256px-tile formula (512px tiles).
     function webMercatorZoom(
         lat as Float,
         radiusKm as Float,
