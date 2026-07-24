@@ -77,6 +77,15 @@ module MenuBuilder {
                 null
             )
         );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowBackgroundMap,
+                null,
+                :showBackgroundMap,
+                Settings.showBackgroundMap,
+                null
+            )
+        );
         return menu;
     }
 
@@ -273,6 +282,8 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setUseMetricUnits(enabled);
         } else if (id == :batterySaverMode) {
             Settings.setBatterySaverMode(enabled);
+        } else if (id == :showBackgroundMap) {
+            Settings.setShowBackgroundMap(enabled);
         }
     }
 }

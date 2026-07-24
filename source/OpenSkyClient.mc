@@ -84,9 +84,10 @@ class OpenSkyClient {
         }
 
         var creds =
-            WatchUi.loadResource(Rez.JsonData.OpenSkyCredentials) as Dictionary;
-        var id = creds["clientId"];
-        var secret = creds["clientSecret"];
+            WatchUi.loadResource(Rez.JsonData.Credentials) as Dictionary;
+        var openSky = creds["OpenSky"] as Dictionary;
+        var id = openSky["clientId"];
+        var secret = openSky["clientSecret"];
         if (!(id instanceof String) or !(secret instanceof String)) {
             return false;
         }

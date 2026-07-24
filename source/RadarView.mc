@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.8.0";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -188,6 +188,37 @@ class RadarView extends WatchUi.View {
     private var _openSky as OpenSkyClient = new OpenSkyClient();
     private var _routeClient as RouteClient = new RouteClient();
     private var _airportClient as AirportClient = new AirportClient();
+
+    private var _mapClient as MapClient = new MapClient();
+    // Single bitmap only - a per-zoom cache caused a real graphics-pool OOM crash on-device.
+    private var _mapActiveBitmap as
+        Graphics.BitmapReference or WatchUi.BitmapResource or Null;
+    // Cached at receive time - getWidth()/getHeight() can reload from the graphics pool.
+    private var _mapActiveBitmapW as Number?;
+    private var _mapActiveBitmapH as Number?;
+    private var _mapActiveLat as Float?;
+    private var _mapActiveLon as Float?;
+    private var _mapActiveZoomIndex as Number?;
+    private var _mapFetchZoomIndex as Number?;
+    private var _mapAttemptedLat as Float?;
+    private var _mapAttemptedLon as Float?;
+    private var _mapPendingZoomIndex as Number?;
+    private var _mapPendingLat as Float?;
+    private var _mapPendingLon as Float?;
+    private var _mapPendingSinceMs as Number?;
+    private const MAP_FETCH_DEBOUNCE_MS = 200;
+    // Mirrors the aircraft feed's _nextRetryAtMs/_retryBackoffMs - avoids hammering a failing fetch.
+    private var _mapRetryAtMs as Number?;
+    private var _mapRetryBackoffMs as Number = MAP_INITIAL_RETRY_BACKOFF_MS;
+    private const MAP_INITIAL_RETRY_BACKOFF_MS = 2000;
+    private const MAP_MAX_RETRY_BACKOFF_MS = 30000;
+    private const MAP_DEBOUNCE_RESET_THRESHOLD_KM = 0.05;
+    // Indexed alongside Settings.ZOOM_LEVELS_KM - shrunk at wider zoom, what actually trips a real -403.
+    private const MAP_MARGIN_FACTOR_BY_ZOOM as Array<Float> = [
+        2.0, 2.0, 1.5, 1.25,
+    ];
+    // Geoapify bakes a fixed-height attribution bar into every static map image.
+    private const MAP_WATERMARK_CROP_PX = 20;
 
     // One bitmap per shape - emergency is a separate fixed-offset badge, not a variant of this bitmap.
     // Loaded lazily via _bitmapForShape (loading all 84 up front in onLayout cost real time on app open).
@@ -1028,6 +1059,27 @@ class RadarView extends WatchUi.View {
                 : [] as Array<Array<DrawUtil.ValueRun> >;
         var bottomPanelH = _detailPanelHeightFor(detailLines);
 
+        if (Settings.showBackgroundMap) {
+            _maybeFetchBackgroundMap(focusLat, focusLon, radiusPx, radiusKm);
+            _drawBackgroundMap(
+                dc,
+                cx,
+                cy,
+                radiusPx,
+                radiusKm,
+                focusLat,
+                focusLon
+            );
+        } else if (_mapActiveBitmap != null) {
+            // Releases graphics-pool memory immediately - this feature already caused one real OOM crash.
+            _mapActiveBitmap = null;
+            _mapActiveBitmapW = null;
+            _mapActiveBitmapH = null;
+            _mapActiveLat = null;
+            _mapActiveLon = null;
+            _mapActiveZoomIndex = null;
+        }
+
         if (Settings.showGridLines) {
             _drawLatLonGrid(
                 dc,
@@ -1093,6 +1145,284 @@ class RadarView extends WatchUi.View {
             return null;
         }
         return _aircraftByHex[hex as String];
+    }
+
+    private function _maybeFetchBackgroundMap(
+        focusLat as Float,
+        focusLon as Float,
+        radiusPx as Number,
+        radiusKm as Float
+    ) as Void {
+        // Fetches never fire mid-drag anyway, so skip the trig work every drag frame.
+        if (isDragActive()) {
+            return;
+        }
+
+        var zoomIndex = Settings.zoomIndex;
+        var activeZoomIndex = _mapActiveZoomIndex;
+        // radiusPx is already shrunk by _edgeMargin, so use the full half-screen for factor 1.0 = fills screen.
+        var screenHalfPx = radiusPx + _edgeMargin;
+        var cacheIsFresh = false;
+        if (activeZoomIndex == zoomIndex and _mapActiveLat != null) {
+            var movedKm = Projection.distanceKm(
+                _mapActiveLat as Float,
+                _mapActiveLon as Float,
+                focusLat,
+                focusLon
+            );
+            var activeSizePxHalf =
+                screenHalfPx * MAP_MARGIN_FACTOR_BY_ZOOM[zoomIndex];
+            var groundHalfWidthKm = activeSizePxHalf * (radiusKm / radiusPx);
+            // Floored - GPS coords never repeat exactly, so zero tolerance would mean endless refetching.
+            var freshThresholdKm = groundHalfWidthKm - radiusKm;
+            if (freshThresholdKm < MAP_DEBOUNCE_RESET_THRESHOLD_KM) {
+                freshThresholdKm = MAP_DEBOUNCE_RESET_THRESHOLD_KM;
+            }
+            cacheIsFresh = movedKm <= freshThresholdKm;
+        }
+
+        if (cacheIsFresh) {
+            _mapPendingSinceMs = null;
+            return;
+        }
+        if (_mapClient.isFetchInFlight()) {
+            return;
+        }
+
+        var now = System.getTimer();
+        var retryAt = _mapRetryAtMs;
+        if (retryAt != null and now < (retryAt as Number)) {
+            return;
+        }
+
+        var pendingLat = _mapPendingLat;
+        var stillSameTarget =
+            _mapPendingZoomIndex == zoomIndex and
+            pendingLat != null and
+            Projection.distanceKm(
+                pendingLat as Float,
+                _mapPendingLon as Float,
+                focusLat,
+                focusLon
+            ) <= MAP_DEBOUNCE_RESET_THRESHOLD_KM;
+
+        if (!stillSameTarget or _mapPendingSinceMs == null) {
+            _mapPendingZoomIndex = zoomIndex;
+            _mapPendingLat = focusLat;
+            _mapPendingLon = focusLon;
+            _mapPendingSinceMs = now;
+            return;
+        }
+        if (now - (_mapPendingSinceMs as Number) < MAP_FETCH_DEBOUNCE_MS) {
+            return;
+        }
+
+        _mapPendingSinceMs = null;
+        _mapFetchZoomIndex = zoomIndex;
+        _mapAttemptedLat = focusLat;
+        _mapAttemptedLon = focusLon;
+
+        var zoom = Projection.webMercatorZoom(focusLat, radiusKm, radiusPx);
+        var sizePx = (
+            screenHalfPx *
+            2 *
+            MAP_MARGIN_FACTOR_BY_ZOOM[zoomIndex]
+        ).toNumber();
+        var fetchPx = sizePx + 2 * MAP_WATERMARK_CROP_PX;
+        _mapClient.fetchMap(
+            focusLat,
+            focusLon,
+            zoom,
+            fetchPx,
+            fetchPx,
+            method(:_onMapReceive)
+        );
+    }
+
+    public function _onMapReceive(
+        bitmap as Graphics.BitmapReference or WatchUi.BitmapResource or Null
+    ) as Void {
+        if (bitmap == null) {
+            _mapRetryAtMs = System.getTimer() + _mapRetryBackoffMs;
+            _mapRetryBackoffMs *= 2;
+            if (_mapRetryBackoffMs > MAP_MAX_RETRY_BACKOFF_MS) {
+                _mapRetryBackoffMs = MAP_MAX_RETRY_BACKOFF_MS;
+            }
+            WatchUi.requestUpdate();
+            return;
+        }
+        _mapRetryAtMs = null;
+        _mapRetryBackoffMs = MAP_INITIAL_RETRY_BACKOFF_MS;
+
+        // Dropped if the zoom changed, or the feature got toggled off, before this resolved.
+        if (
+            Settings.showBackgroundMap and
+            _mapFetchZoomIndex == Settings.zoomIndex
+        ) {
+            var bmp = bitmap as Graphics.BitmapType;
+            _mapActiveBitmap = bitmap;
+            _mapActiveBitmapW = bmp.getWidth();
+            _mapActiveBitmapH = bmp.getHeight();
+            _mapActiveLat = _mapAttemptedLat;
+            _mapActiveLon = _mapAttemptedLon;
+            _mapActiveZoomIndex = _mapFetchZoomIndex;
+        }
+        WatchUi.requestUpdate();
+    }
+
+    private function _drawBackgroundMap(
+        dc as Dc,
+        cx as Number,
+        cy as Number,
+        radiusPx as Number,
+        radiusKm as Float,
+        focusLat as Float,
+        focusLon as Float
+    ) as Void {
+        var bitmap = _mapActiveBitmap;
+        var activeZoomIndex = _mapActiveZoomIndex;
+        var realFetchW = _mapActiveBitmapW;
+        var realFetchH = _mapActiveBitmapH;
+        if (
+            bitmap == null or
+            _mapActiveLat == null or
+            activeZoomIndex == null or
+            realFetchW == null or
+            realFetchH == null
+        ) {
+            return;
+        }
+
+        var activeRadiusKm = Settings.ZOOM_LEVELS_KM[activeZoomIndex];
+        var center = Projection.toScreen(
+            focusLat,
+            focusLon,
+            _mapActiveLat as Float,
+            _mapActiveLon as Float,
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
+
+        if (activeZoomIndex != Settings.zoomIndex) {
+            var scale = activeRadiusKm / radiusKm;
+            var tf = new Graphics.AffineTransform();
+            tf.translate(center[0].toFloat(), center[1].toFloat());
+            tf.scale(scale, scale);
+            tf.translate(-realFetchW / 2.0, -realFetchH / 2.0);
+            dc.drawBitmap2(0, 0, bitmap as Graphics.BitmapType, {
+                :transform => tf,
+                :filterMode => Graphics.FILTER_MODE_BILINEAR,
+            });
+
+            // fillRectangle can't take a transform, so these corners are mapped through it by hand.
+            var crop = MAP_WATERMARK_CROP_PX;
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+            _fillTransformedRect(
+                dc,
+                0,
+                0,
+                realFetchW,
+                crop,
+                center,
+                scale,
+                realFetchW,
+                realFetchH
+            );
+            _fillTransformedRect(
+                dc,
+                0,
+                realFetchH - crop,
+                realFetchW,
+                realFetchH,
+                center,
+                scale,
+                realFetchW,
+                realFetchH
+            );
+            _fillTransformedRect(
+                dc,
+                0,
+                0,
+                crop,
+                realFetchH,
+                center,
+                scale,
+                realFetchW,
+                realFetchH
+            );
+            _fillTransformedRect(
+                dc,
+                realFetchW - crop,
+                0,
+                realFetchW,
+                realFetchH,
+                center,
+                scale,
+                realFetchW,
+                realFetchH
+            );
+            return;
+        }
+
+        var bmpLeft = center[0] - realFetchW / 2;
+        var bmpTop = center[1] - realFetchH / 2;
+        dc.drawBitmap(bmpLeft, bmpTop, bitmap as Graphics.BitmapType);
+
+        // Covers the attribution bar - drawBitmap2's :bitmapX/:bitmapY crop measurably mispositioned the image.
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+        dc.fillRectangle(bmpLeft, bmpTop, realFetchW, MAP_WATERMARK_CROP_PX);
+        dc.fillRectangle(
+            bmpLeft,
+            bmpTop + realFetchH - MAP_WATERMARK_CROP_PX,
+            realFetchW,
+            MAP_WATERMARK_CROP_PX
+        );
+        dc.fillRectangle(bmpLeft, bmpTop, MAP_WATERMARK_CROP_PX, realFetchH);
+        dc.fillRectangle(
+            bmpLeft + realFetchW - MAP_WATERMARK_CROP_PX,
+            bmpTop,
+            MAP_WATERMARK_CROP_PX,
+            realFetchH
+        );
+    }
+
+    private function _fillTransformedRect(
+        dc as Dc,
+        x0 as Number,
+        y0 as Number,
+        x1 as Number,
+        y1 as Number,
+        center as Array<Number>,
+        scale as Float,
+        fetchW as Number,
+        fetchH as Number
+    ) as Void {
+        dc.fillPolygon(
+            [
+                _transformLocalPoint(x0, y0, center, scale, fetchW, fetchH),
+                _transformLocalPoint(x1, y0, center, scale, fetchW, fetchH),
+                _transformLocalPoint(x1, y1, center, scale, fetchW, fetchH),
+                _transformLocalPoint(x0, y1, center, scale, fetchW, fetchH),
+            ] as Array<Graphics.Point2D>
+        );
+    }
+
+    private function _transformLocalPoint(
+        sx as Number,
+        sy as Number,
+        center as Array<Number>,
+        scale as Float,
+        fetchW as Number,
+        fetchH as Number
+    ) as Graphics.Point2D {
+        return (
+            [
+                (center[0] + (sx - fetchW / 2.0) * scale).toNumber(),
+                (center[1] + (sy - fetchH / 2.0) * scale).toNumber(),
+            ] as Graphics.Point2D
+        );
     }
 
     // Inner rings sit at real round-number km distances (like a map's own distance rings), not arbitrary N-way divisions.

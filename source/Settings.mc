@@ -43,6 +43,8 @@ module Settings {
     // Opt-out - metric is opt-in instead, aviation convention (ft/kt) is the sensible default.
     var useMetricUnits as Boolean = false;
     var batterySaverMode as Boolean = false;
+    // Opt-in - a background map is the biggest network/battery cost in the app, default off.
+    var showBackgroundMap as Boolean = false;
 
     // Aircraft display toggles - all opt-out, default on.
     var showSelectedTrail as Boolean = true;
@@ -69,6 +71,7 @@ module Settings {
         showButtonHints = _loadBool("showButtonHints", true);
         useMetricUnits = _loadBool("useMetricUnits", false);
         batterySaverMode = _loadBool("batterySaverMode", false);
+        showBackgroundMap = _loadBool("showBackgroundMap", false);
         showSelectedTrail = _loadBool("showSelectedTrail", true);
         showVertRateChevron = _loadBool("showVertRateChevron", true);
         dimGroundedAircraft = _loadBool("dimGroundedAircraft", true);
@@ -151,6 +154,11 @@ module Settings {
     function setBatterySaverMode(v as Boolean) as Void {
         batterySaverMode = v;
         Storage.setValue("batterySaverMode", v);
+    }
+
+    function setShowBackgroundMap(v as Boolean) as Void {
+        showBackgroundMap = v;
+        Storage.setValue("showBackgroundMap", v);
     }
 
     function setShowSelectedTrail(v as Boolean) as Void {

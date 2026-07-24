@@ -64,4 +64,19 @@ module Projection {
         var dLat = (dyKm * 1000.0) / METERS_PER_DEG_LAT;
         return [dLat, dLon];
     }
+
+    const WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 = 156543.03392;
+
+    // Web Mercator zoom matching this app's own radiusKm/radiusPx scale at lat. The -1 is empirical -
+    // Geoapify's renderer measured 2x finer than the classic 256px-tile formula predicts (512px tile).
+    function webMercatorZoom(
+        lat as Float,
+        radiusKm as Float,
+        radiusPx as Number
+    ) as Float {
+        var metersPerPx = (radiusKm * 1000.0) / radiusPx;
+        var equatorMPerPx =
+            WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 * Math.cos(Math.toRadians(lat));
+        return Math.log(equatorMPerPx / metersPerPx, 2.0).toFloat() - 1.0;
+    }
 }

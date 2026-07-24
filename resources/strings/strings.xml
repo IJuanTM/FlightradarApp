@@ -19,6 +19,7 @@
   <string id="MenuShowButtonHints">Button Hints</string>
   <string id="MenuMetricUnits">Metric Units</string>
   <string id="MenuBatterySaver">Battery Saver</string>
+  <string id="MenuShowBackgroundMap">Background Map</string>
 
   <string id="FiltersMenuTitle">Filters</string>
   <string id="MenuShowGroundVehicles">Show Ground Vehicles</string>
