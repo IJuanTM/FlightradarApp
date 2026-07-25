@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.8.1";
+const APP_VERSION = "0.9.0";
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -189,36 +189,33 @@ class RadarView extends WatchUi.View {
     private var _routeClient as RouteClient = new RouteClient();
     private var _airportClient as AirportClient = new AirportClient();
 
-    private var _mapClient as MapClient = new MapClient();
-    // Single bitmap only - a per-zoom cache caused a real graphics-pool OOM crash on-device.
-    private var _mapActiveBitmap as
-        Graphics.BitmapReference or WatchUi.BitmapResource or Null;
-    // Cached at receive time - getWidth()/getHeight() can reload from the graphics pool.
-    private var _mapActiveBitmapW as Number?;
-    private var _mapActiveBitmapH as Number?;
-    private var _mapActiveLat as Float?;
-    private var _mapActiveLon as Float?;
-    private var _mapActiveZoomIndex as Number?;
-    private var _mapFetchZoomIndex as Number?;
-    private var _mapAttemptedLat as Float?;
-    private var _mapAttemptedLon as Float?;
+    private var _mapClient as MapClient = new MapClient(method(:_onMapReceive));
+    private var _mapBitmap as Graphics.BitmapType?;
+    private var _mapBitmapLat as Float?;
+    private var _mapBitmapLon as Float?;
+    private var _mapBitmapPxPerKm as Float?;
+    private var _mapBitmapHalfPx as Number?;
+
     private var _mapPendingZoomIndex as Number?;
     private var _mapPendingLat as Float?;
     private var _mapPendingLon as Float?;
     private var _mapPendingSinceMs as Number?;
-    private const MAP_FETCH_DEBOUNCE_MS = 200;
-    // Mirrors the aircraft feed's _nextRetryAtMs/_retryBackoffMs - avoids hammering a failing fetch.
-    private var _mapRetryAtMs as Number?;
+    private const MAP_FETCH_DEBOUNCE_MS = 100;
+    private const MAP_DEBOUNCE_RESET_THRESHOLD_KM = 0.05;
+
+    // Refetch checks compare against this, not the received bitmap, to avoid re-requesting a slow fetch.
+    private var _mapRequestedZoomIndex as Number?;
+    private var _mapRequestedLat as Float?;
+    private var _mapRequestedLon as Float?;
+    private var _mapRequestedZoom as Float?;
+    // Same backoff shape as the airplanes.live poll (_retryBackoffMs above).
+    private var _mapNextRetryAtMs as Number?;
     private var _mapRetryBackoffMs as Number = MAP_INITIAL_RETRY_BACKOFF_MS;
     private const MAP_INITIAL_RETRY_BACKOFF_MS = 2000;
     private const MAP_MAX_RETRY_BACKOFF_MS = 30000;
-    private const MAP_DEBOUNCE_RESET_THRESHOLD_KM = 0.05;
-    // Indexed alongside Settings.ZOOM_LEVELS_KM - shrunk at wider zoom, what actually trips a real -403.
-    private const MAP_MARGIN_FACTOR_BY_ZOOM as Array<Float> = [
-        2.0, 2.0, 1.5, 1.25,
-    ];
-    // Geoapify bakes a fixed-height attribution bar into every static map image.
-    private const MAP_WATERMARK_CROP_PX = 20;
+
+    private const MAP_OVERSCAN_FACTOR = 1.5;
+    private const MAP_REFETCH_MARGIN_FACTOR = 0.75;
 
     // One bitmap per shape - emergency is a separate fixed-offset badge, not a variant of this bitmap.
     // Loaded lazily via _bitmapForShape (loading all 84 up front in onLayout cost real time on app open).
@@ -1070,14 +1067,15 @@ class RadarView extends WatchUi.View {
                 focusLat,
                 focusLon
             );
-        } else if (_mapActiveBitmap != null) {
+        } else if (_mapBitmap != null) {
             // Releases graphics-pool memory immediately - this feature already caused one real OOM crash.
-            _mapActiveBitmap = null;
-            _mapActiveBitmapW = null;
-            _mapActiveBitmapH = null;
-            _mapActiveLat = null;
-            _mapActiveLon = null;
-            _mapActiveZoomIndex = null;
+            _mapBitmap = null;
+            _mapBitmapLat = null;
+            _mapBitmapLon = null;
+            _mapBitmapPxPerKm = null;
+            _mapBitmapHalfPx = null;
+            // Also clears the last-requested view - otherwise re-enabling without movement never refetches.
+            _mapRequestedLat = null;
         }
 
         if (Settings.showGridLines) {
@@ -1159,42 +1157,7 @@ class RadarView extends WatchUi.View {
         }
 
         var zoomIndex = Settings.zoomIndex;
-        var activeZoomIndex = _mapActiveZoomIndex;
-        // radiusPx is already shrunk by _edgeMargin, so use the full half-screen for factor 1.0 = fills screen.
-        var screenHalfPx = radiusPx + _edgeMargin;
-        var cacheIsFresh = false;
-        if (activeZoomIndex == zoomIndex and _mapActiveLat != null) {
-            var movedKm = Projection.distanceKm(
-                _mapActiveLat as Float,
-                _mapActiveLon as Float,
-                focusLat,
-                focusLon
-            );
-            var activeSizePxHalf =
-                screenHalfPx * MAP_MARGIN_FACTOR_BY_ZOOM[zoomIndex];
-            var groundHalfWidthKm = activeSizePxHalf * (radiusKm / radiusPx);
-            // Floored - GPS coords never repeat exactly, so zero tolerance would mean endless refetching.
-            var freshThresholdKm = groundHalfWidthKm - radiusKm;
-            if (freshThresholdKm < MAP_DEBOUNCE_RESET_THRESHOLD_KM) {
-                freshThresholdKm = MAP_DEBOUNCE_RESET_THRESHOLD_KM;
-            }
-            cacheIsFresh = movedKm <= freshThresholdKm;
-        }
-
-        if (cacheIsFresh) {
-            _mapPendingSinceMs = null;
-            return;
-        }
-        if (_mapClient.isFetchInFlight()) {
-            return;
-        }
-
         var now = System.getTimer();
-        var retryAt = _mapRetryAtMs;
-        if (retryAt != null and now < (retryAt as Number)) {
-            return;
-        }
-
         var pendingLat = _mapPendingLat;
         var stillSameTarget =
             _mapPendingZoomIndex == zoomIndex and
@@ -1217,59 +1180,119 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        _mapPendingSinceMs = null;
-        _mapFetchZoomIndex = zoomIndex;
-        _mapAttemptedLat = focusLat;
-        _mapAttemptedLon = focusLon;
+        var nextRetryAt = _mapNextRetryAtMs;
+        if (nextRetryAt != null and now < (nextRetryAt as Number)) {
+            return;
+        }
 
-        var zoom = Projection.webMercatorZoom(focusLat, radiusKm, radiusPx);
-        var sizePx = (
-            screenHalfPx *
-            2 *
-            MAP_MARGIN_FACTOR_BY_ZOOM[zoomIndex]
+        var screenHalfPx = radiusPx + _edgeMargin;
+        var overscanMarginKm =
+            (screenHalfPx * (MAP_OVERSCAN_FACTOR - 1.0) * radiusKm) / radiusPx;
+
+        var requestedLat = _mapRequestedLat;
+        var needsRefetch =
+            _mapRequestedZoomIndex != zoomIndex or
+            requestedLat == null or
+            Projection.distanceKm(
+                requestedLat as Float,
+                _mapRequestedLon as Float,
+                focusLat,
+                focusLon
+            ) >
+                overscanMarginKm * MAP_REFETCH_MARGIN_FACTOR;
+        if (!needsRefetch) {
+            return;
+        }
+
+        var mapHalfPx = Math.round(
+            screenHalfPx * MAP_OVERSCAN_FACTOR
         ).toNumber();
-        var fetchPx = sizePx + 2 * MAP_WATERMARK_CROP_PX;
+        var idealZoom = Projection.webMercatorZoom(
+            focusLat,
+            radiusKm,
+            radiusPx
+        );
+
+        _mapRequestedZoomIndex = zoomIndex;
+        _mapRequestedLat = focusLat;
+        _mapRequestedLon = focusLon;
+        _mapRequestedZoom = idealZoom;
         _mapClient.fetchMap(
             focusLat,
             focusLon,
-            zoom,
-            fetchPx,
-            fetchPx,
-            method(:_onMapReceive)
+            idealZoom,
+            mapHalfPx * 2,
+            mapHalfPx * 2
         );
     }
 
     public function _onMapReceive(
-        bitmap as Graphics.BitmapReference or WatchUi.BitmapResource or Null
+        lat as Float,
+        lon as Float,
+        zoom as Float,
+        width as Number,
+        height as Number,
+        bitmap as MapClient.MapBitmap?
     ) as Void {
         if (bitmap == null) {
-            _mapRetryAtMs = System.getTimer() + _mapRetryBackoffMs;
-            _mapRetryBackoffMs *= 2;
-            if (_mapRetryBackoffMs > MAP_MAX_RETRY_BACKOFF_MS) {
-                _mapRetryBackoffMs = MAP_MAX_RETRY_BACKOFF_MS;
-            }
-            WatchUi.requestUpdate();
+            _mapScheduleRetry();
             return;
         }
-        _mapRetryAtMs = null;
+
+        // Must resolve via get() - an unresolved BitmapReference isn't a strong reference and can be reclaimed.
+        var resolved;
+        if (bitmap instanceof Graphics.BitmapReference) {
+            try {
+                resolved = bitmap.get() as Graphics.BitmapType?;
+            } catch (ex instanceof Graphics.OutOfGraphicsMemoryException) {
+                resolved = null;
+            }
+        } else {
+            resolved = bitmap as Graphics.BitmapType;
+        }
+        if (resolved == null) {
+            _mapScheduleRetry();
+            return;
+        }
+        _mapNextRetryAtMs = null;
         _mapRetryBackoffMs = MAP_INITIAL_RETRY_BACKOFF_MS;
 
-        // Dropped if the zoom changed, or the feature got toggled off, before this resolved.
+        // Superseded by a newer target since dispatch (e.g. a stuck request resolving after
+        // reconnect) - exact equality is reliable since these are the same values echoed back unchanged.
         if (
-            Settings.showBackgroundMap and
-            _mapFetchZoomIndex == Settings.zoomIndex
+            lat != _mapRequestedLat or
+            lon != _mapRequestedLon or
+            zoom != _mapRequestedZoom
         ) {
-            var bmp = bitmap as Graphics.BitmapType;
-            _mapActiveBitmap = bitmap;
-            _mapActiveBitmapW = bmp.getWidth();
-            _mapActiveBitmapH = bmp.getHeight();
-            _mapActiveLat = _mapAttemptedLat;
-            _mapActiveLon = _mapAttemptedLon;
-            _mapActiveZoomIndex = _mapFetchZoomIndex;
+            _mapRequestedLat = null;
+            return;
         }
+
+        // Discarded if the feature got toggled off before this arrived.
+        if (!Settings.showBackgroundMap) {
+            return;
+        }
+
+        _mapBitmap = resolved;
+        _mapBitmapLat = lat;
+        _mapBitmapLon = lon;
+        _mapBitmapPxPerKm = Projection.pxPerKmForZoom(lat, zoom);
+        _mapBitmapHalfPx = width / 2;
         WatchUi.requestUpdate();
     }
 
+    private function _mapScheduleRetry() as Void {
+        _mapNextRetryAtMs = System.getTimer() + _mapRetryBackoffMs;
+        _mapRetryBackoffMs *= 2;
+        if (_mapRetryBackoffMs > MAP_MAX_RETRY_BACKOFF_MS) {
+            _mapRetryBackoffMs = MAP_MAX_RETRY_BACKOFF_MS;
+        }
+        // Without this, needsRefetch sees zero drift from the failed request's own target and
+        // never retries at all once the view is stationary, no matter how long the cooldown clears.
+        _mapRequestedLat = null;
+    }
+
+    // Redrawn every frame, unthrottled - only the fetch itself is debounced.
     private function _drawBackgroundMap(
         dc as Dc,
         cx as Number,
@@ -1279,150 +1302,57 @@ class RadarView extends WatchUi.View {
         focusLat as Float,
         focusLon as Float
     ) as Void {
-        var bitmap = _mapActiveBitmap;
-        var activeZoomIndex = _mapActiveZoomIndex;
-        var realFetchW = _mapActiveBitmapW;
-        var realFetchH = _mapActiveBitmapH;
+        var bitmap = _mapBitmap;
+        var bitmapLat = _mapBitmapLat;
+        var bitmapLon = _mapBitmapLon;
+        var bitmapPxPerKm = _mapBitmapPxPerKm;
+        var halfPx = _mapBitmapHalfPx;
         if (
             bitmap == null or
-            _mapActiveLat == null or
-            activeZoomIndex == null or
-            realFetchW == null or
-            realFetchH == null
+            bitmapLat == null or
+            bitmapLon == null or
+            bitmapPxPerKm == null or
+            halfPx == null
         ) {
             return;
         }
 
-        var activeRadiusKm = Settings.ZOOM_LEVELS_KM[activeZoomIndex];
+        // Scales the bitmap to the live zoom, not just its own fetch-time scale - keeps it
+        // aligned with aircraft/grid while a fresh fetch (at a new zoom) is still in flight.
+        var scale = radiusPx / radiusKm / (bitmapPxPerKm as Float);
         var center = Projection.toScreen(
             focusLat,
             focusLon,
-            _mapActiveLat as Float,
-            _mapActiveLon as Float,
+            bitmapLat as Float,
+            bitmapLon as Float,
             cx,
             cy,
             radiusPx,
             radiusKm
         );
+        var scaledHalfPx = (halfPx as Number) * scale;
+        var left = center[0] - scaledHalfPx;
+        var top = center[1] - scaledHalfPx;
 
-        if (activeZoomIndex != Settings.zoomIndex) {
-            var scale = activeRadiusKm / radiusKm;
-            var tf = new Graphics.AffineTransform();
-            tf.translate(center[0].toFloat(), center[1].toFloat());
-            tf.scale(scale, scale);
-            tf.translate(-realFetchW / 2.0, -realFetchH / 2.0);
-            dc.drawBitmap2(0, 0, bitmap as Graphics.BitmapType, {
-                :transform => tf,
-                :filterMode => Graphics.FILTER_MODE_BILINEAR,
-            });
+        var xform = new Graphics.AffineTransform();
+        xform.translate(left, top);
+        xform.scale(scale, scale);
+        dc.drawBitmap2(0, 0, bitmap as Graphics.BitmapType, {
+            :transform => xform,
+        });
 
-            // fillRectangle can't take a transform, so these corners are mapped through it by hand.
-            var crop = MAP_WATERMARK_CROP_PX;
-            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
-            _fillTransformedRect(
-                dc,
-                0,
-                0,
-                realFetchW,
-                crop,
-                center,
-                scale,
-                realFetchW,
-                realFetchH
-            );
-            _fillTransformedRect(
-                dc,
-                0,
-                realFetchH - crop,
-                realFetchW,
-                realFetchH,
-                center,
-                scale,
-                realFetchW,
-                realFetchH
-            );
-            _fillTransformedRect(
-                dc,
-                0,
-                0,
-                crop,
-                realFetchH,
-                center,
-                scale,
-                realFetchW,
-                realFetchH
-            );
-            _fillTransformedRect(
-                dc,
-                realFetchW - crop,
-                0,
-                realFetchW,
-                realFetchH,
-                center,
-                scale,
-                realFetchW,
-                realFetchH
-            );
-            return;
-        }
-
-        // Rounded, not truncated - truncation biased the whole bitmap right/down when odd-sized.
-        var bmpLeft = center[0] - Math.round(realFetchW / 2.0).toNumber();
-        var bmpTop = center[1] - Math.round(realFetchH / 2.0).toNumber();
-        dc.drawBitmap(bmpLeft, bmpTop, bitmap as Graphics.BitmapType);
-
-        // Covers the attribution bar - drawBitmap2's :bitmapX/:bitmapY crop measurably mispositioned the image.
+        // Covers Geoapify's baked-in attribution bar (~20px tall). Rounded, not truncated, to
+        // match the AffineTransform-rendered edge - a bare .toNumber() can leave a 1-2px gap.
+        var leftRounded = Math.round(left).toNumber();
+        var right = Math.round(left + scaledHalfPx * 2).toNumber();
+        var bottom = Math.round(top + scaledHalfPx * 2).toNumber();
+        var barHeight = Math.ceil(24 * scale).toNumber();
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
-        dc.fillRectangle(bmpLeft, bmpTop, realFetchW, MAP_WATERMARK_CROP_PX);
         dc.fillRectangle(
-            bmpLeft,
-            bmpTop + realFetchH - MAP_WATERMARK_CROP_PX,
-            realFetchW,
-            MAP_WATERMARK_CROP_PX
-        );
-        dc.fillRectangle(bmpLeft, bmpTop, MAP_WATERMARK_CROP_PX, realFetchH);
-        dc.fillRectangle(
-            bmpLeft + realFetchW - MAP_WATERMARK_CROP_PX,
-            bmpTop,
-            MAP_WATERMARK_CROP_PX,
-            realFetchH
-        );
-    }
-
-    private function _fillTransformedRect(
-        dc as Dc,
-        x0 as Number,
-        y0 as Number,
-        x1 as Number,
-        y1 as Number,
-        center as Array<Number>,
-        scale as Float,
-        fetchW as Number,
-        fetchH as Number
-    ) as Void {
-        dc.fillPolygon(
-            [
-                _transformLocalPoint(x0, y0, center, scale, fetchW, fetchH),
-                _transformLocalPoint(x1, y0, center, scale, fetchW, fetchH),
-                _transformLocalPoint(x1, y1, center, scale, fetchW, fetchH),
-                _transformLocalPoint(x0, y1, center, scale, fetchW, fetchH),
-            ] as Array<Graphics.Point2D>
-        );
-    }
-
-    private function _transformLocalPoint(
-        sx as Number,
-        sy as Number,
-        center as Array<Number>,
-        scale as Float,
-        fetchW as Number,
-        fetchH as Number
-    ) as Graphics.Point2D {
-        return (
-            [
-                (center[0] + (sx - fetchW / 2.0) * scale).toNumber(),
-                (center[1] + (sy - fetchH / 2.0) * scale).toNumber(),
-            ] as Graphics.Point2D
+            leftRounded - 2,
+            bottom - barHeight,
+            right - leftRounded + 4,
+            barHeight + 2
         );
     }
 
@@ -2275,6 +2205,10 @@ class RadarView extends WatchUi.View {
 
         var prevScreen = null as Array<Number>?;
         var prevPt = null as [Float, Float, Number, Boolean]?;
+        // Carried across consecutive dashed segments so closely spaced live-polled points (a taxiing
+        // aircraft can move under one dash length between polls) still alternate instead of each tiny
+        // segment drawing as one unbroken dash.
+        var dashPhase = 0.0;
         for (var i = 0; i < _selectedTrack.size(); i++) {
             var pt = _selectedTrack[i];
             var screen = Projection.toScreen(
@@ -2294,12 +2228,20 @@ class RadarView extends WatchUi.View {
                     dc.setStroke(
                         DrawUtil.withAlpha(trailColor, COLOR_TRAIL_GROUND_ALPHA)
                     );
-                    _drawDashedLine(dc, p0[0], p0[1], screen[0], screen[1]);
+                    dashPhase = _drawDashedLine(
+                        dc,
+                        p0[0],
+                        p0[1],
+                        screen[0],
+                        screen[1],
+                        dashPhase
+                    );
                 } else {
                     dc.setStroke(
                         DrawUtil.withAlpha(trailColor, COLOR_TRAIL_ALPHA)
                     );
                     dc.drawLine(p0[0], p0[1], screen[0], screen[1]);
+                    dashPhase = 0.0;
                 }
             }
             prevScreen = screen;
@@ -2308,39 +2250,51 @@ class RadarView extends WatchUi.View {
     }
 
     // No native dashed-stroke primitive - subdivides the segment into fixed-length dash/gap pairs.
+    // phase is the distance already traveled into the current dash/gap cycle when this segment starts,
+    // and the return value is the phase to carry into the next segment of the same run.
     private function _drawDashedLine(
         dc as Dc,
         x0 as Number,
         y0 as Number,
         x1 as Number,
-        y1 as Number
-    ) as Void {
+        y1 as Number,
+        phase as Float
+    ) as Float {
         var dx = (x1 - x0).toFloat();
         var dy = (y1 - y0).toFloat();
         var length = Math.sqrt(dx * dx + dy * dy);
         if (length < 1.0) {
-            return;
+            return phase;
         }
         var ux = dx / length;
         var uy = dy / length;
         var step = TRAIL_DASH_PX + TRAIL_GAP_PX;
-        var pos = 0.0;
+        var endGlobal = phase + length;
+        // phase is always a prior return value, already reduced mod step, so cycle 0 always covers it.
+        var k = 0;
         for (var i = 0; i < TRAIL_MAX_DASHES_PER_SEGMENT; i++) {
-            var dashEnd = pos + TRAIL_DASH_PX;
-            if (dashEnd > length) {
-                dashEnd = length;
-            }
-            dc.drawLine(
-                (x0 + ux * pos).toNumber(),
-                (y0 + uy * pos).toNumber(),
-                (x0 + ux * dashEnd).toNumber(),
-                (y0 + uy * dashEnd).toNumber()
-            );
-            pos += step;
-            if (pos >= length) {
+            var dashGlobalStart = k * step;
+            if (dashGlobalStart > endGlobal) {
                 break;
             }
+            var dashGlobalEnd = dashGlobalStart + TRAIL_DASH_PX;
+            var clampedStart =
+                dashGlobalStart > phase ? dashGlobalStart : phase;
+            var clampedEnd =
+                dashGlobalEnd < endGlobal ? dashGlobalEnd : endGlobal;
+            if (clampedEnd > clampedStart) {
+                var dStart = clampedStart - phase;
+                var dEnd = clampedEnd - phase;
+                dc.drawLine(
+                    (x0 + ux * dStart).toNumber(),
+                    (y0 + uy * dStart).toNumber(),
+                    (x0 + ux * dEnd).toNumber(),
+                    (y0 + uy * dEnd).toNumber()
+                );
+            }
+            k += 1;
         }
+        return endGlobal - Math.floor(endGlobal / step) * step;
     }
 
     private const GROUNDED_DIM_FACTOR = 0.45;
@@ -2544,10 +2498,10 @@ class RadarView extends WatchUi.View {
         color as Number
     ) as Void {
         var shape = _shapeKeyForAircraft(ac);
-        var track = ac.track;
+        var heading = ac.heading;
         var theta =
-            track != null && AircraftClassifier.shapeRotates(shape)
-                ? Math.toRadians(track)
+            heading != null && AircraftClassifier.shapeRotates(shape)
+                ? Math.toRadians(heading)
                 : 0.0;
 
         var scale = ICON_BASE_SCALE * _sizeScaleForAircraft(ac);

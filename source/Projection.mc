@@ -67,7 +67,7 @@ module Projection {
 
     const WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 = 156543.03392;
 
-    // The -1 is empirical - Geoapify's renderer measured 2x finer than the classic 256px-tile formula (512px tiles).
+    // Standard 256px-tile convention, unadjusted - see MapClient._dispatch for the correction.
     function webMercatorZoom(
         lat as Float,
         radiusKm as Float,
@@ -76,6 +76,14 @@ module Projection {
         var metersPerPx = (radiusKm * 1000.0) / radiusPx;
         var equatorMPerPx =
             WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 * Math.cos(Math.toRadians(lat));
-        return Math.log(equatorMPerPx / metersPerPx, 2.0).toFloat() - 1.0;
+        return Math.log(equatorMPerPx / metersPerPx, 2.0).toFloat();
+    }
+
+    // Inverse of webMercatorZoom - the px-per-km scale a given zoom represents at this latitude.
+    function pxPerKmForZoom(lat as Float, zoom as Float) as Float {
+        var equatorMPerPx =
+            WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 * Math.cos(Math.toRadians(lat));
+        var metersPerPx = equatorMPerPx / Math.pow(2.0, zoom);
+        return 1000.0 / metersPerPx;
     }
 }

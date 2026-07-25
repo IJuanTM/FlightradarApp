@@ -9,6 +9,9 @@ class Aircraft {
     public var onGround as Boolean;
     public var gs as Float?;
     public var track as Float?;
+    // Nose direction for icon rotation - prefers true/mag heading (AHRS-derived, still valid at zero
+    // groundspeed) over track (direction of travel, omitted by the feed entirely when stationary).
+    public var heading as Float?;
     public var category as String?;
     public var registration as String?;
     public var typeCode as String?;
@@ -59,6 +62,9 @@ class Aircraft {
 
         gs = _toFloatOrNull(dict["gs"]);
         track = _toFloatOrNull(dict["track"]);
+        var trueHeading = dict["true_heading"];
+        var hdgSrc = trueHeading != null ? trueHeading : dict["mag_heading"];
+        heading = hdgSrc != null ? _toFloatOrNull(hdgSrc) : track;
 
         var cat = dict["category"];
         category = cat instanceof String ? cat : null;
