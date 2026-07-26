@@ -30,11 +30,38 @@ module Projection {
         radiusPx as Number,
         radiusKm as Float
     ) as Array<Number> {
+        var p = toScreenF(
+            centerLat,
+            centerLon,
+            lat,
+            lon,
+            screenCx,
+            screenCy,
+            radiusPx,
+            radiusKm
+        );
+        return [p[0].toNumber(), p[1].toNumber()];
+    }
+
+    // Same as toScreen but without the final truncation to Number - adjacent points (e.g. two
+    // map tiles' corners) computed via toScreen can each round differently and leave a 1px gap
+    // or overlap between them; callers that need several points to line up exactly (not just one
+    // point drawn on its own) should use this and only round once, at the final draw call.
+    function toScreenF(
+        centerLat as Float,
+        centerLon as Float,
+        lat as Float,
+        lon as Float,
+        screenCx as Number,
+        screenCy as Number,
+        radiusPx as Number,
+        radiusKm as Float
+    ) as [Float, Float] {
         var d = deltaKm(centerLat, centerLon, lat, lon);
         var pxPerKm = radiusPx / radiusKm;
         var x = screenCx + d[0] * pxPerKm;
         var y = screenCy - d[1] * pxPerKm;
-        return [x.toNumber(), y.toNumber()];
+        return [x, y];
     }
 
     function distanceKm(
@@ -67,7 +94,7 @@ module Projection {
 
     const WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 = 156543.03392;
 
-    // Standard 256px-tile convention, unadjusted - see MapClient._dispatch for the correction.
+    // Standard 256px-tile convention, unadjusted - callers apply their own provider-specific correction.
     function webMercatorZoom(
         lat as Float,
         radiusKm as Float,
@@ -85,5 +112,44 @@ module Projection {
             WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 * Math.cos(Math.toRadians(lat));
         var metersPerPx = equatorMPerPx / Math.pow(2.0, zoom);
         return 1000.0 / metersPerPx;
+    }
+
+    const EULERS_NUMBER = 2.718281828459045;
+
+    // Standard slippy-map tile index containing (lat, lon) at a given integer zoom.
+    function latLonToTile(
+        lat as Float,
+        lon as Float,
+        zoom as Number
+    ) as [Number, Number] {
+        var n = Math.pow(2.0, zoom.toFloat());
+        var latRad = Math.toRadians(lat);
+        var x = ((lon + 180.0) / 360.0) * n;
+        var y =
+            ((1.0 -
+                Math.ln(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) /
+                2.0) *
+            n;
+        return [x.toNumber(), y.toNumber()];
+    }
+
+    // Inverse of latLonToTile - the lat/lon of a tile's top-left corner.
+    function tileToLatLon(
+        x as Number,
+        y as Number,
+        zoom as Number
+    ) as [Float, Float] {
+        var n = Math.pow(2.0, zoom.toFloat());
+        var lonDeg = (x.toFloat() / n) * 360.0 - 180.0;
+        var latRad =
+            Math.atan(
+                Math.pow(
+                    EULERS_NUMBER,
+                    Math.PI * (1.0 - (2.0 * y.toFloat()) / n)
+                )
+            ) *
+                2.0 -
+            Math.PI / 2.0;
+        return [Math.toDegrees(latRad).toFloat(), lonDeg];
     }
 }

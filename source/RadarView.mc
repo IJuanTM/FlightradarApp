@@ -8,7 +8,108 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.9.0";
+const APP_VERSION = "0.10.0";
+
+// Sorts needed tiles by actual on-screen visible area, center-of-screen tile always first (it's
+// usually the biggest anyway, but pinned explicitly rather than relying on that holding every time).
+class TileVisibilityComparator {
+    private var _centerTx as Number;
+    private var _centerTy as Number;
+    private var _tileZ as Number;
+    private var _focusLat as Float;
+    private var _focusLon as Float;
+    private var _cx as Number;
+    private var _cy as Number;
+    private var _radiusPx as Number;
+    private var _radiusKm as Float;
+    private var _screenW as Number;
+    private var _screenH as Number;
+
+    public function initialize(
+        centerTx as Number,
+        centerTy as Number,
+        tileZ as Number,
+        focusLat as Float,
+        focusLon as Float,
+        cx as Number,
+        cy as Number,
+        radiusPx as Number,
+        radiusKm as Float,
+        screenW as Number,
+        screenH as Number
+    ) {
+        _centerTx = centerTx;
+        _centerTy = centerTy;
+        _tileZ = tileZ;
+        _focusLat = focusLat;
+        _focusLon = focusLon;
+        _cx = cx;
+        _cy = cy;
+        _radiusPx = radiusPx;
+        _radiusKm = radiusKm;
+        _screenW = screenW;
+        _screenH = screenH;
+    }
+
+    public function compare(a as Object, b as Object) as Number {
+        var ta = a as [Number, Number, Number, Number];
+        var tb = b as [Number, Number, Number, Number];
+        var aIsCenter = ta[1] == _centerTx and ta[2] == _centerTy;
+        var bIsCenter = tb[1] == _centerTx and tb[2] == _centerTy;
+        if (aIsCenter and !bIsCenter) {
+            return -1;
+        }
+        if (bIsCenter and !aIsCenter) {
+            return 1;
+        }
+        var areaDiff = _visibleArea(tb[1], tb[2]) - _visibleArea(ta[1], ta[2]);
+        return areaDiff > 0 ? 1 : areaDiff < 0 ? -1 : 0;
+    }
+
+    private function _visibleArea(tx as Number, ty as Number) as Float {
+        var topLeftLatLon = Projection.tileToLatLon(tx, ty, _tileZ);
+        var bottomRightLatLon = Projection.tileToLatLon(tx + 1, ty + 1, _tileZ);
+        var topLeft = Projection.toScreenF(
+            _focusLat,
+            _focusLon,
+            topLeftLatLon[0],
+            topLeftLatLon[1],
+            _cx,
+            _cy,
+            _radiusPx,
+            _radiusKm
+        );
+        var bottomRight = Projection.toScreenF(
+            _focusLat,
+            _focusLon,
+            bottomRightLatLon[0],
+            bottomRightLatLon[1],
+            _cx,
+            _cy,
+            _radiusPx,
+            _radiusKm
+        );
+        var overlapW = _clampPositive(
+            _min(bottomRight[0], _screenW.toFloat()) - _max(topLeft[0], 0.0)
+        );
+        var overlapH = _clampPositive(
+            _min(bottomRight[1], _screenH.toFloat()) - _max(topLeft[1], 0.0)
+        );
+        return overlapW * overlapH;
+    }
+
+    private function _min(a as Float, b as Float) as Float {
+        return a < b ? a : b;
+    }
+
+    private function _max(a as Float, b as Float) as Float {
+        return a > b ? a : b;
+    }
+
+    private function _clampPositive(v as Float) as Float {
+        return v > 0.0 ? v : 0.0;
+    }
+}
 
 class RadarView extends WatchUi.View {
     // Indexed alongside Settings.ZOOM_LEVELS_KM - slower at wide zoom, where responses risk the platform's size ceiling.
@@ -182,6 +283,7 @@ class RadarView extends WatchUi.View {
     private var _tooBusyText as String = "";
     private var _fetchingText as String = "";
     private var _liveText as String = "";
+    private var _mapLoadingText as String = "";
     private var _fontSmall as Graphics.FontType = Graphics.FONT_SMALL;
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
     private var _client as AirplanesLiveClient = new AirplanesLiveClient();
@@ -189,12 +291,28 @@ class RadarView extends WatchUi.View {
     private var _routeClient as RouteClient = new RouteClient();
     private var _airportClient as AirportClient = new AirportClient();
 
-    private var _mapClient as MapClient = new MapClient(method(:_onMapReceive));
-    private var _mapBitmap as Graphics.BitmapType?;
-    private var _mapBitmapLat as Float?;
-    private var _mapBitmapLon as Float?;
-    private var _mapBitmapPxPerKm as Float?;
-    private var _mapBitmapHalfPx as Number?;
+    private var _mapClient as MapClient = new MapClient(
+        method(:_onTileReceive)
+    );
+    // Corners are precomputed once here (not per-draw) - tileToLatLon only depends on x/y/z,
+    // never on focus/pan, so it's wasted trig work to redo it every redraw during a drag.
+    private var _mapTileCache as
+        Dictionary<
+            String,
+            [
+                Graphics.BitmapType,
+                Number,
+                Number,
+                Number,
+                Number,
+                [Float, Float],
+                [Float, Float],
+            ]
+        > = {};
+    private var _mapNeededKeys as Dictionary<String, Boolean> = {};
+    // Mirrors _mapNeededKeys but keeps the actual z/x/y/size tuples, so the draw pass can show a
+    // placeholder for whichever of them aren't in _mapTileCache yet.
+    private var _mapNeededTiles as Array<[Number, Number, Number, Number]> = [];
 
     private var _mapPendingZoomIndex as Number?;
     private var _mapPendingLat as Float?;
@@ -203,19 +321,24 @@ class RadarView extends WatchUi.View {
     private const MAP_FETCH_DEBOUNCE_MS = 100;
     private const MAP_DEBOUNCE_RESET_THRESHOLD_KM = 0.05;
 
-    // Refetch checks compare against this, not the received bitmap, to avoid re-requesting a slow fetch.
+    // Refetch checks compare against this, not the received tiles, to avoid re-requesting a slow fetch.
     private var _mapRequestedZoomIndex as Number?;
     private var _mapRequestedLat as Float?;
     private var _mapRequestedLon as Float?;
-    private var _mapRequestedZoom as Float?;
-    // Same backoff shape as the airplanes.live poll (_retryBackoffMs above).
+    // Same backoff shape as the airplanes.live poll, shared across all tiles since only one
+    // request is ever in flight.
     private var _mapNextRetryAtMs as Number?;
     private var _mapRetryBackoffMs as Number = MAP_INITIAL_RETRY_BACKOFF_MS;
     private const MAP_INITIAL_RETRY_BACKOFF_MS = 2000;
     private const MAP_MAX_RETRY_BACKOFF_MS = 30000;
 
-    private const MAP_OVERSCAN_FACTOR = 1.5;
+    // Trades a smaller pan buffer for tile count - a bigger margin needs too many tiles for
+    // sequential fetching/memory at native (unshifted) zoom.
+    private const MAP_OVERSCAN_FACTOR = 1.1;
     private const MAP_REFETCH_MARGIN_FACTOR = 0.75;
+    // Confirmed on real hardware (2026-07-26): a 512x512-class tile request comes back null the
+    // moment a 6th one is already cached, reproducibly, at multiple zoom levels - stay under that.
+    private const MAP_MAX_TILES_FOR_HI_RES = 4;
 
     // One bitmap per shape - emergency is a separate fixed-offset badge, not a variant of this bitmap.
     // Loaded lazily via _bitmapForShape (loading all 84 up front in onLayout cost real time on app open).
@@ -320,6 +443,8 @@ class RadarView extends WatchUi.View {
         _tooBusyText = WatchUi.loadResource(Rez.Strings.TooBusy) as String;
         _fetchingText = WatchUi.loadResource(Rez.Strings.Fetching) as String;
         _liveText = WatchUi.loadResource(Rez.Strings.Fetched) as String;
+        _mapLoadingText =
+            WatchUi.loadResource(Rez.Strings.MapLoading) as String;
         _fontSmall =
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
@@ -1057,7 +1182,16 @@ class RadarView extends WatchUi.View {
         var bottomPanelH = _detailPanelHeightFor(detailLines);
 
         if (Settings.showBackgroundMap) {
-            _maybeFetchBackgroundMap(focusLat, focusLon, radiusPx, radiusKm);
+            _maybeFetchBackgroundMap(
+                focusLat,
+                focusLon,
+                radiusPx,
+                radiusKm,
+                cx,
+                cy,
+                w,
+                h
+            );
             _drawBackgroundMap(
                 dc,
                 cx,
@@ -1067,13 +1201,11 @@ class RadarView extends WatchUi.View {
                 focusLat,
                 focusLon
             );
-        } else if (_mapBitmap != null) {
+        } else if (_mapTileCache.size() > 0) {
             // Releases graphics-pool memory immediately - this feature already caused one real OOM crash.
-            _mapBitmap = null;
-            _mapBitmapLat = null;
-            _mapBitmapLon = null;
-            _mapBitmapPxPerKm = null;
-            _mapBitmapHalfPx = null;
+            _mapTileCache = {};
+            _mapNeededKeys = {};
+            _mapNeededTiles = [];
             // Also clears the last-requested view - otherwise re-enabling without movement never refetches.
             _mapRequestedLat = null;
         }
@@ -1149,7 +1281,11 @@ class RadarView extends WatchUi.View {
         focusLat as Float,
         focusLon as Float,
         radiusPx as Number,
-        radiusKm as Float
+        radiusKm as Float,
+        cx as Number,
+        cy as Number,
+        screenW as Number,
+        screenH as Number
     ) as Void {
         // Fetches never fire mid-drag anyway, so skip the trig work every drag frame.
         if (isDragActive()) {
@@ -1204,34 +1340,137 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var mapHalfPx = Math.round(
-            screenHalfPx * MAP_OVERSCAN_FACTOR
-        ).toNumber();
         var idealZoom = Projection.webMercatorZoom(
             focusLat,
             radiusKm,
             radiusPx
         );
+        // Native zoom, not shifted coarser - tile count is controlled via MAP_OVERSCAN_FACTOR instead.
+        var tileZ = Math.round(idealZoom).toNumber();
+        var mapHalfPx = screenHalfPx * MAP_OVERSCAN_FACTOR;
+        // Args are negated from each corner's name - this returns how far the focus must shift
+        // for content to move by (dx,dy), the inverse of "point at screen offset (dx,dy)".
+        var cornerA = Projection.screenDeltaToLatLon(
+            mapHalfPx.toNumber(),
+            mapHalfPx.toNumber(),
+            focusLat,
+            radiusPx,
+            radiusKm
+        );
+        var cornerB = Projection.screenDeltaToLatLon(
+            -mapHalfPx.toNumber(),
+            -mapHalfPx.toNumber(),
+            focusLat,
+            radiusPx,
+            radiusKm
+        );
+        var tileA = Projection.latLonToTile(
+            focusLat + (cornerA[0] as Float),
+            focusLon + (cornerA[1] as Float),
+            tileZ
+        );
+        var tileB = Projection.latLonToTile(
+            focusLat + (cornerB[0] as Float),
+            focusLon + (cornerB[1] as Float),
+            tileZ
+        );
+        var minTileX = tileA[0] < tileB[0] ? tileA[0] : tileB[0];
+        var maxTileX = tileA[0] > tileB[0] ? tileA[0] : tileB[0];
+        var minTileY = tileA[1] < tileB[1] ? tileA[1] : tileB[1];
+        var maxTileY = tileA[1] > tileB[1] ? tileA[1] : tileB[1];
+
+        var tileCount = (maxTileX - minTileX + 1) * (maxTileY - minTileY + 1);
+        // Confirmed on real hardware: a 512x512-class tile's request comes back null the instant
+        // a 6th one is already cached, every time, at multiple zoom levels - a hard ceiling, not
+        // something retries get past. Cap HI comfortably under that observed threshold.
+        var tileSize =
+            tileCount <= MAP_MAX_TILES_FOR_HI_RES
+                ? _mapClient.TILE_SIZE_HI
+                : _mapClient.TILE_SIZE_STD;
+
+        var centerTile = Projection.latLonToTile(focusLat, focusLon, tileZ);
+        var neededKeys = ({}) as Dictionary<String, Boolean>;
+        var neededList = [] as Array<[Number, Number, Number, Number]>;
+        for (var tx = minTileX; tx <= maxTileX; tx++) {
+            for (var ty = minTileY; ty <= maxTileY; ty++) {
+                neededKeys[_tileKeyFor(tileZ, tx, ty, tileSize)] = true;
+                neededList.add([tileZ, tx, ty, tileSize]);
+            }
+        }
+        // Center-of-screen tile first, then most-visible-area-first, so a sequential fetch
+        // fills in the biggest/most-important part of the view before the overscan slivers.
+        neededList.sort(
+            new TileVisibilityComparator(
+                centerTile[0],
+                centerTile[1],
+                tileZ,
+                focusLat,
+                focusLon,
+                cx,
+                cy,
+                radiusPx,
+                radiusKm,
+                screenW,
+                screenH
+            )
+        );
 
         _mapRequestedZoomIndex = zoomIndex;
         _mapRequestedLat = focusLat;
         _mapRequestedLon = focusLon;
-        _mapRequestedZoom = idealZoom;
-        _mapClient.fetchMap(
-            focusLat,
-            focusLon,
-            idealZoom,
-            mapHalfPx * 2,
-            mapHalfPx * 2
+        _mapNeededKeys = neededKeys;
+        _mapNeededTiles = neededList;
+
+        var cacheKeys = _mapTileCache.keys();
+        for (var i = 0; i < cacheKeys.size(); i++) {
+            var key = cacheKeys[i] as String;
+            if (!neededKeys.hasKey(key)) {
+                _mapTileCache.remove(key);
+            }
+        }
+        _mapClient.pruneQueue(neededKeys);
+
+        for (var i = 0; i < neededList.size(); i++) {
+            var t = neededList[i];
+            var key = _tileKeyFor(
+                t[0] as Number,
+                t[1] as Number,
+                t[2] as Number,
+                t[3] as Number
+            );
+            if (!_mapTileCache.hasKey(key)) {
+                _mapClient.requestTile(
+                    t[0] as Number,
+                    t[1] as Number,
+                    t[2] as Number,
+                    t[3] as Number
+                );
+            }
+        }
+    }
+
+    private function _tileKeyFor(
+        z as Number,
+        x as Number,
+        y as Number,
+        tileSize as Number
+    ) as String {
+        return (
+            z.toString() +
+            "_" +
+            x.toString() +
+            "_" +
+            y.toString() +
+            "_" +
+            tileSize.toString()
         );
     }
 
-    public function _onMapReceive(
-        lat as Float,
-        lon as Float,
-        zoom as Float,
-        width as Number,
-        height as Number,
+    public function _onTileReceive(
+        z as Number,
+        x as Number,
+        y as Number,
+        tileSize as Number,
         bitmap as MapClient.MapBitmap?
     ) as Void {
         if (bitmap == null) {
@@ -1257,27 +1496,25 @@ class RadarView extends WatchUi.View {
         _mapNextRetryAtMs = null;
         _mapRetryBackoffMs = MAP_INITIAL_RETRY_BACKOFF_MS;
 
-        // Superseded by a newer target since dispatch (e.g. a stuck request resolving after
-        // reconnect) - exact equality is reliable since these are the same values echoed back unchanged.
-        if (
-            lat != _mapRequestedLat or
-            lon != _mapRequestedLon or
-            zoom != _mapRequestedZoom
-        ) {
-            _mapRequestedLat = null;
+        var key = _tileKeyFor(z, x, y, tileSize);
+        // Discarded if panned/zoomed away mid-flight, or the feature got toggled off.
+        if (!_mapNeededKeys.hasKey(key) or !Settings.showBackgroundMap) {
             return;
         }
 
-        // Discarded if the feature got toggled off before this arrived.
-        if (!Settings.showBackgroundMap) {
-            return;
-        }
-
-        _mapBitmap = resolved;
-        _mapBitmapLat = lat;
-        _mapBitmapLon = lon;
-        _mapBitmapPxPerKm = Projection.pxPerKmForZoom(lat, zoom);
-        _mapBitmapHalfPx = width / 2;
+        // Computed once here rather than every _drawBackgroundMap call - tileToLatLon only
+        // depends on x/y/z, never on focus/pan, so it never needs to change after this.
+        var topLeftLatLon = Projection.tileToLatLon(x, y, z);
+        var bottomRightLatLon = Projection.tileToLatLon(x + 1, y + 1, z);
+        _mapTileCache[key] = [
+            resolved,
+            x,
+            y,
+            z,
+            tileSize,
+            topLeftLatLon,
+            bottomRightLatLon,
+        ];
         WatchUi.requestUpdate();
     }
 
@@ -1302,58 +1539,100 @@ class RadarView extends WatchUi.View {
         focusLat as Float,
         focusLon as Float
     ) as Void {
-        var bitmap = _mapBitmap;
-        var bitmapLat = _mapBitmapLat;
-        var bitmapLon = _mapBitmapLon;
-        var bitmapPxPerKm = _mapBitmapPxPerKm;
-        var halfPx = _mapBitmapHalfPx;
-        if (
-            bitmap == null or
-            bitmapLat == null or
-            bitmapLon == null or
-            bitmapPxPerKm == null or
-            halfPx == null
-        ) {
-            return;
+        var keys = _mapTileCache.keys();
+        for (var i = 0; i < keys.size(); i++) {
+            var key = keys[i] as String;
+            var tile = _mapTileCache[key];
+            var bitmap = tile[0] as Graphics.BitmapType;
+            var tileSize = tile[4] as Number;
+            // Each tile's own two corners, not one shared scale - Mercator tiles vary in real
+            // height by latitude, so a single ratio can't represent every row correctly.
+            var topLeftLatLon = tile[5] as [Float, Float];
+            var bottomRightLatLon = tile[6] as [Float, Float];
+            var topLeft = Projection.toScreenF(
+                focusLat,
+                focusLon,
+                topLeftLatLon[0],
+                topLeftLatLon[1],
+                cx,
+                cy,
+                radiusPx,
+                radiusKm
+            );
+            var bottomRight = Projection.toScreenF(
+                focusLat,
+                focusLon,
+                bottomRightLatLon[0],
+                bottomRightLatLon[1],
+                cx,
+                cy,
+                radiusPx,
+                radiusKm
+            );
+            // Rounding to whole pixels avoids a per-tile AA/coverage seam at the shared edge,
+            // even though adjacent tiles already compute that edge as float-identical.
+            var left = Math.round(topLeft[0]);
+            var top = Math.round(topLeft[1]);
+            var right = Math.round(bottomRight[0]);
+            var bottom = Math.round(bottomRight[1]);
+            var scaleX = (right - left) / tileSize.toFloat();
+            var scaleY = (bottom - top) / tileSize.toFloat();
+            var xform = new Graphics.AffineTransform();
+            xform.translate(left, top);
+            xform.scale(scaleX, scaleY);
+            dc.drawBitmap2(0, 0, bitmap, {
+                :transform => xform,
+                :filterMode => Graphics.FILTER_MODE_POINT,
+            });
         }
 
-        // Scales the bitmap to the live zoom, not just its own fetch-time scale - keeps it
-        // aligned with aircraft/grid while a fresh fetch (at a new zoom) is still in flight.
-        var scale = radiusPx / radiusKm / (bitmapPxPerKm as Float);
-        var center = Projection.toScreen(
-            focusLat,
-            focusLon,
-            bitmapLat as Float,
-            bitmapLon as Float,
-            cx,
-            cy,
-            radiusPx,
-            radiusKm
-        );
-        var scaledHalfPx = (halfPx as Number) * scale;
-        var left = center[0] - scaledHalfPx;
-        var top = center[1] - scaledHalfPx;
-
-        var xform = new Graphics.AffineTransform();
-        xform.translate(left, top);
-        xform.scale(scale, scale);
-        dc.drawBitmap2(0, 0, bitmap as Graphics.BitmapType, {
-            :transform => xform,
-        });
-
-        // Covers Geoapify's baked-in attribution bar (~20px tall). Rounded, not truncated, to
-        // match the AffineTransform-rendered edge - a bare .toNumber() can leave a 1-2px gap.
-        var leftRounded = Math.round(left).toNumber();
-        var right = Math.round(left + scaledHalfPx * 2).toNumber();
-        var bottom = Math.round(top + scaledHalfPx * 2).toNumber();
-        var barHeight = Math.ceil(24 * scale).toNumber();
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
-        dc.fillRectangle(
-            leftRounded - 2,
-            bottom - barHeight,
-            right - leftRounded + 4,
-            barHeight + 2
-        );
+        dc.setColor(COLOR_GRID_LABEL, Graphics.COLOR_TRANSPARENT);
+        for (var i = 0; i < _mapNeededTiles.size(); i++) {
+            var needed = _mapNeededTiles[i];
+            var nz = needed[0] as Number;
+            var nx = needed[1] as Number;
+            var ny = needed[2] as Number;
+            var nSize = needed[3] as Number;
+            var neededKey = _tileKeyFor(nz, nx, ny, nSize);
+            if (_mapTileCache.hasKey(neededKey)) {
+                continue;
+            }
+            var pendingTopLeftLatLon = Projection.tileToLatLon(nx, ny, nz);
+            var pendingBottomRightLatLon = Projection.tileToLatLon(
+                nx + 1,
+                ny + 1,
+                nz
+            );
+            var pendingTopLeft = Projection.toScreenF(
+                focusLat,
+                focusLon,
+                pendingTopLeftLatLon[0],
+                pendingTopLeftLatLon[1],
+                cx,
+                cy,
+                radiusPx,
+                radiusKm
+            );
+            var pendingBottomRight = Projection.toScreenF(
+                focusLat,
+                focusLon,
+                pendingBottomRightLatLon[0],
+                pendingBottomRightLatLon[1],
+                cx,
+                cy,
+                radiusPx,
+                radiusKm
+            );
+            var midX = (pendingTopLeft[0] + pendingBottomRight[0]) / 2.0;
+            var midY = (pendingTopLeft[1] + pendingBottomRight[1]) / 2.0;
+            dc.drawText(
+                midX.toNumber(),
+                midY.toNumber(),
+                _fontTiny,
+                _mapLoadingText,
+                Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER
+            );
+        }
     }
 
     // Inner rings sit at real round-number km distances (like a map's own distance rings), not arbitrary N-way divisions.

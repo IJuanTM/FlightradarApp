@@ -39,4 +39,5 @@
   <string id="NoGps">Waiting for GPS...</string>
   <string id="Fetching">Fetching...</string>
   <string id="Fetched">Live</string>
+  <string id="MapLoading">Loading...</string>
 </strings>
