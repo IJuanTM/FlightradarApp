@@ -5,11 +5,9 @@ import Toybox.WatchUi;
 
 class MapClient {
     private const BASE_URL = "https://api.maptiler.com/maps/landscape-v4-dark";
-    // Real on-wire pixel dimensions of what each tier actually fetches - this must match the
-    // real bitmap size exactly, since the draw-scale math divides by it.
+    // Must equal the real fetched bitmap size - draw-scale math divides by it.
     public const TILE_SIZE_STD as Number = 256;
-    // The same 256 reference tile requested at @2x - a real, distinct render (confirmed via
-    // pixel-diff, not just upscaled 256), not the same content as MapTiler's separate 512 tile.
+    // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
 
     private var _apiKey as String?;

@@ -8,10 +8,9 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.10.0";
+const APP_VERSION = "0.10.1";
 
-// Sorts needed tiles by actual on-screen visible area, center-of-screen tile always first (it's
-// usually the biggest anyway, but pinned explicitly rather than relying on that holding every time).
+// Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
     private var _centerTx as Number;
     private var _centerTy as Number;
@@ -294,8 +293,7 @@ class RadarView extends WatchUi.View {
     private var _mapClient as MapClient = new MapClient(
         method(:_onTileReceive)
     );
-    // Corners are precomputed once here (not per-draw) - tileToLatLon only depends on x/y/z,
-    // never on focus/pan, so it's wasted trig work to redo it every redraw during a drag.
+    // Corners (elements 5/6) are computed once at fetch time, not per-draw - see _onTileReceive.
     private var _mapTileCache as
         Dictionary<
             String,
@@ -310,8 +308,7 @@ class RadarView extends WatchUi.View {
             ]
         > = {};
     private var _mapNeededKeys as Dictionary<String, Boolean> = {};
-    // Mirrors _mapNeededKeys but keeps the actual z/x/y/size tuples, so the draw pass can show a
-    // placeholder for whichever of them aren't in _mapTileCache yet.
+    // Mirrors _mapNeededKeys with the actual tuples, for the draw pass's pending-tile placeholder.
     private var _mapNeededTiles as Array<[Number, Number, Number, Number]> = [];
 
     private var _mapPendingZoomIndex as Number?;
@@ -336,9 +333,8 @@ class RadarView extends WatchUi.View {
     // sequential fetching/memory at native (unshifted) zoom.
     private const MAP_OVERSCAN_FACTOR = 1.1;
     private const MAP_REFETCH_MARGIN_FACTOR = 0.75;
-    // Confirmed on real hardware (2026-07-26): a 512x512-class tile request comes back null the
-    // moment a 6th one is already cached, reproducibly, at multiple zoom levels - stay under that.
-    private const MAP_MAX_TILES_FOR_HI_RES = 4;
+    // A 6th concurrently-cached 512x512-class tile reliably fails - stay comfortably under that.
+    private const MAP_MAX_TILES_FOR_HI_RES = 5;
 
     // One bitmap per shape - emergency is a separate fixed-offset badge, not a variant of this bitmap.
     // Loaded lazily via _bitmapForShape (loading all 84 up front in onLayout cost real time on app open).
@@ -455,7 +451,7 @@ class RadarView extends WatchUi.View {
         _charW = charSize[0];
         _charH = charSize[1];
         // Sized to fit the button hints with a visible gap on both sides - see BUTTON_HINT_REACH_PX.
-        _edgeMargin = (BUTTON_HINT_REACH_PX + CENTER_BIAS_PX) * 2;
+        _edgeMargin = BUTTON_HINT_REACH_PX * 2;
         _gridLabelInset = _charH + _charW;
         _topPanelLineHeight = _charH + 4;
         _detailPanelLineHeight = _charH + 4;
@@ -1380,9 +1376,6 @@ class RadarView extends WatchUi.View {
         var maxTileY = tileA[1] > tileB[1] ? tileA[1] : tileB[1];
 
         var tileCount = (maxTileX - minTileX + 1) * (maxTileY - minTileY + 1);
-        // Confirmed on real hardware: a 512x512-class tile's request comes back null the instant
-        // a 6th one is already cached, every time, at multiple zoom levels - a hard ceiling, not
-        // something retries get past. Cap HI comfortably under that observed threshold.
         var tileSize =
             tileCount <= MAP_MAX_TILES_FOR_HI_RES
                 ? _mapClient.TILE_SIZE_HI
@@ -1397,8 +1390,6 @@ class RadarView extends WatchUi.View {
                 neededList.add([tileZ, tx, ty, tileSize]);
             }
         }
-        // Center-of-screen tile first, then most-visible-area-first, so a sequential fetch
-        // fills in the biggest/most-important part of the view before the overscan slivers.
         neededList.sort(
             new TileVisibilityComparator(
                 centerTile[0],
@@ -1502,8 +1493,6 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        // Computed once here rather than every _drawBackgroundMap call - tileToLatLon only
-        // depends on x/y/z, never on focus/pan, so it never needs to change after this.
         var topLeftLatLon = Projection.tileToLatLon(x, y, z);
         var bottomRightLatLon = Projection.tileToLatLon(x + 1, y + 1, z);
         _mapTileCache[key] = [
@@ -1768,7 +1757,7 @@ class RadarView extends WatchUi.View {
         var trueEdge =
             (dc.getWidth() < dc.getHeight() ? dc.getWidth() : dc.getHeight()) /
             2;
-        var ringR = (radiusPx + trueEdge) / 2 + CENTER_BIAS_PX;
+        var ringR = (radiusPx + trueEdge) / 2;
 
         var plusPos = _buttonHintPos(cx, cy, ringR, 270.0);
         var minusPos = _buttonHintPos(cx, cy, ringR, 240.0);
@@ -1781,9 +1770,6 @@ class RadarView extends WatchUi.View {
         _drawRecenterHint(dc, recenterPos[0], recenterPos[1]);
     }
 
-    // Coordinate math truncates toward zero, which biases icons slightly inward without this.
-    private const CENTER_BIAS_PX = 1;
-
     // Farthest a hint icon's own drawn pixels reach from its center - hints aren't rotated to the ring's
     // radial direction, so the worst case is the full diagonal of the largest icon (s=6 -> 6*sqrt(2) =~ 8.5px).
     private const BUTTON_HINT_REACH_PX = _charW;
@@ -1795,8 +1781,9 @@ class RadarView extends WatchUi.View {
         compassDeg as Float
     ) as [Number, Number] {
         var theta = Math.toRadians(compassDeg);
-        var x = cx + (ringR * Math.sin(theta)).toNumber();
-        var y = cy - (ringR * Math.cos(theta)).toNumber();
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing every hint inward.
+        var x = cx + Math.round(ringR * Math.sin(theta)).toNumber();
+        var y = cy - Math.round(ringR * Math.cos(theta)).toNumber();
         return [x, y];
     }
 

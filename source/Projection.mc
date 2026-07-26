@@ -40,13 +40,12 @@ module Projection {
             radiusPx,
             radiusKm
         );
-        return [p[0].toNumber(), p[1].toNumber()];
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing every point inward.
+        return [Math.round(p[0]).toNumber(), Math.round(p[1]).toNumber()];
     }
 
-    // Same as toScreen but without the final truncation to Number - adjacent points (e.g. two
-    // map tiles' corners) computed via toScreen can each round differently and leave a 1px gap
-    // or overlap between them; callers that need several points to line up exactly (not just one
-    // point drawn on its own) should use this and only round once, at the final draw call.
+    // Same as toScreen but stays in Float - two points each rounded independently can still land
+    // inconsistently; callers needing several points to line up exactly should round once, at the end.
     function toScreenF(
         centerLat as Float,
         centerLon as Float,
