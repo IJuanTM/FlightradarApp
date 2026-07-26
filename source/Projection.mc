@@ -105,14 +105,6 @@ module Projection {
         return Math.log(equatorMPerPx / metersPerPx, 2.0).toFloat();
     }
 
-    // Inverse of webMercatorZoom - the px-per-km scale a given zoom represents at this latitude.
-    function pxPerKmForZoom(lat as Float, zoom as Float) as Float {
-        var equatorMPerPx =
-            WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 * Math.cos(Math.toRadians(lat));
-        var metersPerPx = equatorMPerPx / Math.pow(2.0, zoom);
-        return 1000.0 / metersPerPx;
-    }
-
     const EULERS_NUMBER = 2.718281828459045;
 
     // Standard slippy-map tile index containing (lat, lon) at a given integer zoom.

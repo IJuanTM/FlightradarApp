@@ -18,7 +18,7 @@ class AirplanesLiveClient {
         );
 
     // airplanes.live documents a 1 req/sec limit - a bit of margin above that.
-    private const MIN_REQUEST_INTERVAL_MS = 1100;
+    private const MIN_REQUEST_INTERVAL_MS = 1050;
 
     // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
     private const MIN_TIMER_INTERVAL_MS = 50;

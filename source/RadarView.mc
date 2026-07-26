@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.10.1";
+const APP_VERSION = "0.10.2";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -214,9 +214,7 @@ class RadarView extends WatchUi.View {
     // Asked to fetch again while one was already in flight - retried once it resolves.
     private var _refetchPending as Boolean = false;
     private var _fetchStartMs as Number?;
-    // Display-only, doesn't clear _fetchInFlight or cancel anything - cancelAllRequests() crashed on real hardware.
-    private var _fetchTimedOutDisplay as Boolean = false;
-    private const FETCH_TIMEOUT_MS = 10000;
+    private const FETCH_TIMEOUT_MS = 3000;
     private var _lastDrawnPositions as Array<[String, Number, Number]> = [];
     // [hex, x0, y0, x1, y1] - hex-tagged so a label may overlap its own icon/chevron/reticle, only another's clips.
     private var _reservedRects as
@@ -230,6 +228,7 @@ class RadarView extends WatchUi.View {
     // [lat, lon, altitudeFt, onGround] - altitude/ground drive the trail's gradient/dashed rendering.
     private var _selectedTrack as Array<[Float, Float, Number, Boolean]> = [];
     private var _trackFetchInFlight as Boolean = false;
+    private var _trackFetchStartMs as Number?;
     private var _trackFetchHex as String?;
     private var _trackHasHistory as Boolean = false;
     private var _selectedMissCount as Number = 0;
@@ -240,6 +239,7 @@ class RadarView extends WatchUi.View {
     // The pushed full-detail view, null when closed - route-fetch results only apply while this is still open.
     private var _detailView as AircraftDetailView?;
     private var _routeFetchInFlight as Boolean = false;
+    private var _routeFetchStartMs as Number?;
     private var _routeFetchHex as String?;
     private var _routeFetchRetried as Boolean = false;
     // Departure/arrival airport-info lookups - independent of the route fetch and of each other.
@@ -263,7 +263,7 @@ class RadarView extends WatchUi.View {
     private var _pollTimer as Timer.Timer?;
     private var _ticksSincePoll as Number = 0;
     // Drives the fetch spinner's orbit animation, without redrawing so often it hurts battery.
-    private const ANIM_TICK_MS = 200;
+    private const ANIM_TICK_MS = 100;
     // The screen going dark (wrist down) doesn't hide this view - _onTick keeps polling for nobody unless told.
     private var _displayOff as Boolean = false;
 
@@ -274,8 +274,8 @@ class RadarView extends WatchUi.View {
     private const ZOOM_DEBOUNCE_MS = ANIM_TICK_MS;
     private var _nextRetryAtMs as Number?;
     private var _retryBackoffMs as Number = INITIAL_RETRY_BACKOFF_MS;
-    private const INITIAL_RETRY_BACKOFF_MS = 2000;
-    private const MAX_RETRY_BACKOFF_MS = 30000;
+    private const INITIAL_RETRY_BACKOFF_MS = 1000;
+    private const MAX_RETRY_BACKOFF_MS = 16000;
 
     private var _noGpsText as String = "";
     private var _noSignalText as String = "";
@@ -293,23 +293,33 @@ class RadarView extends WatchUi.View {
     private var _mapClient as MapClient = new MapClient(
         method(:_onTileReceive)
     );
-    // Corners (elements 5/6) are computed once at fetch time, not per-draw - see _onTileReceive.
-    private var _mapTileCache as
-        Dictionary<
-            String,
-            [
-                Graphics.BitmapType,
-                Number,
-                Number,
-                Number,
-                Number,
-                [Float, Float],
-                [Float, Float],
-            ]
-        > = {};
+    // bitmap, x, y, z, tileSize, topLeftLatLon, bottomRightLatLon - the last two (elements 5/6)
+    // are computed once at fetch time, not per-draw - see _onTileReceive.
+    typedef MapTile as
+        [
+            Graphics.BitmapType,
+            Number,
+            Number,
+            Number,
+            Number,
+            [Float, Float],
+            [Float, Float],
+        ];
+    private var _mapTileCache as Dictionary<String, MapTile> = {};
     private var _mapNeededKeys as Dictionary<String, Boolean> = {};
     // Mirrors _mapNeededKeys with the actual tuples, for the draw pass's pending-tile placeholder.
     private var _mapNeededTiles as Array<[Number, Number, Number, Number]> = [];
+    // Previous zoom's tiles, drawn scaled to the new view until superseded by the real tile.
+    private var _staleMapTiles as Array<MapTile> = [];
+    private var _staleMapTilesSetAtMs as Number?;
+    // Hard safety valve, not the primary bound (that's _pruneStaleTilesCoveredBy) - HI tiles
+    // weigh 4x a STD by pixel area, so this is the real confirmed-safe ceiling (5 HI tiles) in
+    // STD-units. Checked after every prune; if pruning ever falls behind, drop the stale set
+    // entirely rather than risk it.
+    private const MAP_STALE_HARD_CEILING_STD_UNITS = 20;
+    // A repeatedly-failing tile keeps _hasPendingMapBacklog() true forever (retried on its own
+    // uncapped backoff) - this bounds how long stale tiles are held regardless of backlog state.
+    private const MAP_STALE_MAX_AGE_MS = 30000;
 
     private var _mapPendingZoomIndex as Number?;
     private var _mapPendingLat as Float?;
@@ -317,6 +327,8 @@ class RadarView extends WatchUi.View {
     private var _mapPendingSinceMs as Number?;
     private const MAP_FETCH_DEBOUNCE_MS = 100;
     private const MAP_DEBOUNCE_RESET_THRESHOLD_KM = 0.05;
+    // A followed aircraft's position never holds still long enough to pass the debounce above on its own.
+    private var _mapForceRefetch as Boolean = false;
 
     // Refetch checks compare against this, not the received tiles, to avoid re-requesting a slow fetch.
     private var _mapRequestedZoomIndex as Number?;
@@ -327,7 +339,7 @@ class RadarView extends WatchUi.View {
     private var _mapNextRetryAtMs as Number?;
     private var _mapRetryBackoffMs as Number = MAP_INITIAL_RETRY_BACKOFF_MS;
     private const MAP_INITIAL_RETRY_BACKOFF_MS = 2000;
-    private const MAP_MAX_RETRY_BACKOFF_MS = 30000;
+    private const MAP_MAX_RETRY_BACKOFF_MS = 32000;
 
     // Trades a smaller pan buffer for tile count - a bigger margin needs too many tiles for
     // sequential fetching/memory at native (unshifted) zoom.
@@ -531,23 +543,42 @@ class RadarView extends WatchUi.View {
         }
     }
 
+    private function _isTimedOut(
+        startedAt as Number?,
+        now as Number
+    ) as Boolean {
+        return startedAt != null and now - startedAt > FETCH_TIMEOUT_MS;
+    }
+
     public function _onTick() as Void {
         if (_displayOff) {
             return;
         }
 
-        var startedAt = _fetchStartMs;
-        if (
-            _fetchInFlight &&
-            !_fetchTimedOutDisplay &&
-            startedAt != null &&
-            System.getTimer() - (startedAt as Number) > FETCH_TIMEOUT_MS
-        ) {
-            _fetchTimedOutDisplay = true;
-            WatchUi.requestUpdate();
+        var now = System.getTimer();
+
+        // The only safe call site for this - see resume()'s own comment for why; the timeout
+        // checks below share the same reentrancy reason for living only here too.
+        _mapClient.tick();
+
+        // Retries here too, not just from _onFetchResult - a pending fetch deferred because
+        // MapClient was busy has no other event to wake it back up once that clears.
+        if (_refetchPending) {
+            _fetchNow();
         }
 
-        var now = System.getTimer();
+        // Each treated as a real failure via its own existing recovery path, not cancelled outright
+        // (cancelAllRequests() crashed on real hardware) - a hung callback would otherwise leave
+        // that request (and, via MapClient's own busy-check, the aircraft poll too) stuck forever.
+        if (_fetchInFlight and _isTimedOut(_fetchStartMs, now)) {
+            _onFetchResult([], false, false);
+        }
+        if (_trackFetchInFlight and _isTimedOut(_trackFetchStartMs, now)) {
+            _onTrackResult([], false);
+        }
+        if (_routeFetchInFlight and _isTimedOut(_routeFetchStartMs, now)) {
+            _onRouteResult(null, null, false);
+        }
 
         // Debounced: a burst of zoom taps only fetches once, shortly after the last one.
         var changedAt = _zoomChangedAtMs;
@@ -557,6 +588,16 @@ class RadarView extends WatchUi.View {
         ) {
             _zoomChangedAtMs = null;
             _fetchNow();
+        }
+
+        var hasMapBacklog = _hasPendingMapBacklog();
+        if (
+            _staleMapTiles.size() > 0 and
+            (!hasMapBacklog or
+                now - (_staleMapTilesSetAtMs as Number) > MAP_STALE_MAX_AGE_MS)
+        ) {
+            _staleMapTiles = [];
+            _staleMapTilesSetAtMs = null;
         }
 
         var nextRetry = _nextRetryAtMs;
@@ -569,7 +610,11 @@ class RadarView extends WatchUi.View {
             }
         } else {
             _ticksSincePoll += 1;
-            var pollMs = POLL_MS_BY_ZOOM[Settings.zoomIndex];
+            // A tile backlog can outlast one normal poll interval - use the fastest tier's cadence
+            // instead while any needed tile is still missing, so aircraft don't wait out the whole batch.
+            var pollMs = hasMapBacklog
+                ? POLL_MS_BY_ZOOM[0]
+                : POLL_MS_BY_ZOOM[Settings.zoomIndex];
             if (Settings.batterySaverMode) {
                 pollMs *= BATTERY_SAVER_MULTIPLIER;
             }
@@ -579,7 +624,34 @@ class RadarView extends WatchUi.View {
             }
         }
 
-        if (_fetchInFlight && !_fetchTimedOutDisplay) {
+        // Also runs here, not just from onUpdate - nothing else guarantees the debounce gets rechecked.
+        // _lastScreenHeight > 1 skips its pre-first-draw default, avoiding a bogus 1x1-screen computation.
+        if (
+            Settings.showBackgroundMap &&
+            _hasFix &&
+            _centerLat != null &&
+            _centerLon != null &&
+            _lastScreenHeight > 1
+        ) {
+            var focus = _focusPoint();
+            var screenSize = _lastScreenHeight;
+            if (
+                _maybeFetchBackgroundMap(
+                    focus[0],
+                    focus[1],
+                    _lastRadiusPx,
+                    Settings.zoomRadiusKm(),
+                    screenSize / 2,
+                    screenSize / 2,
+                    screenSize,
+                    screenSize
+                )
+            ) {
+                WatchUi.requestUpdate();
+            }
+        }
+
+        if (_fetchInFlight) {
             WatchUi.requestUpdate();
         }
     }
@@ -783,6 +855,7 @@ class RadarView extends WatchUi.View {
         var ac = _aircraftByHex[hex];
         _selectedLastPos = ac != null ? [ac.lat, ac.lon] : null;
         _fetchSelectedTrack();
+        _mapForceRefetch = true;
         WatchUi.requestUpdate();
     }
 
@@ -791,6 +864,7 @@ class RadarView extends WatchUi.View {
         _selectedTrack = [];
         _selectedMissCount = 0;
         _selectedLastPos = null;
+        _mapForceRefetch = true;
         WatchUi.requestUpdate();
     }
 
@@ -873,6 +947,7 @@ class RadarView extends WatchUi.View {
             return;
         }
         _routeFetchInFlight = true;
+        _routeFetchStartMs = System.getTimer();
         _routeFetchHex = hex;
         var ac = _selectedAircraft();
         var callsign = ac != null ? (ac as Aircraft).flight : null;
@@ -1001,6 +1076,7 @@ class RadarView extends WatchUi.View {
             return;
         }
         _trackFetchInFlight = true;
+        _trackFetchStartMs = System.getTimer();
         _trackFetchHex = hex;
         _openSky.fetchTrack(hex as String, method(:_onTrackResult));
     }
@@ -1050,6 +1126,14 @@ class RadarView extends WatchUi.View {
         if (!_hasFix or _centerLat == null or _centerLon == null) {
             return;
         }
+        // Paused here, before the busy check - not after it - so MapClient can't auto-advance to
+        // a fresh tile in the gap between this check and the next retry, starving the poll across
+        // an entire batch instead of behind just the one tile that was already in flight.
+        _mapClient.pause();
+        if (_mapClient.isBusy()) {
+            _refetchPending = true;
+            return;
+        }
         _refetchPending = false;
         var focus = _focusPoint();
         _fetchInFlight = true;
@@ -1068,9 +1152,9 @@ class RadarView extends WatchUi.View {
         tooMuchData as Boolean
     ) as Void {
         _fetchInFlight = false;
-        _fetchTimedOutDisplay = false;
         _lastFetchOk = ok;
         _lastFetchTooMuchData = tooMuchData;
+        _mapClient.resume();
 
         if (ok) {
             _ticksSincePoll = 0;
@@ -1116,9 +1200,11 @@ class RadarView extends WatchUi.View {
             }
         }
 
+        // Left for the next _onTick to pick up (it checks _refetchPending too), rather than
+        // retrying synchronously here - resume() above needs a real tick to pass before _fetchNow()
+        // pauses MapClient again, or a queued tile never gets a turn to dispatch in between.
         if (_refetchPending) {
             _ticksSincePoll = 0;
-            _fetchNow();
         }
 
         WatchUi.requestUpdate();
@@ -1197,9 +1283,11 @@ class RadarView extends WatchUi.View {
                 focusLat,
                 focusLon
             );
-        } else if (_mapTileCache.size() > 0) {
+        } else if (_mapTileCache.size() > 0 or _staleMapTiles.size() > 0) {
             // Releases graphics-pool memory immediately - this feature already caused one real OOM crash.
             _mapTileCache = {};
+            _staleMapTiles = [];
+            _staleMapTilesSetAtMs = null;
             _mapNeededKeys = {};
             _mapNeededTiles = [];
             // Also clears the last-requested view - otherwise re-enabling without movement never refetches.
@@ -1273,6 +1361,7 @@ class RadarView extends WatchUi.View {
         return _aircraftByHex[hex as String];
     }
 
+    // True only when it evicted/dispatched something - tells a timer-driven caller to redraw.
     private function _maybeFetchBackgroundMap(
         focusLat as Float,
         focusLon as Float,
@@ -1282,14 +1371,21 @@ class RadarView extends WatchUi.View {
         cy as Number,
         screenW as Number,
         screenH as Number
-    ) as Void {
+    ) as Boolean {
         // Fetches never fire mid-drag anyway, so skip the trig work every drag frame.
         if (isDragActive()) {
-            return;
+            return false;
         }
 
         var zoomIndex = Settings.zoomIndex;
         var now = System.getTimer();
+        if (_mapForceRefetch) {
+            _mapForceRefetch = false;
+            _mapPendingZoomIndex = zoomIndex;
+            _mapPendingLat = focusLat;
+            _mapPendingLon = focusLon;
+            _mapPendingSinceMs = now - MAP_FETCH_DEBOUNCE_MS;
+        }
         var pendingLat = _mapPendingLat;
         var stillSameTarget =
             _mapPendingZoomIndex == zoomIndex and
@@ -1306,15 +1402,15 @@ class RadarView extends WatchUi.View {
             _mapPendingLat = focusLat;
             _mapPendingLon = focusLon;
             _mapPendingSinceMs = now;
-            return;
+            return false;
         }
         if (now - (_mapPendingSinceMs as Number) < MAP_FETCH_DEBOUNCE_MS) {
-            return;
+            return false;
         }
 
         var nextRetryAt = _mapNextRetryAtMs;
         if (nextRetryAt != null and now < (nextRetryAt as Number)) {
-            return;
+            return false;
         }
 
         var screenHalfPx = radiusPx + _edgeMargin;
@@ -1333,7 +1429,7 @@ class RadarView extends WatchUi.View {
             ) >
                 overscanMarginKm * MAP_REFETCH_MARGIN_FACTOR;
         if (!needsRefetch) {
-            return;
+            return false;
         }
 
         var idealZoom = Projection.webMercatorZoom(
@@ -1406,6 +1502,22 @@ class RadarView extends WatchUi.View {
             )
         );
 
+        // Only an actual zoom change (not a pan-triggered refetch at the same zoom) benefits from
+        // this - panning already keeps most needed tiles covered by the existing cache as-is.
+        // Safe to keep the whole old set: it was already fetched under the same HI/STD tile-count
+        // policy that bounds _mapTileCache to a safe size on its own, and _pruneStaleTilesCoveredBy
+        // (called from _onTileReceive) evicts each stale tile as soon as its area is replaced, so
+        // the two sets don't stay fully resident together for the whole transition - see round 12
+        // in memory for why an earlier flat combined-size budget here defeated the feature outright.
+        if (
+            _mapRequestedZoomIndex != null and
+            _mapRequestedZoomIndex != zoomIndex and
+            _mapTileCache.size() > 0
+        ) {
+            _staleMapTiles = _mapTileCache.values();
+            _staleMapTilesSetAtMs = now;
+        }
+
         _mapRequestedZoomIndex = zoomIndex;
         _mapRequestedLat = focusLat;
         _mapRequestedLon = focusLon;
@@ -1438,6 +1550,7 @@ class RadarView extends WatchUi.View {
                 );
             }
         }
+        return true;
     }
 
     private function _tileKeyFor(
@@ -1455,6 +1568,22 @@ class RadarView extends WatchUi.View {
             "_" +
             tileSize.toString()
         );
+    }
+
+    private function _hasPendingMapBacklog() as Boolean {
+        for (var i = 0; i < _mapNeededTiles.size(); i++) {
+            var t = _mapNeededTiles[i];
+            var key = _tileKeyFor(
+                t[0] as Number,
+                t[1] as Number,
+                t[2] as Number,
+                t[3] as Number
+            );
+            if (!_mapTileCache.hasKey(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function _onTileReceive(
@@ -1504,6 +1633,7 @@ class RadarView extends WatchUi.View {
             topLeftLatLon,
             bottomRightLatLon,
         ];
+        _pruneStaleTilesCoveredBy(topLeftLatLon, bottomRightLatLon);
         WatchUi.requestUpdate();
     }
 
@@ -1518,6 +1648,139 @@ class RadarView extends WatchUi.View {
         _mapRequestedLat = null;
     }
 
+    // Each tile's own two corners, not one shared scale - Mercator tiles vary in real height by
+    // latitude, so a single ratio can't represent every row correctly. Also used for stale tiles,
+    // whose own corners against the current focus/radius is what makes them redraw at the new scale.
+    private function _drawMapTile(
+        dc as Dc,
+        tile as MapTile,
+        cx as Number,
+        cy as Number,
+        radiusPx as Number,
+        radiusKm as Float,
+        focusLat as Float,
+        focusLon as Float
+    ) as Void {
+        var bitmap = tile[0] as Graphics.BitmapType;
+        var tileSize = tile[4] as Number;
+        var topLeftLatLon = tile[5] as [Float, Float];
+        var bottomRightLatLon = tile[6] as [Float, Float];
+        var topLeft = Projection.toScreenF(
+            focusLat,
+            focusLon,
+            topLeftLatLon[0],
+            topLeftLatLon[1],
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
+        var bottomRight = Projection.toScreenF(
+            focusLat,
+            focusLon,
+            bottomRightLatLon[0],
+            bottomRightLatLon[1],
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
+        // Rounding to whole pixels avoids a per-tile AA/coverage seam at the shared edge,
+        // even though adjacent tiles already compute that edge as float-identical.
+        var left = Math.round(topLeft[0]);
+        var top = Math.round(topLeft[1]);
+        var right = Math.round(bottomRight[0]);
+        var bottom = Math.round(bottomRight[1]);
+        var scaleX = (right - left) / tileSize.toFloat();
+        var scaleY = (bottom - top) / tileSize.toFloat();
+        var xform = new Graphics.AffineTransform();
+        xform.translate(left, top);
+        xform.scale(scaleX, scaleY);
+        dc.drawBitmap2(0, 0, bitmap, {
+            :transform => xform,
+            :filterMode => Graphics.FILTER_MODE_POINT,
+        });
+    }
+
+    private function _latLonRectsOverlap(
+        aTopLeft as [Float, Float],
+        aBottomRight as [Float, Float],
+        bTopLeft as [Float, Float],
+        bBottomRight as [Float, Float]
+    ) as Boolean {
+        return (
+            aBottomRight[0] < bTopLeft[0] and
+            bBottomRight[0] < aTopLeft[0] and
+            aTopLeft[1] < bBottomRight[1] and
+            bTopLeft[1] < aBottomRight[1]
+        );
+    }
+
+    // True if a needed tile's geographic footprint isn't already covered by a stale placeholder -
+    // only areas with neither a fresh nor a stale tile need the "Loading..." text.
+    private function _coveredByStaleTile(
+        topLeftLatLon as [Float, Float],
+        bottomRightLatLon as [Float, Float]
+    ) as Boolean {
+        for (var i = 0; i < _staleMapTiles.size(); i++) {
+            var stale = _staleMapTiles[i];
+            if (
+                _latLonRectsOverlap(
+                    topLeftLatLon,
+                    bottomRightLatLon,
+                    stale[5] as [Float, Float],
+                    stale[6] as [Float, Float]
+                )
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Drops any stale tile the newly-arrived tile geographically overlaps - keeps peak memory
+    // close to one view's worth instead of the old and new sets both fully resident throughout
+    // the whole transition (which is what let one tight, HI-eligible zoom starve the budget gate
+    // in _maybeFetchBackgroundMap entirely and show no placeholder at all).
+    private function _pruneStaleTilesCoveredBy(
+        topLeftLatLon as [Float, Float],
+        bottomRightLatLon as [Float, Float]
+    ) as Void {
+        if (_staleMapTiles.size() == 0) {
+            return;
+        }
+        var kept = [] as Array<MapTile>;
+        for (var i = 0; i < _staleMapTiles.size(); i++) {
+            var stale = _staleMapTiles[i];
+            if (
+                !_latLonRectsOverlap(
+                    topLeftLatLon,
+                    bottomRightLatLon,
+                    stale[5] as [Float, Float],
+                    stale[6] as [Float, Float]
+                )
+            ) {
+                kept.add(stale);
+            }
+        }
+        _staleMapTiles = kept;
+
+        var units = 0;
+        for (var i = 0; i < kept.size(); i++) {
+            units += (kept[i][4] as Number) == _mapClient.TILE_SIZE_HI ? 4 : 1;
+        }
+        var freshValues = _mapTileCache.values();
+        for (var i = 0; i < freshValues.size(); i++) {
+            units +=
+                (freshValues[i][4] as Number) == _mapClient.TILE_SIZE_HI
+                    ? 4
+                    : 1;
+        }
+        if (units > MAP_STALE_HARD_CEILING_STD_UNITS) {
+            _staleMapTiles = [] as Array<MapTile>;
+        }
+    }
+
     // Redrawn every frame, unthrottled - only the fetch itself is debounced.
     private function _drawBackgroundMap(
         dc as Dc,
@@ -1528,51 +1791,31 @@ class RadarView extends WatchUi.View {
         focusLat as Float,
         focusLon as Float
     ) as Void {
+        for (var i = 0; i < _staleMapTiles.size(); i++) {
+            _drawMapTile(
+                dc,
+                _staleMapTiles[i],
+                cx,
+                cy,
+                radiusPx,
+                radiusKm,
+                focusLat,
+                focusLon
+            );
+        }
+
         var keys = _mapTileCache.keys();
         for (var i = 0; i < keys.size(); i++) {
-            var key = keys[i] as String;
-            var tile = _mapTileCache[key];
-            var bitmap = tile[0] as Graphics.BitmapType;
-            var tileSize = tile[4] as Number;
-            // Each tile's own two corners, not one shared scale - Mercator tiles vary in real
-            // height by latitude, so a single ratio can't represent every row correctly.
-            var topLeftLatLon = tile[5] as [Float, Float];
-            var bottomRightLatLon = tile[6] as [Float, Float];
-            var topLeft = Projection.toScreenF(
-                focusLat,
-                focusLon,
-                topLeftLatLon[0],
-                topLeftLatLon[1],
+            _drawMapTile(
+                dc,
+                _mapTileCache[keys[i] as String],
                 cx,
                 cy,
                 radiusPx,
-                radiusKm
-            );
-            var bottomRight = Projection.toScreenF(
+                radiusKm,
                 focusLat,
-                focusLon,
-                bottomRightLatLon[0],
-                bottomRightLatLon[1],
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
+                focusLon
             );
-            // Rounding to whole pixels avoids a per-tile AA/coverage seam at the shared edge,
-            // even though adjacent tiles already compute that edge as float-identical.
-            var left = Math.round(topLeft[0]);
-            var top = Math.round(topLeft[1]);
-            var right = Math.round(bottomRight[0]);
-            var bottom = Math.round(bottomRight[1]);
-            var scaleX = (right - left) / tileSize.toFloat();
-            var scaleY = (bottom - top) / tileSize.toFloat();
-            var xform = new Graphics.AffineTransform();
-            xform.translate(left, top);
-            xform.scale(scaleX, scaleY);
-            dc.drawBitmap2(0, 0, bitmap, {
-                :transform => xform,
-                :filterMode => Graphics.FILTER_MODE_POINT,
-            });
         }
 
         dc.setColor(COLOR_GRID_LABEL, Graphics.COLOR_TRANSPARENT);
@@ -1592,6 +1835,14 @@ class RadarView extends WatchUi.View {
                 ny + 1,
                 nz
             );
+            if (
+                _coveredByStaleTile(
+                    pendingTopLeftLatLon,
+                    pendingBottomRightLatLon
+                )
+            ) {
+                continue;
+            }
             var pendingTopLeft = Projection.toScreenF(
                 focusLat,
                 focusLon,
@@ -1694,8 +1945,9 @@ class RadarView extends WatchUi.View {
         color as Number
     ) as Void {
         var theta = Math.toRadians(45.0);
-        var x = cx + (ringPx * Math.sin(theta)).toNumber();
-        var y = cy - (ringPx * Math.cos(theta)).toNumber();
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the label inward.
+        var x = cx + Math.round(ringPx * Math.sin(theta)).toNumber();
+        var y = cy - Math.round(ringPx * Math.cos(theta)).toNumber();
         if (y < topPanelH + 10) {
             return;
         }
@@ -1739,11 +1991,12 @@ class RadarView extends WatchUi.View {
         var theta = Math.toRadians(compassDeg);
         var sinT = Math.sin(theta);
         var cosT = Math.cos(theta);
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing every tick inward.
         dc.drawLine(
-            cx + (radiusPx * sinT).toNumber(),
-            cy - (radiusPx * cosT).toNumber(),
-            cx + ((radiusPx - tickLen) * sinT).toNumber(),
-            cy - ((radiusPx - tickLen) * cosT).toNumber()
+            cx + Math.round(radiusPx * sinT).toNumber(),
+            cy - Math.round(radiusPx * cosT).toNumber(),
+            cx + Math.round((radiusPx - tickLen) * sinT).toNumber(),
+            cy - Math.round((radiusPx - tickLen) * cosT).toNumber()
         );
     }
 
@@ -1846,9 +2099,6 @@ class RadarView extends WatchUi.View {
     }
 
     private function _fetchStatusLine() as [String, Number] {
-        if (_fetchTimedOutDisplay) {
-            return [_noSignalText, Graphics.COLOR_RED];
-        }
         if (!_lastFetchOk) {
             return _lastFetchTooMuchData
                 ? [_tooBusyText, COLOR_WARN]
@@ -1895,7 +2145,7 @@ class RadarView extends WatchUi.View {
             );
         }
 
-        if (_fetchInFlight && !_fetchTimedOutDisplay) {
+        if (_fetchInFlight) {
             _drawFetchSpinner(
                 dc,
                 dc.getWidth() - 12,
@@ -1923,9 +2173,10 @@ class RadarView extends WatchUi.View {
             Math.PI;
         dc.setColor(COLOR_TEXT, Graphics.COLOR_TRANSPARENT);
         dc.drawCircle(x, y, FETCH_SPINNER_R);
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the orbit inward.
         dc.fillCircle(
-            x + (FETCH_SPINNER_R * Math.cos(theta)).toNumber(),
-            y + (FETCH_SPINNER_R * Math.sin(theta)).toNumber(),
+            x + Math.round(FETCH_SPINNER_R * Math.cos(theta)).toNumber(),
+            y + Math.round(FETCH_SPINNER_R * Math.sin(theta)).toNumber(),
             FETCH_SPINNER_DOT_R
         );
     }
@@ -2649,10 +2900,11 @@ class RadarView extends WatchUi.View {
             ICON_MARKER_CLEARANCE +
             EMERGENCY_BADGE_EXTRA_CLEARANCE
         ).toFloat();
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the badge toward the icon.
         return (
             [
-                (x + r * EMERGENCY_BADGE_SIN).toNumber(),
-                (y - r * EMERGENCY_BADGE_COS).toNumber(),
+                Math.round(x + r * EMERGENCY_BADGE_SIN).toNumber(),
+                Math.round(y - r * EMERGENCY_BADGE_COS).toNumber(),
             ] as [Number, Number]
         );
     }
@@ -2810,8 +3062,9 @@ class RadarView extends WatchUi.View {
         var theta = Math.toRadians(
             climbing ? CHEVRON_ANGLE_CLIMB_DEG : CHEVRON_ANGLE_DESCEND_DEG
         );
-        var cx = x + (r * Math.sin(theta)).toNumber();
-        var cy = y - (r * Math.cos(theta)).toNumber();
+        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the chevron toward the icon.
+        var cx = x + Math.round(r * Math.sin(theta)).toNumber();
+        var cy = y - Math.round(r * Math.cos(theta)).toNumber();
         return [cx, cy] as [Number, Number];
     }
 
