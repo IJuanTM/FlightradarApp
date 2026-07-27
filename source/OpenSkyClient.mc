@@ -27,16 +27,30 @@ class OpenSkyClient {
     private var _pendingTrackHex as String?;
     private var _pendingTrackCallback as TrackCallback?;
     private var _retriedTrackAuth as Boolean = false;
+    private var _trackRetryQueued as Boolean = false;
 
     public function initialize() {}
 
+    // RadarView's own timeout is display/retry-only and doesn't know whether a real request is
+    // still outstanding here - a second fetchTrack() call while one is already pending (dispatch
+    // started, not yet resolved) defers instead of starting a second physical request, so the
+    // single _pendingTrackCallback slot is never shared between two in-flight requests.
     public function fetchTrack(
         hex as String,
         callback as TrackCallback
     ) as Void {
+        var alreadyPending = _pendingTrackCallback != null;
         _pendingTrackHex = hex;
         _pendingTrackCallback = callback;
         _retriedTrackAuth = false;
+        if (alreadyPending) {
+            _trackRetryQueued = true;
+            return;
+        }
+        _dispatchTrackFetch();
+    }
+
+    private function _dispatchTrackFetch() as Void {
         var token = _accessToken;
         var expiresAt = _tokenExpiresAtMs;
         if (
@@ -186,20 +200,29 @@ class OpenSkyClient {
             }
         }
 
-        var cb = _pendingTrackCallback;
-        _pendingTrackCallback = null;
-        _pendingTrackHex = null;
-        if (cb != null) {
-            cb.invoke(points, true);
-        }
+        _resolveTrack(points, true);
     }
 
     private function _failPendingTrack() as Void {
+        _resolveTrack([] as Array<[Float, Float, Number, Boolean]>, false);
+    }
+
+    // Shared terminal point for both outcomes - only clears the pending slot when nothing else is
+    // queued to reuse it, since a queued fetchTrack() call already stored its own values there.
+    private function _resolveTrack(
+        points as Array<[Float, Float, Number, Boolean]>,
+        ok as Boolean
+    ) as Void {
         var cb = _pendingTrackCallback;
-        _pendingTrackCallback = null;
-        _pendingTrackHex = null;
+        if (_trackRetryQueued) {
+            _trackRetryQueued = false;
+            _dispatchTrackFetch();
+        } else {
+            _pendingTrackCallback = null;
+            _pendingTrackHex = null;
+        }
         if (cb != null) {
-            cb.invoke([], false);
+            cb.invoke(points, ok);
         }
     }
 }

@@ -30,6 +30,12 @@ class AirplanesLiveClient {
     private var _lastRequestStartMs as Number?;
     // Held here, not a local - an unreferenced Timer can be garbage-collected before it fires.
     private var _throttleTimer as Timer.Timer?;
+    // True from _performFetch until _onReceive fires. RadarView may treat a fetch as timed-out and
+    // start another one while this is still true (its own timeout is display/retry-only, unaware of
+    // the real network state here) - fetch() then defers instead of issuing a second real request,
+    // matching this project's established "never two requests in flight" invariant.
+    private var _awaitingReceive as Boolean = false;
+    private var _retryQueued as Boolean = false;
 
     public function initialize() {}
 
@@ -44,6 +50,14 @@ class AirplanesLiveClient {
         _pendingRadiusKm = radiusKm;
         _pendingCallback = callback;
 
+        if (_awaitingReceive) {
+            _retryQueued = true;
+            return;
+        }
+        _dispatchOrThrottle();
+    }
+
+    private function _dispatchOrThrottle() as Void {
         var lastStart = _lastRequestStartMs;
         var elapsed =
             lastStart != null
@@ -69,6 +83,7 @@ class AirplanesLiveClient {
 
     private function _performFetch() as Void {
         _lastRequestStartMs = System.getTimer();
+        _awaitingReceive = true;
 
         var radiusNm = (_pendingRadiusKm as Float) * 0.539957;
         if (radiusNm < 1.0) {
@@ -96,7 +111,16 @@ class AirplanesLiveClient {
         responseCode as Number,
         data as Dictionary or String or Null
     ) as Void {
+        _awaitingReceive = false;
         var cb = _pendingCallback;
+        // Only clear the callback when nothing else is queued to reuse it - a queued fetch() call
+        // already stored its own (identical) callback here, and dispatching it needs it intact.
+        if (_retryQueued) {
+            _retryQueued = false;
+            _dispatchOrThrottle();
+        } else {
+            _pendingCallback = null;
+        }
         if (cb == null) {
             return;
         }
