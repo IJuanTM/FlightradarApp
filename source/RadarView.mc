@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.11.0";
+const APP_VERSION = "0.12.0";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -214,8 +214,7 @@ class RadarView extends WatchUi.View {
     // Asked to fetch again while one was already in flight - retried once it resolves.
     private var _refetchPending as Boolean = false;
     private var _fetchStartMs as Number?;
-    // 10s - ordinary round trips through the phone relay routinely take 3-9s; a lower value flashed
-    // "No Signal" on normal latency, not just genuine failures.
+    // 10s - ordinary round trips through the phone relay routinely take 3-9s; a lower value flashed "No Signal" on normal latency, not just genuine failures.
     private const FETCH_TIMEOUT_MS = 10000;
     private var _lastDrawnPositions as Array<[String, Number, Number]> = [];
     // [hex, x0, y0, x1, y1] - hex-tagged so a label may overlap its own icon/chevron/reticle, only another's clips.
@@ -270,9 +269,7 @@ class RadarView extends WatchUi.View {
     private var _ticksSincePoll as Number = 0;
     // Drives the fetch spinner's orbit animation, without redrawing so often it hurts battery.
     private const ANIM_TICK_MS = 100;
-    // batterySaverMode doubles the real tick interval (set once in onShow, Timer intervals can't
-    // change while running) - without this, halving ANIM_TICK_MS doubled background tick work in
-    // every mode, and battery saver only ever scaled the fetch poll interval, not this.
+    // batterySaverMode doubles the real tick interval (set once in onShow, Timer intervals can't change while running) - otherwise it only ever scaled the fetch poll interval, not background tick work.
     private var _tickIntervalMs as Number = ANIM_TICK_MS;
     // The screen going dark (wrist down) doesn't hide this view - _onTick keeps polling for nobody unless told.
     private var _displayOff as Boolean = false;
@@ -574,8 +571,7 @@ class RadarView extends WatchUi.View {
         // checks below share the same reentrancy reason for living only here too.
         _mapClient.tick();
 
-        // Retries here too, not just from their own result handlers - a pending fetch deferred
-        // because MapClient was busy has no other event to wake it back up once that clears.
+        // Retries here too, not just from their own result handlers - a pending fetch deferred because MapClient was busy has no other event to wake it back up once that clears.
         if (_refetchPending) {
             _fetchNow();
         }
@@ -1330,10 +1326,7 @@ class RadarView extends WatchUi.View {
                 focusLon
             );
         } else {
-            // Always pruned, regardless of whether any cache below has content - otherwise, toggled
-            // off before the first tile ever resolved, MapClient's own queue/in-flight tile is never
-            // told anything, and _hasPendingMapBacklog() (below) can stay true forever, permanently
-            // pinning the aircraft poll to its fastest tier even with the map turned off.
+            // Always pruned, even with an empty cache below - otherwise a still-pending tile leaves _hasPendingMapBacklog() true forever, pinning the poll to its fastest tier with the map off.
             _mapClient.pruneQueue(({}) as Dictionary<String, Boolean>);
             if (
                 _mapTileCache.size() > 0 or
@@ -1832,8 +1825,7 @@ class RadarView extends WatchUi.View {
         focusLat as Float,
         focusLon as Float
     ) as Void {
-        // Dc has no circular clip - this bounding-square clip is the closest available, and stops
-        // tiles from bleeding all the way out to the button-hint annulus past the radar's edge.
+        // Dc has no circular clip - this bounding-square clip is the closest available, and stops tiles bleeding out to the button-hint annulus past the radar's edge.
         dc.setClip(cx - radiusPx, cy - radiusPx, radiusPx * 2, radiusPx * 2);
         for (var i = 0; i < _staleMapTiles.size(); i++) {
             _drawMapTile(

@@ -24,29 +24,28 @@ class OpenSkyClient {
     private var _clientSecret as String?;
     private var _accessToken as String?;
     private var _tokenExpiresAtMs as Number?;
-    private var _pendingTrackHex as String?;
-    private var _pendingTrackCallback as TrackCallback?;
+    // Hex/callback the in-flight request belongs to, kept separate from a newer call queued behind it so a response is never delivered under the wrong hex/callback.
+    private var _activeTrackHex as String?;
+    private var _activeTrackCallback as TrackCallback?;
+    private var _queuedTrackHex as String?;
+    private var _queuedTrackCallback as TrackCallback?;
     private var _retriedTrackAuth as Boolean = false;
-    private var _trackRetryQueued as Boolean = false;
 
     public function initialize() {}
 
-    // RadarView's own timeout is display/retry-only and doesn't know whether a real request is
-    // still outstanding here - a second fetchTrack() call while one is already pending (dispatch
-    // started, not yet resolved) defers instead of starting a second physical request, so the
-    // single _pendingTrackCallback slot is never shared between two in-flight requests.
+    // A second call while one is already active queues instead of starting a second physical request; see _resolveTrack for how it's promoted.
     public function fetchTrack(
         hex as String,
         callback as TrackCallback
     ) as Void {
-        var alreadyPending = _pendingTrackCallback != null;
-        _pendingTrackHex = hex;
-        _pendingTrackCallback = callback;
-        _retriedTrackAuth = false;
-        if (alreadyPending) {
-            _trackRetryQueued = true;
+        if (_activeTrackCallback != null) {
+            _queuedTrackHex = hex;
+            _queuedTrackCallback = callback;
             return;
         }
+        _activeTrackHex = hex;
+        _activeTrackCallback = callback;
+        _retriedTrackAuth = false;
         _dispatchTrackFetch();
     }
 
@@ -134,13 +133,13 @@ class OpenSkyClient {
             expiresIn.toNumber() * 1000 -
             TOKEN_SAFETY_MARGIN_MS;
 
-        if (_pendingTrackHex != null) {
+        if (_activeTrackHex != null) {
             _fetchTrackWithToken(token);
         }
     }
 
     public function _fetchTrackWithToken(token as String) as Void {
-        var hex = _pendingTrackHex;
+        var hex = _activeTrackHex;
         if (hex == null) {
             return;
         }
@@ -207,22 +206,26 @@ class OpenSkyClient {
         _resolveTrack([] as Array<[Float, Float, Number, Boolean]>, false);
     }
 
-    // Shared terminal point for both outcomes - only clears the pending slot when nothing else is
-    // queued to reuse it, since a queued fetchTrack() call already stored its own values there.
+    // Delivers to the active request's own callback before promoting any queued request, so a response is never attributed to the wrong hex/callback.
     private function _resolveTrack(
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
     ) as Void {
-        var cb = _pendingTrackCallback;
-        if (_trackRetryQueued) {
-            _trackRetryQueued = false;
-            _dispatchTrackFetch();
-        } else {
-            _pendingTrackCallback = null;
-            _pendingTrackHex = null;
-        }
+        var cb = _activeTrackCallback;
+        _activeTrackHex = null;
+        _activeTrackCallback = null;
         if (cb != null) {
             cb.invoke(points, ok);
+        }
+        var queuedHex = _queuedTrackHex;
+        var queuedCallback = _queuedTrackCallback;
+        if (queuedHex != null && queuedCallback != null) {
+            _queuedTrackHex = null;
+            _queuedTrackCallback = null;
+            _activeTrackHex = queuedHex;
+            _activeTrackCallback = queuedCallback;
+            _retriedTrackAuth = false;
+            _dispatchTrackFetch();
         }
     }
 }

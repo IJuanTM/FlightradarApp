@@ -23,19 +23,20 @@ class AirplanesLiveClient {
     // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
     private const MIN_TIMER_INTERVAL_MS = 50;
 
-    private var _pendingLat as Float?;
-    private var _pendingLon as Float?;
-    private var _pendingRadiusKm as Float?;
-    private var _pendingCallback as FetchCallback?;
+    // Lat/lon/radius/callback the in-flight request belongs to, kept separate from a newer call queued behind it so a response is never attributed to the wrong focus point.
+    private var _activeLat as Float?;
+    private var _activeLon as Float?;
+    private var _activeRadiusKm as Float?;
+    private var _activeCallback as FetchCallback?;
+    private var _queuedLat as Float?;
+    private var _queuedLon as Float?;
+    private var _queuedRadiusKm as Float?;
+    private var _queuedCallback as FetchCallback?;
     private var _lastRequestStartMs as Number?;
     // Held here, not a local - an unreferenced Timer can be garbage-collected before it fires.
     private var _throttleTimer as Timer.Timer?;
-    // True from _performFetch until _onReceive fires. RadarView may treat a fetch as timed-out and
-    // start another one while this is still true (its own timeout is display/retry-only, unaware of
-    // the real network state here) - fetch() then defers instead of issuing a second real request,
-    // matching this project's established "never two requests in flight" invariant.
+    // True from _performFetch until _onReceive fires - fetch() defers instead of issuing a second real request while this is set.
     private var _awaitingReceive as Boolean = false;
-    private var _retryQueued as Boolean = false;
 
     public function initialize() {}
 
@@ -45,15 +46,17 @@ class AirplanesLiveClient {
         radiusKm as Float,
         callback as FetchCallback
     ) as Void {
-        _pendingLat = lat;
-        _pendingLon = lon;
-        _pendingRadiusKm = radiusKm;
-        _pendingCallback = callback;
-
         if (_awaitingReceive) {
-            _retryQueued = true;
+            _queuedLat = lat;
+            _queuedLon = lon;
+            _queuedRadiusKm = radiusKm;
+            _queuedCallback = callback;
             return;
         }
+        _activeLat = lat;
+        _activeLon = lon;
+        _activeRadiusKm = radiusKm;
+        _activeCallback = callback;
         _dispatchOrThrottle();
     }
 
@@ -85,7 +88,7 @@ class AirplanesLiveClient {
         _lastRequestStartMs = System.getTimer();
         _awaitingReceive = true;
 
-        var radiusNm = (_pendingRadiusKm as Float) * 0.539957;
+        var radiusNm = (_activeRadiusKm as Float) * 0.539957;
         if (radiusNm < 1.0) {
             radiusNm = 1.0;
         }
@@ -93,9 +96,9 @@ class AirplanesLiveClient {
         var url =
             BASE_URL +
             "/" +
-            (_pendingLat as Float).toString() +
+            (_activeLat as Float).toString() +
             "/" +
-            (_pendingLon as Float).toString() +
+            (_activeLon as Float).toString() +
             "/" +
             radiusNm.format("%.1f");
         // No :responseType - this endpoint's Content-Type varies (JSON normally, text/plain on a 429),
@@ -112,27 +115,15 @@ class AirplanesLiveClient {
         data as Dictionary or String or Null
     ) as Void {
         _awaitingReceive = false;
-        var cb = _pendingCallback;
-        // Only clear the callback when nothing else is queued to reuse it - a queued fetch() call
-        // already stored its own (identical) callback here, and dispatching it needs it intact.
-        if (_retryQueued) {
-            _retryQueued = false;
-            _dispatchOrThrottle();
-        } else {
-            _pendingCallback = null;
-        }
-        if (cb == null) {
-            return;
-        }
 
         if (responseCode != 200 or !(data instanceof Dictionary)) {
-            cb.invoke([], false, _isSizeCeilingError(responseCode));
+            _resolveFetch([], false, _isSizeCeilingError(responseCode));
             return;
         }
 
         var acRaw = (data as Dictionary).get("ac");
         if (!(acRaw instanceof Array)) {
-            cb.invoke([], false, false);
+            _resolveFetch([], false, false);
             return;
         }
 
@@ -141,7 +132,41 @@ class AirplanesLiveClient {
         for (var i = 0; i < arr.size(); i++) {
             result.add(new Aircraft(arr[i] as Dictionary));
         }
-        cb.invoke(result, true, false);
+        _resolveFetch(result, true, false);
+    }
+
+    // Delivers to the active request's own callback before promoting any queued request, so a response is never attributed to the wrong focus point.
+    private function _resolveFetch(
+        aircraft as Array<Aircraft>,
+        ok as Boolean,
+        tooMuchData as Boolean
+    ) as Void {
+        var cb = _activeCallback;
+        _activeCallback = null;
+        if (cb != null) {
+            cb.invoke(aircraft, ok, tooMuchData);
+        }
+
+        var queuedLat = _queuedLat;
+        var queuedLon = _queuedLon;
+        var queuedRadiusKm = _queuedRadiusKm;
+        var queuedCallback = _queuedCallback;
+        if (
+            queuedLat != null &&
+            queuedLon != null &&
+            queuedRadiusKm != null &&
+            queuedCallback != null
+        ) {
+            _queuedLat = null;
+            _queuedLon = null;
+            _queuedRadiusKm = null;
+            _queuedCallback = null;
+            _activeLat = queuedLat;
+            _activeLon = queuedLon;
+            _activeRadiusKm = queuedRadiusKm;
+            _activeCallback = queuedCallback;
+            _dispatchOrThrottle();
+        }
     }
 
     // -402/-403 are Communications' own response-size/memory-ceiling codes - distinct from a real connectivity failure.

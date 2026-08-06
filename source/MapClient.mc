@@ -10,8 +10,7 @@ class MapClient {
     public const TILE_SIZE_STD as Number = 256;
     // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
-    // Generous margin above the slowest cold fetch actually measured (~1s) - a hung tile would
-    // otherwise never clear, permanently blocking every other tile and the aircraft poll behind it.
+    // Generous margin above the slowest cold fetch actually measured (~1s) - a hung tile would otherwise permanently block every other tile and the aircraft poll behind it.
     private const TILE_TIMEOUT_MS = 3000;
 
     private var _apiKey as String?;
@@ -32,15 +31,9 @@ class MapClient {
 
     private var _current as [Number, Number, Number, Number]?;
     private var _queue as Array<[Number, Number, Number, Number]> = [];
-    // True from _dispatch until _onReceive actually fires - makeImageRequest has no :context param,
-    // so a late real response can't be correlated to a request; this stays true across an abandon
-    // (timeout/prune) to keep a second physical request from ever starting while one might still land.
+    // True from _dispatch until _onReceive fires, and stays true across an abandon - makeImageRequest has no :context param, so a late real response can't be correlated and must be assumed still able to land.
     private var _awaitingReceive as Boolean = false;
-    // The aircraft poll and the on-demand selected-track/route fetches all share the same request
-    // channel to the paired phone - each pauses while its own request is in flight, so a tile batch
-    // can never queue behind any of them. Keyed by owner, not a plain count, so each caller's own
-    // pauseFor()/resumeFor() pair is naturally idempotent (safe to call every retry attempt without
-    // tracking "did I already pause" itself) and one owner's resumeFor() can't cancel another's pause.
+    // Shared request channel to the paired phone; keyed by owner (not a count) so each owner's pauseFor()/resumeFor() pair is independently idempotent.
     private var _pausedBy as Dictionary<Symbol, Boolean> = {};
 
     public function initialize(callback as TileCallback) {
@@ -51,18 +44,14 @@ class MapClient {
         _pausedBy[owner] = true;
     }
 
-    // Only updates the owner set - dispatching a new request from here would run nested inside
-    // whatever Communications callback called resumeFor(), which crashed on-device (a different
-    // client's own callback chain, not this one's). tick() from a clean timer tick does the dispatch.
+    // Only updates the owner set - dispatching here would nest inside the Communications callback that called resumeFor(), which crashed on-device; tick() does the dispatch instead.
     public function resumeFor(owner as Symbol) as Void {
         if (_pausedBy.hasKey(owner)) {
             _pausedBy.remove(owner);
         }
     }
 
-    // Call once per timer tick: recovers a hung tile (reported as a failure to the caller so
-    // isBusy() frees up immediately, not cancelled outright - cancelAllRequests() crashed on real
-    // hardware) and dispatches the next queued tile if the real response isn't still outstanding.
+    // Call once per timer tick: reports a hung tile as failed (not cancelled - cancelAllRequests() crashed on-device) and dispatches the next queued tile if idle.
     public function tick() as Void {
         var startedAt = _currentStartMs;
         if (
@@ -75,10 +64,9 @@ class MapClient {
         _dispatchNextIfIdle();
     }
 
-    // True while a tile request is already in flight - it can't be cancelled, so the aircraft poll
-    // needs to know to wait rather than start a new request that would queue up behind it.
+    // True while a tile is in flight or its abandoned response could still land - other callers on the shared channel must wait rather than start a competing real request.
     public function isBusy() as Boolean {
-        return _current != null;
+        return _current != null or _awaitingReceive;
     }
 
     public function requestTile(
@@ -113,9 +101,7 @@ class MapClient {
         _dispatch(z, x, y, tileSize);
     }
 
-    // Drops queued tiles that aren't needed anymore, and also abandons an in-flight tile that isn't
-    // needed - without this, isBusy() would stay true for up to TILE_TIMEOUT_MS after a zoom change
-    // even though nothing on screen is still waiting for that tile.
+    // Also abandons an in-flight tile that's no longer needed - otherwise isBusy() stays true up to TILE_TIMEOUT_MS after a zoom change for a tile nothing needs.
     public function pruneQueue(
         neededKeys as Dictionary<String, Boolean>
     ) as Void {
@@ -138,8 +124,7 @@ class MapClient {
         }
     }
 
-    // Shared with RadarView (see its own use via this instance) so both sides of a tile's identity
-    // - what MapClient queued/dispatched, what RadarView cached/needed - agree on one key format.
+    // Shared with RadarView so both sides agree on one tile-identity key format.
     public function tileKeyFor(
         z as Number,
         x as Number,
@@ -166,8 +151,7 @@ class MapClient {
         );
     }
 
-    // Reports a failure for the current tile and frees isBusy()/dedupe state, but deliberately
-    // leaves _awaitingReceive set - see that field's own comment for why.
+    // Reports a failure for the current tile and frees isBusy()/dedupe state, but deliberately leaves _awaitingReceive set - see that field's own comment for why.
     private function _abandonCurrent() as Void {
         var req = _current;
         _current = null;
@@ -216,8 +200,7 @@ class MapClient {
         data as MapBitmap?
     ) as Void {
         _awaitingReceive = false;
-        // If _current is already null, this request was abandoned (timeout/prune) and its failure
-        // already reported - discard the late response rather than misattribute it to a newer tile.
+        // If _current is already null, this request was abandoned (timeout/prune) and its failure already reported - discard the late response rather than misattribute it.
         var req = _current;
         _current = null;
         var cb = _callback;
