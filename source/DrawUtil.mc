@@ -38,6 +38,10 @@ module DrawUtil {
     const ALPHA_75 = 0xc0;
     const ALPHA_95 = 0xf2;
 
+    // Boundary ring color, shared so RadarView's compact ring and AircraftDetailView's full-screen ring match.
+    const COLOR_RING = 0xaaaaaa;
+    const COLOR_BOUNDARY_ALPHA = ALPHA_50;
+
     // [charW, charH] for a monospace font - one character's width is every character's width.
     function measureChar(dc as Dc, font) as [Number, Number] {
         return (

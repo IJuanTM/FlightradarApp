@@ -38,16 +38,17 @@ class Aircraft {
 
     public function initialize(dict as Dictionary) {
         var hexVal = dict["hex"];
-        hex = hexVal instanceof String ? hexVal : "";
+        hex = hexVal instanceof Lang.String ? hexVal : "";
 
         var f = dict["flight"];
-        flight = f instanceof String ? _validCallsignOrNull(_trim(f)) : null;
+        flight =
+            f instanceof Lang.String ? _validCallsignOrNull(_trim(f)) : null;
 
         lat = _toFloat(dict["lat"], 0.0);
         lon = _toFloat(dict["lon"], 0.0);
 
         var ab = dict["alt_baro"];
-        if (ab instanceof String) {
+        if (ab instanceof Lang.String) {
             onGround = true;
             altBaro = 0;
         } else if (ab != null) {
@@ -67,7 +68,7 @@ class Aircraft {
         heading = hdgSrc != null ? _toFloatOrNull(hdgSrc) : track;
 
         var cat = dict["category"];
-        category = cat instanceof String ? cat : null;
+        category = cat instanceof Lang.String ? cat : null;
 
         registration = _toTrimmedStringOrNull(dict["r"]);
         typeCode = _toTrimmedStringOrNull(dict["t"]);
@@ -159,7 +160,7 @@ class Aircraft {
     }
 
     private function _toTrimmedStringOrNull(v) as String? {
-        if (!(v instanceof String)) {
+        if (!(v instanceof Lang.String)) {
             return null;
         }
         var s = _trim(v);

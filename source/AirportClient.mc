@@ -34,7 +34,7 @@ class AirportClient {
     ) as Void {
         var icao = context[0];
         var cb = context[1];
-        if (responseCode != 200 or !(data instanceof Dictionary)) {
+        if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
             cb.invoke(icao, null);
             return;
         }
@@ -43,13 +43,16 @@ class AirportClient {
         var location = dict["location"];
         var country = dict["country"];
         var iata = dict["iata"];
-        if (!(location instanceof String) or !(country instanceof String)) {
+        if (
+            !(location instanceof Lang.String) or
+            !(country instanceof Lang.String)
+        ) {
             cb.invoke(icao, null);
             return;
         }
 
         var codes =
-            iata instanceof String && (iata as String).length() > 0
+            iata instanceof Lang.String && (iata as String).length() > 0
                 ? icao + "/" + (iata as String)
                 : icao;
         var text =

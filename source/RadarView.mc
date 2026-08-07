@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.12.0";
+const APP_VERSION = "0.12.1";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -133,9 +133,9 @@ class RadarView extends WatchUi.View {
     private const GRAYS =
         [0x111111, 0x333333, 0x555555, 0x777777, 0xaaaaaa, 0xcccccc] as
         Array<Number>;
-    private const COLOR_RING = GRAYS[4];
+    private const COLOR_RING = DrawUtil.COLOR_RING;
     private const COLOR_RING_ALPHA = DrawUtil.ALPHA_25;
-    private const COLOR_BOUNDARY_ALPHA = DrawUtil.ALPHA_50;
+    private const COLOR_BOUNDARY_ALPHA = DrawUtil.COLOR_BOUNDARY_ALPHA;
     private const COLOR_TICK_ALPHA = DrawUtil.ALPHA_55;
     private const COLOR_MINOR_TICK_ALPHA = DrawUtil.ALPHA_35;
     private const COLOR_GRID = GRAYS[3];
@@ -560,6 +560,15 @@ class RadarView extends WatchUi.View {
         return startedAt != null and now - startedAt > FETCH_TIMEOUT_MS;
     }
 
+    // Guards against a response landing after the selection changed mid-fetch.
+    private function _hexStillSelected(fetchedHex as String?) as Boolean {
+        return (
+            fetchedHex != null &&
+            _selectedHex != null &&
+            (fetchedHex as String).equals(_selectedHex as String)
+        );
+    }
+
     public function _onTick() as Void {
         if (_displayOff) {
             return;
@@ -966,9 +975,7 @@ class RadarView extends WatchUi.View {
         if (_routeFetchInFlight) {
             return;
         }
-        // Same collision risk _fetchNow guards against - see its own comment for why.
-        _mapClient.pauseFor(:route);
-        if (_mapClient.isBusy()) {
+        if (_pauseAndCheckBusy(:route)) {
             _routeFetchPending = true;
             return;
         }
@@ -1000,10 +1007,7 @@ class RadarView extends WatchUi.View {
         if (view == null) {
             return;
         }
-        var stillRelevant =
-            fetchedHex != null &&
-            _selectedHex != null &&
-            (fetchedHex as String).equals(_selectedHex as String);
+        var stillRelevant = _hexStillSelected(fetchedHex);
         if (!stillRelevant) {
             // Reopened for a different aircraft mid-fetch - retry for what's actually showing.
             _fetchSelectedRoute();
@@ -1060,10 +1064,7 @@ class RadarView extends WatchUi.View {
         if (view == null) {
             return;
         }
-        var stillRelevant =
-            _airportFetchHex != null &&
-            _selectedHex != null &&
-            (_airportFetchHex as String).equals(_selectedHex as String);
+        var stillRelevant = _hexStillSelected(_airportFetchHex);
         if (!stillRelevant) {
             return;
         }
@@ -1108,9 +1109,7 @@ class RadarView extends WatchUi.View {
         if (_trackFetchInFlight) {
             return;
         }
-        // Same collision risk _fetchNow guards against - see its own comment for why.
-        _mapClient.pauseFor(:track);
-        if (_mapClient.isBusy()) {
+        if (_pauseAndCheckBusy(:track)) {
             _trackFetchPending = true;
             return;
         }
@@ -1130,10 +1129,7 @@ class RadarView extends WatchUi.View {
         var fetchedHex = _trackFetchHex;
         _trackFetchHex = null;
 
-        var stillSelected =
-            fetchedHex != null &&
-            _selectedHex != null &&
-            (fetchedHex as String).equals(_selectedHex as String);
+        var stillSelected = _hexStillSelected(fetchedHex);
 
         if (stillSelected && ok) {
             _trackFetchRetried = false;
@@ -1159,6 +1155,13 @@ class RadarView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
+    // Paused before the busy check, not after - so MapClient can't auto-advance to a fresh tile in
+    // the gap and starve the caller behind an entire new batch instead of just the one in-flight tile.
+    private function _pauseAndCheckBusy(owner as Symbol) as Boolean {
+        _mapClient.pauseFor(owner);
+        return _mapClient.isBusy();
+    }
+
     private function _fetchNow() as Void {
         if (_fetchInFlight) {
             _refetchPending = true;
@@ -1168,11 +1171,7 @@ class RadarView extends WatchUi.View {
             _mapClient.resumeFor(:poll);
             return;
         }
-        // Paused here, before the busy check - not after it - so MapClient can't auto-advance to
-        // a fresh tile in the gap between this check and the next retry, starving the poll across
-        // an entire batch instead of behind just the one tile that was already in flight.
-        _mapClient.pauseFor(:poll);
-        if (_mapClient.isBusy()) {
+        if (_pauseAndCheckBusy(:poll)) {
             _refetchPending = true;
             return;
         }
@@ -1553,13 +1552,8 @@ class RadarView extends WatchUi.View {
             )
         );
 
-        // Only an actual zoom change (not a pan-triggered refetch at the same zoom) benefits from
-        // this - panning already keeps most needed tiles covered by the existing cache as-is.
-        // Safe to keep the whole old set: it was already fetched under the same HI/STD tile-count
-        // policy that bounds _mapTileCache to a safe size on its own, and _pruneStaleTilesCoveredBy
-        // (called from _onTileReceive) evicts each stale tile as soon as its area is replaced, so
-        // the two sets don't stay fully resident together for the whole transition - see round 12
-        // in memory for why an earlier flat combined-size budget here defeated the feature outright.
+        // Only a real zoom change benefits - panning already keeps most tiles covered by the cache.
+        // Safe to keep the old set resident: _pruneStaleTilesCoveredBy evicts each stale tile as its area is replaced, so old/new never stay fully resident together.
         if (
             _mapRequestedZoomIndex != null and
             _mapRequestedZoomIndex != zoomIndex and
@@ -1772,10 +1766,7 @@ class RadarView extends WatchUi.View {
         return false;
     }
 
-    // Drops any stale tile the newly-arrived tile geographically overlaps - keeps peak memory
-    // close to one view's worth instead of the old and new sets both fully resident throughout
-    // the whole transition (which is what let one tight, HI-eligible zoom starve the budget gate
-    // in _maybeFetchBackgroundMap entirely and show no placeholder at all).
+    // Drops any stale tile the newly-arrived tile geographically overlaps - keeps peak memory close to one view's worth instead of both sets fully resident during the transition.
     private function _pruneStaleTilesCoveredBy(
         topLeftLatLon as [Float, Float],
         bottomRightLatLon as [Float, Float]

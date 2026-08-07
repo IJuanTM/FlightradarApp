@@ -1,7 +1,6 @@
 import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.System;
-import Toybox.WatchUi;
 
 // Fetched on-demand for the selected aircraft's historical track only, never polled continuously.
 // Route lookup lives in RouteClient instead (free, no-auth, callsign-keyed - see its own header comment).
@@ -24,27 +23,19 @@ class OpenSkyClient {
     private var _clientSecret as String?;
     private var _accessToken as String?;
     private var _tokenExpiresAtMs as Number?;
-    // Hex/callback the in-flight request belongs to, kept separate from a newer call queued behind it so a response is never delivered under the wrong hex/callback.
-    private var _activeTrackHex as String?;
-    private var _activeTrackCallback as TrackCallback?;
-    private var _queuedTrackHex as String?;
-    private var _queuedTrackCallback as TrackCallback?;
+    // Payload is the hex - see PendingRequestSlot for the active/queued contract.
+    private var _slot as PendingRequestSlot = new PendingRequestSlot();
     private var _retriedTrackAuth as Boolean = false;
 
     public function initialize() {}
 
-    // A second call while one is already active queues instead of starting a second physical request; see _resolveTrack for how it's promoted.
     public function fetchTrack(
         hex as String,
         callback as TrackCallback
     ) as Void {
-        if (_activeTrackCallback != null) {
-            _queuedTrackHex = hex;
-            _queuedTrackCallback = callback;
+        if (!_slot.start(hex, callback as Method)) {
             return;
         }
-        _activeTrackHex = hex;
-        _activeTrackCallback = callback;
         _retriedTrackAuth = false;
         _dispatchTrackFetch();
     }
@@ -96,17 +87,16 @@ class OpenSkyClient {
             return true;
         }
 
-        var creds =
-            WatchUi.loadResource(Rez.JsonData.Credentials) as Dictionary;
-        var openSky = creds["OpenSky"] as Dictionary;
-        var id = openSky["clientId"];
-        var secret = openSky["clientSecret"];
-        if (!(id instanceof String) or !(secret instanceof String)) {
+        var values = CredentialsUtil.loadStrings("OpenSky", [
+            "clientId",
+            "clientSecret",
+        ]);
+        if (values == null) {
             return false;
         }
 
-        _clientId = id;
-        _clientSecret = secret;
+        _clientId = values[0];
+        _clientSecret = values[1];
         return true;
     }
 
@@ -114,7 +104,7 @@ class OpenSkyClient {
         responseCode as Number,
         data as Dictionary or String or Null
     ) as Void {
-        if (responseCode != 200 or !(data instanceof Dictionary)) {
+        if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
             _failPendingTrack();
             return;
         }
@@ -122,7 +112,7 @@ class OpenSkyClient {
         var dict = data as Dictionary;
         var token = dict["access_token"];
         var expiresIn = dict["expires_in"];
-        if (!(token instanceof String) or expiresIn == null) {
+        if (!(token instanceof Lang.String) or expiresIn == null) {
             _failPendingTrack();
             return;
         }
@@ -133,13 +123,13 @@ class OpenSkyClient {
             expiresIn.toNumber() * 1000 -
             TOKEN_SAFETY_MARGIN_MS;
 
-        if (_activeTrackHex != null) {
+        if (_slot.activePayload() != null) {
             _fetchTrackWithToken(token);
         }
     }
 
     public function _fetchTrackWithToken(token as String) as Void {
-        var hex = _activeTrackHex;
+        var hex = _slot.activePayload() as String?;
         if (hex == null) {
             return;
         }
@@ -169,17 +159,17 @@ class OpenSkyClient {
             return;
         }
 
-        if (responseCode != 200 or !(data instanceof Dictionary)) {
+        if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
             _failPendingTrack();
             return;
         }
 
         var pathRaw = (data as Dictionary)["path"];
         var points = [] as Array<[Float, Float, Number, Boolean]>;
-        if (pathRaw instanceof Array) {
+        if (pathRaw instanceof Lang.Array) {
             for (var i = 0; i < pathRaw.size(); i++) {
                 var wp = pathRaw[i];
-                if (wp instanceof Array && wp.size() >= 6) {
+                if (wp instanceof Lang.Array && wp.size() >= 6) {
                     var lat = wp[1];
                     var lon = wp[2];
                     var alt = wp[3];
@@ -192,7 +182,7 @@ class OpenSkyClient {
                             alt != null
                                 ? (alt.toFloat() * 3.28084).toNumber()
                                 : 0,
-                            onGround instanceof Boolean && onGround,
+                            onGround instanceof Lang.Boolean && onGround,
                         ]);
                     }
                 }
@@ -211,19 +201,12 @@ class OpenSkyClient {
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
     ) as Void {
-        var cb = _activeTrackCallback;
-        _activeTrackHex = null;
-        _activeTrackCallback = null;
+        var cb = _slot.activeCallback() as TrackCallback?;
+        var promoted = _slot.clearAndPromote();
         if (cb != null) {
             cb.invoke(points, ok);
         }
-        var queuedHex = _queuedTrackHex;
-        var queuedCallback = _queuedTrackCallback;
-        if (queuedHex != null && queuedCallback != null) {
-            _queuedTrackHex = null;
-            _queuedTrackCallback = null;
-            _activeTrackHex = queuedHex;
-            _activeTrackCallback = queuedCallback;
+        if (promoted) {
             _retriedTrackAuth = false;
             _dispatchTrackFetch();
         }

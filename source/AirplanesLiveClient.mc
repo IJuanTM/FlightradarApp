@@ -23,20 +23,11 @@ class AirplanesLiveClient {
     // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
     private const MIN_TIMER_INTERVAL_MS = 50;
 
-    // Lat/lon/radius/callback the in-flight request belongs to, kept separate from a newer call queued behind it so a response is never attributed to the wrong focus point.
-    private var _activeLat as Float?;
-    private var _activeLon as Float?;
-    private var _activeRadiusKm as Float?;
-    private var _activeCallback as FetchCallback?;
-    private var _queuedLat as Float?;
-    private var _queuedLon as Float?;
-    private var _queuedRadiusKm as Float?;
-    private var _queuedCallback as FetchCallback?;
+    // Payload shape is [lat, lon, radiusKm] - see PendingRequestSlot for the active/queued contract.
+    private var _slot as PendingRequestSlot = new PendingRequestSlot();
     private var _lastRequestStartMs as Number?;
     // Held here, not a local - an unreferenced Timer can be garbage-collected before it fires.
     private var _throttleTimer as Timer.Timer?;
-    // True from _performFetch until _onReceive fires - fetch() defers instead of issuing a second real request while this is set.
-    private var _awaitingReceive as Boolean = false;
 
     public function initialize() {}
 
@@ -46,17 +37,9 @@ class AirplanesLiveClient {
         radiusKm as Float,
         callback as FetchCallback
     ) as Void {
-        if (_awaitingReceive) {
-            _queuedLat = lat;
-            _queuedLon = lon;
-            _queuedRadiusKm = radiusKm;
-            _queuedCallback = callback;
+        if (!_slot.start([lat, lon, radiusKm], callback as Method)) {
             return;
         }
-        _activeLat = lat;
-        _activeLon = lon;
-        _activeRadiusKm = radiusKm;
-        _activeCallback = callback;
         _dispatchOrThrottle();
     }
 
@@ -86,9 +69,11 @@ class AirplanesLiveClient {
 
     private function _performFetch() as Void {
         _lastRequestStartMs = System.getTimer();
-        _awaitingReceive = true;
 
-        var radiusNm = (_activeRadiusKm as Float) * 0.539957;
+        var payload = _slot.activePayload() as Array;
+        var lat = payload[0] as Float;
+        var lon = payload[1] as Float;
+        var radiusNm = (payload[2] as Float) * 0.539957;
         if (radiusNm < 1.0) {
             radiusNm = 1.0;
         }
@@ -96,9 +81,9 @@ class AirplanesLiveClient {
         var url =
             BASE_URL +
             "/" +
-            (_activeLat as Float).toString() +
+            lat.toString() +
             "/" +
-            (_activeLon as Float).toString() +
+            lon.toString() +
             "/" +
             radiusNm.format("%.1f");
         // No :responseType - this endpoint's Content-Type varies (JSON normally, text/plain on a 429),
@@ -114,15 +99,13 @@ class AirplanesLiveClient {
         responseCode as Number,
         data as Dictionary or String or Null
     ) as Void {
-        _awaitingReceive = false;
-
-        if (responseCode != 200 or !(data instanceof Dictionary)) {
+        if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
             _resolveFetch([], false, _isSizeCeilingError(responseCode));
             return;
         }
 
         var acRaw = (data as Dictionary).get("ac");
-        if (!(acRaw instanceof Array)) {
+        if (!(acRaw instanceof Lang.Array)) {
             _resolveFetch([], false, false);
             return;
         }
@@ -141,30 +124,12 @@ class AirplanesLiveClient {
         ok as Boolean,
         tooMuchData as Boolean
     ) as Void {
-        var cb = _activeCallback;
-        _activeCallback = null;
+        var cb = _slot.activeCallback() as FetchCallback?;
+        var promoted = _slot.clearAndPromote();
         if (cb != null) {
             cb.invoke(aircraft, ok, tooMuchData);
         }
-
-        var queuedLat = _queuedLat;
-        var queuedLon = _queuedLon;
-        var queuedRadiusKm = _queuedRadiusKm;
-        var queuedCallback = _queuedCallback;
-        if (
-            queuedLat != null &&
-            queuedLon != null &&
-            queuedRadiusKm != null &&
-            queuedCallback != null
-        ) {
-            _queuedLat = null;
-            _queuedLon = null;
-            _queuedRadiusKm = null;
-            _queuedCallback = null;
-            _activeLat = queuedLat;
-            _activeLon = queuedLon;
-            _activeRadiusKm = queuedRadiusKm;
-            _activeCallback = queuedCallback;
+        if (promoted) {
             _dispatchOrThrottle();
         }
     }

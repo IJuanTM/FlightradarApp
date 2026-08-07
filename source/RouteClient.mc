@@ -40,12 +40,15 @@ class RouteClient {
             context.invoke(null, null, true);
             return;
         }
-        if (responseCode != 200 or !(data instanceof Dictionary)) {
+        if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
             context.invoke(null, null, false);
             return;
         }
         var airports = (data as Dictionary)["_airports"];
-        if (!(airports instanceof Array) or (airports as Array).size() < 2) {
+        if (
+            !(airports instanceof Lang.Array) or
+            (airports as Array).size() < 2
+        ) {
             context.invoke(null, null, true);
             return;
         }
@@ -54,10 +57,10 @@ class RouteClient {
     }
 
     private function _icaoOf(entry as Object?) as String? {
-        if (!(entry instanceof Dictionary)) {
+        if (!(entry instanceof Lang.Dictionary)) {
             return null;
         }
         var icao = (entry as Dictionary)["icao"];
-        return icao instanceof String ? icao : null;
+        return icao instanceof Lang.String ? icao : null;
     }
 }

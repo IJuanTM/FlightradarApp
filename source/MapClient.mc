@@ -244,14 +244,11 @@ class MapClient {
         if (_apiKey != null) {
             return true;
         }
-        var creds =
-            WatchUi.loadResource(Rez.JsonData.Credentials) as Dictionary;
-        var mapTiler = creds["MapTiler"] as Dictionary;
-        var key = mapTiler["apiKey"];
-        if (!(key instanceof String)) {
+        var values = CredentialsUtil.loadStrings("MapTiler", ["apiKey"]);
+        if (values == null) {
             return false;
         }
-        _apiKey = key;
+        _apiKey = values[0];
         return true;
     }
 }

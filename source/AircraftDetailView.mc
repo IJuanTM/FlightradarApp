@@ -43,9 +43,8 @@ class AircraftDetailView extends WatchUi.View {
     private var _intraGroupGapPaddingPx as Number = 2;
     private const COLOR_ROW_LABEL = 0x999999;
 
-    // Must match RadarView's own value - duplicated since this class can't see RadarView's private consts.
-    private const COLOR_RING = 0xaaaaaa;
-    private const COLOR_BOUNDARY_ALPHA = DrawUtil.ALPHA_50;
+    private const COLOR_RING = DrawUtil.COLOR_RING;
+    private const COLOR_BOUNDARY_ALPHA = DrawUtil.COLOR_BOUNDARY_ALPHA;
     private const COLOR_WHITE = 0xffffff;
 
     // Each row draws as one centered inline line, same style as the compact panel's segmented line.
