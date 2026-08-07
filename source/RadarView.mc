@@ -8,7 +8,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.12.1";
+const APP_VERSION = "0.12.2";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
