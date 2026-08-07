@@ -6,10 +6,7 @@ module MenuBuilder {
     function buildMainMenu() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({ :title => Rez.Strings.MenuTitle });
         menu.addItem(
-            new WatchUi.MenuItem(Rez.Strings.MenuLabels, null, :labels, null)
-        );
-        menu.addItem(
-            new WatchUi.MenuItem(Rez.Strings.MenuDisplay, null, :display, null)
+            new WatchUi.MenuItem(Rez.Strings.MenuMap, null, :map, null)
         );
         menu.addItem(
             new WatchUi.MenuItem(Rez.Strings.MenuFilters, null, :filters, null)
@@ -23,15 +20,21 @@ module MenuBuilder {
             )
         );
         menu.addItem(
+            new WatchUi.MenuItem(Rez.Strings.MenuLabels, null, :labels, null)
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(Rez.Strings.MenuGeneral, null, :general, null)
+        );
+        menu.addItem(
             new WatchUi.MenuItem("v" + $.APP_VERSION, null, :appVersion, null)
         );
         return menu;
     }
 
-    function buildDisplayMenu() as WatchUi.Menu2 {
-        var menu = new WatchUi.Menu2({
-            :title => Rez.Strings.DisplayMenuTitle,
-        });
+    // Pure map-chrome toggles - anything drawn as part of the radar background, not the aircraft
+    // themselves or app-wide behavior. See buildGeneralMenu for the latter.
+    function buildMapMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({ :title => Rez.Strings.MapMenuTitle });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowRangeRings,
@@ -56,24 +59,6 @@ module MenuBuilder {
                 null,
                 :showButtonHints,
                 Settings.showButtonHints,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuMetricUnits,
-                null,
-                :useMetricUnits,
-                Settings.useMetricUnits,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuBatterySaver,
-                null,
-                :batterySaverMode,
-                Settings.batterySaverMode,
                 null
             )
         );
@@ -212,6 +197,32 @@ module MenuBuilder {
 
         return menu;
     }
+
+    // App-wide behavior, not tied to any one visual layer.
+    function buildGeneralMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.GeneralMenuTitle,
+        });
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuMetricUnits,
+                null,
+                :useMetricUnits,
+                Settings.useMetricUnits,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuBatterySaver,
+                null,
+                :batterySaverMode,
+                Settings.batterySaverMode,
+                null
+            )
+        );
+        return menu;
+    }
 }
 
 class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
@@ -222,19 +233,10 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
     public function onSelect(item as WatchUi.MenuItem) as Void {
         var id = item.getId();
 
-        if (id == :labels) {
+        if (id == :map) {
             WatchUi.pushView(
-                MenuBuilder.buildLabelsMenu(),
-                new LabelsMenuDelegate(),
-                WatchUi.SLIDE_LEFT
-            );
-            return;
-        }
-
-        if (id == :display) {
-            WatchUi.pushView(
-                MenuBuilder.buildDisplayMenu(),
-                new DisplayMenuDelegate(),
+                MenuBuilder.buildMapMenu(),
+                new MapMenuDelegate(),
                 WatchUi.SLIDE_LEFT
             );
             return;
@@ -257,10 +259,28 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
             );
             return;
         }
+
+        if (id == :labels) {
+            WatchUi.pushView(
+                MenuBuilder.buildLabelsMenu(),
+                new LabelsMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
+
+        if (id == :general) {
+            WatchUi.pushView(
+                MenuBuilder.buildGeneralMenu(),
+                new GeneralMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
     }
 }
 
-class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
+class MapMenuDelegate extends WatchUi.Menu2InputDelegate {
     public function initialize() {
         Menu2InputDelegate.initialize();
     }
@@ -278,10 +298,6 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setShowGridLines(enabled);
         } else if (id == :showButtonHints) {
             Settings.setShowButtonHints(enabled);
-        } else if (id == :useMetricUnits) {
-            Settings.setUseMetricUnits(enabled);
-        } else if (id == :batterySaverMode) {
-            Settings.setBatterySaverMode(enabled);
         } else if (id == :showBackgroundMap) {
             Settings.setShowBackgroundMap(enabled);
         }
@@ -355,6 +371,26 @@ class LabelsMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setLabelsEnabled(enabled);
         } else {
             Settings.setLabelFieldEnabled(id as String, enabled);
+        }
+    }
+}
+
+class GeneralMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        var id = item.getId();
+        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
+
+        if (id == :useMetricUnits) {
+            Settings.setUseMetricUnits(enabled);
+        } else if (id == :batterySaverMode) {
+            Settings.setBatterySaverMode(enabled);
         }
     }
 }

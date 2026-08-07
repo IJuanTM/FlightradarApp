@@ -18,11 +18,29 @@ class FlightradarApp extends Application.AppBase {
         _radarView.onDisplayModeChanged(System.getDisplayMode());
     }
 
+    // enableLocationEvents defaults to GPS-only positioning unless :configuration is set explicitly.
     public function onStart(state as Dictionary?) as Void {
-        Position.enableLocationEvents(
-            Position.LOCATION_CONTINUOUS,
-            method(:onPosition)
-        );
+        var options = { :acquisitionType => Position.LOCATION_CONTINUOUS };
+        if (Position has :hasConfigurationSupport) {
+            if (
+                Position has :CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1_L5 &&
+                Position.hasConfigurationSupport(
+                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1_L5
+                )
+            ) {
+                options[:configuration] =
+                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1_L5;
+            } else if (
+                Position has :CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1 &&
+                Position.hasConfigurationSupport(
+                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1
+                )
+            ) {
+                options[:configuration] =
+                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1;
+            }
+        }
+        Position.enableLocationEvents(options, method(:onPosition));
     }
 
     public function onStop(state as Dictionary?) as Void {

@@ -29,22 +29,22 @@ module Settings {
     ];
 
     var zoomIndex as Number = 0;
-    var labelsEnabled as Boolean = true;
-    var _labelFieldEnabled as Dictionary<String, Boolean> = {};
+
+    // Map chrome toggles.
+    var showRangeRings as Boolean = true;
+    var showGridLines as Boolean = false;
+    var showButtonHints as Boolean = true;
+    // Opt-in - a background map is the biggest network/battery cost in the app, default off.
+    var showBackgroundMap as Boolean = false;
+
+    // Filters - what traffic appears at all.
     // Opt-in - ground vehicles hidden by default, unlike hideGroundedPlanes below.
     var showGroundVehicles as Boolean = false;
     var hideGroundedPlanes as Boolean = false;
     // Opt-out - towers/masts/obstacles default hidden, unlike the other two filters above.
     var hideObstacles as Boolean = true;
-    // Display chrome toggles - all opt-out, default shown.
-    var showRangeRings as Boolean = true;
-    var showGridLines as Boolean = true;
-    var showButtonHints as Boolean = true;
-    // Opt-out - metric is opt-in instead, aviation convention (ft/kt) is the sensible default.
-    var useMetricUnits as Boolean = false;
-    var batterySaverMode as Boolean = false;
-    // Opt-in - a background map is the biggest network/battery cost in the app, default off.
-    var showBackgroundMap as Boolean = false;
+    // Opt-in - military aircraft shown (just tinted) by default, same pattern as showGroundVehicles.
+    var hideMilitary as Boolean = false;
 
     // Aircraft display toggles - all opt-out, default on.
     var showSelectedTrail as Boolean = true;
@@ -52,8 +52,15 @@ module Settings {
     var dimGroundedAircraft as Boolean = true;
     var dimStaleAircraft as Boolean = true;
     var singleColorMode as Boolean = false;
-    // Opt-in - military aircraft shown (just tinted) by default, same pattern as showGroundVehicles.
-    var hideMilitary as Boolean = false;
+
+    // Aircraft label fields.
+    var labelsEnabled as Boolean = true;
+    var _labelFieldEnabled as Dictionary<String, Boolean> = {};
+
+    // General/app-wide behavior.
+    // Opt-out - metric is opt-in instead, aviation convention (ft/kt) is the sensible default.
+    var useMetricUnits as Boolean = false;
+    var batterySaverMode as Boolean = false;
 
     function load() as Void {
         var storedZoom = Storage.getValue("zoomIndex");
@@ -62,22 +69,26 @@ module Settings {
             zoomIndex = 0;
         }
 
-        labelsEnabled = _loadBool("labelsEnabled", true);
+        showRangeRings = _loadBool("showRangeRings", true);
+        showGridLines = _loadBool("showGridLines", false);
+        showButtonHints = _loadBool("showButtonHints", true);
+        showBackgroundMap = _loadBool("showBackgroundMap", false);
+
         showGroundVehicles = _loadBool("showGroundVehicles", false);
         hideGroundedPlanes = _loadBool("hideGroundedPlanes", false);
         hideObstacles = _loadBool("hideObstacles", true);
-        showRangeRings = _loadBool("showRangeRings", true);
-        showGridLines = _loadBool("showGridLines", true);
-        showButtonHints = _loadBool("showButtonHints", true);
-        useMetricUnits = _loadBool("useMetricUnits", false);
-        batterySaverMode = _loadBool("batterySaverMode", false);
-        showBackgroundMap = _loadBool("showBackgroundMap", false);
+        hideMilitary = _loadBool("hideMilitary", false);
+
         showSelectedTrail = _loadBool("showSelectedTrail", true);
         showVertRateChevron = _loadBool("showVertRateChevron", true);
         dimGroundedAircraft = _loadBool("dimGroundedAircraft", true);
         dimStaleAircraft = _loadBool("dimStaleAircraft", true);
         singleColorMode = _loadBool("singleColorMode", false);
-        hideMilitary = _loadBool("hideMilitary", false);
+
+        labelsEnabled = _loadBool("labelsEnabled", true);
+
+        useMetricUnits = _loadBool("useMetricUnits", false);
+        batterySaverMode = _loadBool("batterySaverMode", false);
 
         for (var i = 0; i < LABEL_FIELDS.size(); i++) {
             var field = LABEL_FIELDS[i];
@@ -111,9 +122,24 @@ module Settings {
         }
     }
 
-    function setLabelsEnabled(v as Boolean) as Void {
-        labelsEnabled = v;
-        Storage.setValue("labelsEnabled", v);
+    function setShowRangeRings(v as Boolean) as Void {
+        showRangeRings = v;
+        Storage.setValue("showRangeRings", v);
+    }
+
+    function setShowGridLines(v as Boolean) as Void {
+        showGridLines = v;
+        Storage.setValue("showGridLines", v);
+    }
+
+    function setShowButtonHints(v as Boolean) as Void {
+        showButtonHints = v;
+        Storage.setValue("showButtonHints", v);
+    }
+
+    function setShowBackgroundMap(v as Boolean) as Void {
+        showBackgroundMap = v;
+        Storage.setValue("showBackgroundMap", v);
     }
 
     function setShowGroundVehicles(v as Boolean) as Void {
@@ -131,34 +157,9 @@ module Settings {
         Storage.setValue("hideObstacles", v);
     }
 
-    function setShowRangeRings(v as Boolean) as Void {
-        showRangeRings = v;
-        Storage.setValue("showRangeRings", v);
-    }
-
-    function setShowGridLines(v as Boolean) as Void {
-        showGridLines = v;
-        Storage.setValue("showGridLines", v);
-    }
-
-    function setShowButtonHints(v as Boolean) as Void {
-        showButtonHints = v;
-        Storage.setValue("showButtonHints", v);
-    }
-
-    function setUseMetricUnits(v as Boolean) as Void {
-        useMetricUnits = v;
-        Storage.setValue("useMetricUnits", v);
-    }
-
-    function setBatterySaverMode(v as Boolean) as Void {
-        batterySaverMode = v;
-        Storage.setValue("batterySaverMode", v);
-    }
-
-    function setShowBackgroundMap(v as Boolean) as Void {
-        showBackgroundMap = v;
-        Storage.setValue("showBackgroundMap", v);
+    function setHideMilitary(v as Boolean) as Void {
+        hideMilitary = v;
+        Storage.setValue("hideMilitary", v);
     }
 
     function setShowSelectedTrail(v as Boolean) as Void {
@@ -186,9 +187,19 @@ module Settings {
         Storage.setValue("singleColorMode", v);
     }
 
-    function setHideMilitary(v as Boolean) as Void {
-        hideMilitary = v;
-        Storage.setValue("hideMilitary", v);
+    function setLabelsEnabled(v as Boolean) as Void {
+        labelsEnabled = v;
+        Storage.setValue("labelsEnabled", v);
+    }
+
+    function setUseMetricUnits(v as Boolean) as Void {
+        useMetricUnits = v;
+        Storage.setValue("useMetricUnits", v);
+    }
+
+    function setBatterySaverMode(v as Boolean) as Void {
+        batterySaverMode = v;
+        Storage.setValue("batterySaverMode", v);
     }
 
     function isLabelFieldEnabled(id as String) as Boolean {

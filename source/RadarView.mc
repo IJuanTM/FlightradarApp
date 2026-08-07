@@ -5,10 +5,11 @@ import Toybox.Lang;
 import Toybox.Math;
 import Toybox.Position;
 import Toybox.System;
+import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.12.2";
+const APP_VERSION = "0.13.0";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -198,6 +199,10 @@ class RadarView extends WatchUi.View {
     // Persisted in onHide so a future cold app-open (currentLocation gone stale) still has a seed.
     private const STORAGE_KEY_LAT = "lastKnownLat";
     private const STORAGE_KEY_LON = "lastKnownLon";
+    private const STORAGE_KEY_TS = "lastKnownTs";
+    // Beyond this, a stored fix is more likely to be a stale "hours ago" location than close to
+    // wherever the user is now - better to wait for a real fix than fetch data for the old spot.
+    private const MAX_STORED_POSITION_AGE_SEC = 900;
 
     private var _centerLat as Float?;
     private var _centerLon as Float?;
@@ -521,7 +526,14 @@ class RadarView extends WatchUi.View {
         // back to wherever this app last had a real fix, persisted in onHide.
         var storedLat = Storage.getValue(STORAGE_KEY_LAT);
         var storedLon = Storage.getValue(STORAGE_KEY_LON);
-        if (storedLat != null and storedLon != null) {
+        var storedTs = Storage.getValue(STORAGE_KEY_TS);
+        if (
+            storedLat != null and
+            storedLon != null and
+            storedTs != null and
+            Time.now().value() - (storedTs as Number) <=
+                MAX_STORED_POSITION_AGE_SEC
+        ) {
             _centerLat = storedLat as Float;
             _centerLon = storedLon as Float;
             _hasFix = true;
@@ -541,6 +553,7 @@ class RadarView extends WatchUi.View {
         if (_hasFix) {
             Storage.setValue(STORAGE_KEY_LAT, _centerLat);
             Storage.setValue(STORAGE_KEY_LON, _centerLon);
+            Storage.setValue(STORAGE_KEY_TS, Time.now().value());
         }
     }
 
@@ -1816,8 +1829,6 @@ class RadarView extends WatchUi.View {
         focusLat as Float,
         focusLon as Float
     ) as Void {
-        // Dc has no circular clip - this bounding-square clip is the closest available, and stops tiles bleeding out to the button-hint annulus past the radar's edge.
-        dc.setClip(cx - radiusPx, cy - radiusPx, radiusPx * 2, radiusPx * 2);
         for (var i = 0; i < _staleMapTiles.size(); i++) {
             _drawMapTile(
                 dc,
@@ -1900,7 +1911,6 @@ class RadarView extends WatchUi.View {
                 Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER
             );
         }
-        dc.clearClip();
     }
 
     // Inner rings sit at real round-number km distances (like a map's own distance rings), not arbitrary N-way divisions.

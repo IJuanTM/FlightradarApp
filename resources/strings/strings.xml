@@ -2,23 +2,16 @@
   <string id="AppName">Flight Radar</string>
 
   <string id="MenuTitle">Radar Settings</string>
-  <string id="MenuLabels">Aircraft Labels</string>
-  <string id="MenuLabelsSub">Show Labels</string>
-  <string id="MenuDisplay">Display</string>
+  <string id="MenuMap">Map</string>
   <string id="MenuFilters">Filters</string>
   <string id="MenuAircraft">Aircraft</string>
+  <string id="MenuLabels">Aircraft Labels</string>
+  <string id="MenuGeneral">General</string>
 
-  <string id="LabelsMenuTitle">Aircraft Labels</string>
-  <string id="LabelCallsign">Callsign</string>
-  <string id="LabelSpeed">Speed</string>
-  <string id="LabelAltitude">Altitude</string>
-
-  <string id="DisplayMenuTitle">Display</string>
+  <string id="MapMenuTitle">Map</string>
   <string id="MenuShowRangeRings">Range Rings</string>
   <string id="MenuShowGridLines">Grid Lines</string>
   <string id="MenuShowButtonHints">Button Hints</string>
-  <string id="MenuMetricUnits">Metric Units</string>
-  <string id="MenuBatterySaver">Battery Saver</string>
   <string id="MenuShowBackgroundMap">Background Map</string>
 
   <string id="FiltersMenuTitle">Filters</string>
@@ -33,6 +26,16 @@
   <string id="MenuDimGroundedAircraft">Dim Grounded Aircraft</string>
   <string id="MenuDimStaleAircraft">Dim Stale Aircraft</string>
   <string id="MenuSingleColorMode">Single Color Mode</string>
+
+  <string id="LabelsMenuTitle">Aircraft Labels</string>
+  <string id="MenuLabelsSub">Show Labels</string>
+  <string id="LabelCallsign">Callsign</string>
+  <string id="LabelSpeed">Speed</string>
+  <string id="LabelAltitude">Altitude</string>
+
+  <string id="GeneralMenuTitle">General</string>
+  <string id="MenuMetricUnits">Metric Units</string>
+  <string id="MenuBatterySaver">Battery Saver</string>
 
   <string id="NoSignal">No Signal</string>
   <string id="TooBusy">Too Busy</string>
