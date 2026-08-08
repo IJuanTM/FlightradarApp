@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.14.0";
+const APP_VERSION = "0.14.1";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -645,7 +645,8 @@ class RadarView extends WatchUi.View {
         // failure path already produces, reusing _onAirportInfoResult's existing icao-match/clear logic.
         if (
             _pendingDepIcao != null or
-            (_pendingArrIcao != null and _isTimedOut(_airportFetchStartMs, now))
+            _pendingArrIcao != null and
+            _isTimedOut(_airportFetchStartMs, now)
         ) {
             if (_pendingDepIcao != null) {
                 _onAirportInfoResult(_pendingDepIcao as String, null);
@@ -2225,7 +2226,7 @@ class RadarView extends WatchUi.View {
         if (!_lastFetchOk) {
             return _lastFetchTooMuchData
                 ? [_tooBusyText, COLOR_WARN]
-                : [_noSignalText, Graphics.COLOR_RED];
+                : [_noSignalText, COLOR_EMERGENCY];
         }
         if (_fetchInFlight && !_viewHasFreshData) {
             return [_fetchingText, COLOR_GRID_LABEL];
@@ -3433,7 +3434,7 @@ class RadarView extends WatchUi.View {
         if (showSpeed && ac.gs != null) {
             bottom.add(
                 DrawUtil.plainRun(
-                    _formatSpeedKt((ac.gs as Float).toNumber()),
+                    _formatSpeedKt(_round(ac.gs as Float)),
                     COLOR_SPEED
                 )
             );
@@ -3641,7 +3642,7 @@ class RadarView extends WatchUi.View {
         if (ac.gs != null) {
             statSegs.add(
                 DrawUtil.plainRun(
-                    _formatSpeedKt((ac.gs as Float).toNumber()),
+                    _formatSpeedKt(_round(ac.gs as Float)),
                     COLOR_SPEED
                 )
             );
@@ -3649,7 +3650,7 @@ class RadarView extends WatchUi.View {
         if (ac.heading != null) {
             statSegs.add(
                 [
-                    (ac.heading as Float).toNumber().toString(),
+                    _round(ac.heading as Float).toString(),
                     COLOR_HDG,
                     :degree,
                     "",
@@ -3793,7 +3794,7 @@ class RadarView extends WatchUi.View {
             var sign = climbing ? "+" : "";
             vertRateCell = _cell(
                 "Vertical Rate",
-                sign + _formatVertRate(vr.toNumber()),
+                sign + _formatVertRate(_round(vr)),
                 climbing ? COLOR_SUCCESS : COLOR_WARN
             );
         }
@@ -3803,7 +3804,7 @@ class RadarView extends WatchUi.View {
             ac.gs != null
                 ? _cell(
                       "Ground Speed",
-                      _formatSpeedKt((ac.gs as Float).toNumber()),
+                      _formatSpeedKt(_round(ac.gs as Float)),
                       COLOR_SPEED
                   )
                 : null;
@@ -3817,7 +3818,7 @@ class RadarView extends WatchUi.View {
             ac.tas != null
                 ? _cell(
                       "TAS",
-                      _formatSpeedKt((ac.tas as Float).toNumber()),
+                      _formatSpeedKt(_round(ac.tas as Float)),
                       COLOR_SPEED
                   )
                 : null;
@@ -3834,7 +3835,7 @@ class RadarView extends WatchUi.View {
             ac.heading != null
                 ? _degreeCell(
                       "Heading",
-                      (ac.heading as Float).toNumber().toString(),
+                      _round(ac.heading as Float).toString(),
                       COLOR_HDG,
                       ""
                   )
@@ -3887,7 +3888,7 @@ class RadarView extends WatchUi.View {
             ac.navHeading != null
                 ? _degreeCell(
                       "Selected Hdg",
-                      (ac.navHeading as Float).toNumber().toString(),
+                      _round(ac.navHeading as Float).toString(),
                       COLOR_DETAIL_VALUE,
                       ""
                   )
@@ -3964,7 +3965,7 @@ class RadarView extends WatchUi.View {
     }
 
     private function _formatKm(km as Float) as String {
-        var whole = km.toNumber();
+        var whole = _round(km);
         if (km >= 10.0 || (km - whole).abs() < 0.05) {
             return whole.toString() + "km";
         }
@@ -3973,14 +3974,14 @@ class RadarView extends WatchUi.View {
 
     private function _formatAltitude(altFt as Number) as String {
         if (Settings.useMetricUnits) {
-            return (altFt.toFloat() * 0.3048).toNumber().toString() + "m";
+            return _round(altFt.toFloat() * 0.3048).toString() + "m";
         }
         return altFt.toString() + "ft";
     }
 
     private function _formatSpeedKt(kt as Number) as String {
         if (Settings.useMetricUnits) {
-            return (kt.toFloat() * 1.852).toNumber().toString() + "km/h";
+            return _round(kt.toFloat() * 1.852).toString() + "km/h";
         }
         return kt.toString() + "kt";
     }
@@ -3988,7 +3989,7 @@ class RadarView extends WatchUi.View {
     // Caller keeps the leading "+"/sign, this only formats the magnitude+unit.
     private function _formatVertRate(fpm as Number) as String {
         if (Settings.useMetricUnits) {
-            return (fpm.toFloat() * 0.3048).toNumber().toString() + "m/min";
+            return _round(fpm.toFloat() * 0.3048).toString() + "m/min";
         }
         return fpm.toString() + "fpm";
     }
