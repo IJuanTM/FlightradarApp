@@ -28,6 +28,51 @@ module Settings {
         new LabelField("altitude", Rez.Strings.LabelAltitude, true),
     ];
 
+    class MapStyleOption {
+        public var id as String;
+        public var stringId as ResourceId;
+        // Version segment before "[-dark]" - "-v4" for most styles, "" for unversioned ones.
+        public var urlSuffix as String;
+
+        public function initialize(
+            id as String,
+            stringId as ResourceId,
+            urlSuffix as String
+        ) {
+            self.id = id;
+            self.stringId = stringId;
+            self.urlSuffix = urlSuffix;
+        }
+    }
+
+    // id is the literal MapTiler style-id path segment - see MapClient for how it becomes a tile URL.
+    // Alphabetical by display name - no other grouping is more obviously "correct" for a named picker.
+    var MAP_STYLE_OPTIONS as Array<MapStyleOption> = [
+        new MapStyleOption("backdrop", Rez.Strings.MapStyleBackdrop, "-v4"),
+        new MapStyleOption("base", Rez.Strings.MapStyleBase, "-v4"),
+        new MapStyleOption("dataviz", Rez.Strings.MapStyleDataviz, "-v4"),
+        new MapStyleOption("hybrid", Rez.Strings.MapStyleHybrid, "-v4"),
+        new MapStyleOption("landscape", Rez.Strings.MapStyleLandscape, "-v4"),
+        new MapStyleOption(
+            "openstreetmap",
+            Rez.Strings.MapStyleOpenStreetMap,
+            ""
+        ),
+        new MapStyleOption("outdoor", Rez.Strings.MapStyleOutdoor, "-v4"),
+        new MapStyleOption("satellite", Rez.Strings.MapStyleSatellite, "-v4"),
+        new MapStyleOption("streets", Rez.Strings.MapStyleStreets, "-v4"),
+        new MapStyleOption("topo", Rez.Strings.MapStyleTopo, "-v4"),
+    ];
+
+    function mapStyleOption(id as String) as MapStyleOption? {
+        for (var i = 0; i < MAP_STYLE_OPTIONS.size(); i++) {
+            if (MAP_STYLE_OPTIONS[i].id.equals(id)) {
+                return MAP_STYLE_OPTIONS[i];
+            }
+        }
+        return null;
+    }
+
     var zoomIndex as Number = 0;
 
     // Map chrome toggles.
@@ -36,6 +81,9 @@ module Settings {
     var showButtonHints as Boolean = true;
     // Opt-in - a background map is the biggest network/battery cost in the app, default off.
     var showBackgroundMap as Boolean = false;
+    // MapTiler style id (see MAP_STYLE_OPTIONS) and whether to request its "-dark" variant.
+    var mapStyle as String = "base";
+    var mapDarkMode as Boolean = true;
 
     // Filters - what traffic appears at all.
     // Opt-in - ground vehicles hidden by default, unlike hideGroundedPlanes below.
@@ -73,6 +121,8 @@ module Settings {
         showGridLines = _loadBool("showGridLines", false);
         showButtonHints = _loadBool("showButtonHints", true);
         showBackgroundMap = _loadBool("showBackgroundMap", false);
+        mapStyle = _loadString("mapStyle", "base");
+        mapDarkMode = _loadBool("mapDarkMode", true);
 
         showGroundVehicles = _loadBool("showGroundVehicles", false);
         hideGroundedPlanes = _loadBool("hideGroundedPlanes", false);
@@ -102,6 +152,11 @@ module Settings {
     function _loadBool(key as String, defaultVal as Boolean) as Boolean {
         var v = Storage.getValue(key);
         return v == null ? defaultVal : v as Boolean;
+    }
+
+    function _loadString(key as String, defaultVal as String) as String {
+        var v = Storage.getValue(key);
+        return v == null ? defaultVal : v as String;
     }
 
     function zoomRadiusKm() as Float {
@@ -140,6 +195,16 @@ module Settings {
     function setShowBackgroundMap(v as Boolean) as Void {
         showBackgroundMap = v;
         Storage.setValue("showBackgroundMap", v);
+    }
+
+    function setMapStyle(v as String) as Void {
+        mapStyle = v;
+        Storage.setValue("mapStyle", v);
+    }
+
+    function setMapDarkMode(v as Boolean) as Void {
+        mapDarkMode = v;
+        Storage.setValue("mapDarkMode", v);
     }
 
     function setShowGroundVehicles(v as Boolean) as Void {

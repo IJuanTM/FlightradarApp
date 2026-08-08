@@ -2,17 +2,31 @@
   <string id="AppName">Flight Radar</string>
 
   <string id="MenuTitle">Radar Settings</string>
-  <string id="MenuMap">Map</string>
+  <string id="MenuDisplay">Display</string>
   <string id="MenuFilters">Filters</string>
   <string id="MenuAircraft">Aircraft</string>
   <string id="MenuLabels">Aircraft Labels</string>
   <string id="MenuGeneral">General</string>
 
-  <string id="MapMenuTitle">Map</string>
+  <string id="DisplayMenuTitle">Display</string>
   <string id="MenuShowRangeRings">Range Rings</string>
   <string id="MenuShowGridLines">Grid Lines</string>
-  <string id="MenuShowButtonHints">Button Hints</string>
   <string id="MenuShowBackgroundMap">Background Map</string>
+  <string id="MenuMapStyle">Map Style</string>
+  <string id="MenuMapDarkMode">Map Dark Mode</string>
+  <string id="MenuShowButtonHints">Button Hints</string>
+
+  <string id="MapStyleMenuTitle">Map Style</string>
+  <string id="MapStyleBackdrop">Backdrop</string>
+  <string id="MapStyleBase">Base</string>
+  <string id="MapStyleDataviz">Dataviz</string>
+  <string id="MapStyleHybrid">Hybrid</string>
+  <string id="MapStyleLandscape">Landscape</string>
+  <string id="MapStyleOpenStreetMap">OpenStreetMap</string>
+  <string id="MapStyleOutdoor">Outdoor</string>
+  <string id="MapStyleSatellite">Satellite</string>
+  <string id="MapStyleStreets">Streets</string>
+  <string id="MapStyleTopo">Topo</string>
 
   <string id="FiltersMenuTitle">Filters</string>
   <string id="MenuShowGroundVehicles">Show Ground Vehicles</string>

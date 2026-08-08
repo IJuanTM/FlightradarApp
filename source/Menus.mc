@@ -6,7 +6,7 @@ module MenuBuilder {
     function buildMainMenu() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({ :title => Rez.Strings.MenuTitle });
         menu.addItem(
-            new WatchUi.MenuItem(Rez.Strings.MenuMap, null, :map, null)
+            new WatchUi.MenuItem(Rez.Strings.MenuDisplay, null, :display, null)
         );
         menu.addItem(
             new WatchUi.MenuItem(Rez.Strings.MenuFilters, null, :filters, null)
@@ -31,10 +31,11 @@ module MenuBuilder {
         return menu;
     }
 
-    // Pure map-chrome toggles - anything drawn as part of the radar background, not the aircraft
-    // themselves or app-wide behavior. See buildGeneralMenu for the latter.
-    function buildMapMenu() as WatchUi.Menu2 {
-        var menu = new WatchUi.Menu2({ :title => Rez.Strings.MapMenuTitle });
+    // Screen-chrome toggles (rings/grid/hints/background map), not the aircraft themselves or app-wide behavior.
+    function buildDisplayMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.DisplayMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowRangeRings,
@@ -55,15 +56,6 @@ module MenuBuilder {
         );
         menu.addItem(
             new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuShowButtonHints,
-                null,
-                :showButtonHints,
-                Settings.showButtonHints,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowBackgroundMap,
                 null,
                 :showBackgroundMap,
@@ -71,6 +63,47 @@ module MenuBuilder {
                 null
             )
         );
+        var currentStyle = Settings.mapStyleOption(Settings.mapStyle);
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.MenuMapStyle,
+                currentStyle != null ? currentStyle.stringId : null,
+                :mapStyle,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuMapDarkMode,
+                null,
+                :mapDarkMode,
+                Settings.mapDarkMode,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowButtonHints,
+                null,
+                :showButtonHints,
+                Settings.showButtonHints,
+                null
+            )
+        );
+        return menu;
+    }
+
+    function buildMapStyleMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.MapStyleMenuTitle,
+        });
+        var options = Settings.MAP_STYLE_OPTIONS;
+        for (var i = 0; i < options.size(); i++) {
+            var opt = options[i];
+            menu.addItem(
+                new WatchUi.MenuItem(opt.stringId, null, opt.id, null)
+            );
+        }
         return menu;
     }
 
@@ -233,10 +266,10 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
     public function onSelect(item as WatchUi.MenuItem) as Void {
         var id = item.getId();
 
-        if (id == :map) {
+        if (id == :display) {
             WatchUi.pushView(
-                MenuBuilder.buildMapMenu(),
-                new MapMenuDelegate(),
+                MenuBuilder.buildDisplayMenu(),
+                new DisplayMenuDelegate(),
                 WatchUi.SLIDE_LEFT
             );
             return;
@@ -280,16 +313,26 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
     }
 }
 
-class MapMenuDelegate extends WatchUi.Menu2InputDelegate {
+class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
     public function initialize() {
         Menu2InputDelegate.initialize();
     }
 
     public function onSelect(item as WatchUi.MenuItem) as Void {
+        var id = item.getId();
+
+        if (id == :mapStyle) {
+            WatchUi.pushView(
+                MenuBuilder.buildMapStyleMenu(),
+                new MapStyleMenuDelegate(item),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
+
         if (!(item instanceof WatchUi.ToggleMenuItem)) {
             return;
         }
-        var id = item.getId();
         var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
 
         if (id == :showRangeRings) {
@@ -300,7 +343,29 @@ class MapMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setShowButtonHints(enabled);
         } else if (id == :showBackgroundMap) {
             Settings.setShowBackgroundMap(enabled);
+        } else if (id == :mapDarkMode) {
+            Settings.setMapDarkMode(enabled);
         }
+    }
+}
+
+// Pops back to the parent item so its subLabel reflects the newly-picked style immediately.
+class MapStyleMenuDelegate extends WatchUi.Menu2InputDelegate {
+    private var _parentItem as WatchUi.MenuItem;
+
+    public function initialize(parentItem as WatchUi.MenuItem) {
+        Menu2InputDelegate.initialize();
+        _parentItem = parentItem;
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        var id = item.getId() as String;
+        Settings.setMapStyle(id);
+        var opt = Settings.mapStyleOption(id);
+        if (opt != null) {
+            _parentItem.setSubLabel(opt.stringId);
+        }
+        WatchUi.popView(WatchUi.SLIDE_RIGHT);
     }
 }
 

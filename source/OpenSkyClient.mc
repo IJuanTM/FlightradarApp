@@ -11,9 +11,12 @@ class OpenSkyClient {
     private const TRACKS_URL = "https://opensky-network.org/api/tracks/all";
     private const TOKEN_SAFETY_MARGIN_MS = 60000;
 
+    // hex identifies which aircraft this request was for - callers must not rely on their own mutable
+    // state to correlate a response, since a retried/late response can otherwise get misattributed.
     typedef TrackCallback as
         (Method
             (
+                hex as String,
                 points as Array<[Float, Float, Number, Boolean]>,
                 ok as Boolean
             ) as Void
@@ -201,10 +204,11 @@ class OpenSkyClient {
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
     ) as Void {
+        var hex = _slot.activePayload() as String?;
         var cb = _slot.activeCallback() as TrackCallback?;
         var promoted = _slot.clearAndPromote();
-        if (cb != null) {
-            cb.invoke(points, ok);
+        if (cb != null && hex != null) {
+            cb.invoke(hex, points, ok);
         }
         if (promoted) {
             _retriedTrackAuth = false;

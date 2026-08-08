@@ -2,19 +2,24 @@ import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.Graphics;
 import Toybox.System;
+import Toybox.Timer;
 import Toybox.WatchUi;
 
 class MapClient {
-    private const BASE_URL = "https://api.maptiler.com/maps/backdrop-v4-dark";
+    private const URL_PREFIX = "https://api.maptiler.com/maps/";
     // Must equal the real fetched bitmap size - draw-scale math divides by it.
     public const TILE_SIZE_STD as Number = 256;
     // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
     // Generous margin above the slowest cold fetch actually measured (~1s) - a hung tile would otherwise permanently block every other tile and the aircraft poll behind it.
     private const TILE_TIMEOUT_MS = 3000;
+    // SDK docs: Timer's minimum interval defaults to 50ms - same floor AirplanesLiveClient's own throttle uses.
+    private const MIN_WAKE_DELAY_MS = 50;
 
     private var _apiKey as String?;
     private var _currentStartMs as Number?;
+    // One-shot, not a local - see AirplanesLiveClient._throttleTimer for why an unstored Timer is unsafe.
+    private var _wakeTimer as Timer.Timer?;
 
     typedef MapBitmap as Graphics.BitmapReference or WatchUi.BitmapResource;
     typedef TileCallback as
@@ -44,11 +49,28 @@ class MapClient {
         _pausedBy[owner] = true;
     }
 
-    // Only updates the owner set - dispatching here would nest inside the Communications callback that called resumeFor(), which crashed on-device; tick() does the dispatch instead.
+    // Never dispatches directly here (still the off-limits nested-Communications shape) - a one-shot Timer wakes it sooner instead.
     public function resumeFor(owner as Symbol) as Void {
         if (_pausedBy.hasKey(owner)) {
             _pausedBy.remove(owner);
         }
+        if (
+            _pausedBy.size() == 0 and
+            _queue.size() > 0 and
+            _wakeTimer == null
+        ) {
+            _wakeTimer = new Timer.Timer();
+            (_wakeTimer as Timer.Timer).start(
+                method(:_onWake),
+                MIN_WAKE_DELAY_MS,
+                false
+            );
+        }
+    }
+
+    public function _onWake() as Void {
+        _wakeTimer = null;
+        _dispatchNextIfIdle();
     }
 
     // Call once per timer tick: reports a hung tile as failed (not cancelled - cancelAllRequests() crashed on-device) and dispatches the next queued tile if idle.
@@ -177,8 +199,13 @@ class MapClient {
         _current = [z, x, y, tileSize];
         _currentStartMs = System.getTimer();
         _awaitingReceive = true;
+        var opt = Settings.mapStyleOption(Settings.mapStyle);
+        var suffix = opt != null ? opt.urlSuffix : "-v4";
         var url =
-            BASE_URL +
+            URL_PREFIX +
+            Settings.mapStyle +
+            suffix +
+            (Settings.mapDarkMode ? "-dark" : "") +
             "/" +
             TILE_SIZE_STD.toString() +
             "/" +

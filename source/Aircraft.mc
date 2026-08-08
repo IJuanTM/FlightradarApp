@@ -51,14 +51,13 @@ class Aircraft {
         if (ab instanceof Lang.String) {
             onGround = true;
             altBaro = 0;
-        } else if (ab != null) {
+        } else if (_isNumeric(ab)) {
             onGround = false;
             altBaro = ab.toNumber();
         } else {
             onGround = false;
             // No barometric reading at all - fall back to GPS/geometric altitude rather than showing nothing.
-            var ag = dict["alt_geom"];
-            altBaro = ag != null ? ag.toNumber() : null;
+            altBaro = _toNumberOrNull(dict["alt_geom"]);
         }
 
         gs = _toFloatOrNull(dict["gs"]);
@@ -74,8 +73,8 @@ class Aircraft {
         typeCode = _toTrimmedStringOrNull(dict["t"]);
         typeDesc = _toTrimmedStringOrNull(dict["desc"]);
 
-        var flags = dict["dbFlags"];
-        military = flags != null && (flags.toNumber() & 1) != 0;
+        var flagsNum = _toNumberOrNull(dict["dbFlags"]);
+        military = flagsNum != null && (flagsNum & 1) != 0;
 
         var vr = dict["baro_rate"];
         vertRate = _toFloatOrNull(vr != null ? vr : dict["geom_rate"]);
@@ -88,7 +87,7 @@ class Aircraft {
 
         var mcp = dict["nav_altitude_mcp"];
         var navAlt = mcp != null ? mcp : dict["nav_altitude_fms"];
-        navAltitude = navAlt != null ? navAlt.toNumber() : null;
+        navAltitude = _toNumberOrNull(navAlt);
         navHeading = _toFloatOrNull(dict["nav_heading"]);
 
         var seenPos = dict["seen_pos"];
@@ -99,19 +98,14 @@ class Aircraft {
         var ownOp = _toTrimmedStringOrNull(dict["ownOp"]);
         operatorName =
             ownOp != null ? TextUtil.foldDiacritics(ownOp as String) : null;
-        var iasVal = dict["ias"];
-        ias = iasVal != null ? iasVal.toNumber() : null;
+        ias = _toNumberOrNull(dict["ias"]);
         mach = _toFloatOrNull(dict["mach"]);
         spi = _toBoolFlag(dict["spi"]);
         alertFlag = _toBoolFlag(dict["alert"]);
-        var wdVal = dict["wd"];
-        windDir = wdVal != null ? wdVal.toNumber() : null;
-        var wsVal = dict["ws"];
-        windSpeed = wsVal != null ? wsVal.toNumber() : null;
-        var oatVal = dict["oat"];
-        outsideAirTemp = oatVal != null ? oatVal.toNumber() : null;
-        var tatVal = dict["tat"];
-        totalAirTemp = tatVal != null ? tatVal.toNumber() : null;
+        windDir = _toNumberOrNull(dict["wd"]);
+        windSpeed = _toNumberOrNull(dict["ws"]);
+        outsideAirTemp = _toNumberOrNull(dict["oat"]);
+        totalAirTemp = _toNumberOrNull(dict["tat"]);
     }
 
     // DO-260B C1/C2 = surface vehicles, never an airborne class, distinct from a plane that's merely onGround.
@@ -147,16 +141,36 @@ class Aircraft {
         );
     }
 
+    // Excludes only the types with no .toNumber()/.toFloat() (Dictionary/Array/Boolean) - String is kept, it has both.
+    private function _isNumeric(v) as Boolean {
+        return (
+            v != null and
+            !(
+                v instanceof Lang.Dictionary or
+                v instanceof Lang.Array or
+                v instanceof Lang.Boolean
+            )
+        );
+    }
+
     private function _toFloat(v, def as Float) as Float {
-        return v != null ? v.toFloat() : def;
+        if (!_isNumeric(v)) {
+            return def;
+        }
+        var f = v.toFloat();
+        return f != null ? f : def;
     }
 
     private function _toBoolFlag(v) as Boolean {
-        return v != null && v.toNumber() != 0;
+        return _isNumeric(v) && v.toNumber() != 0;
     }
 
     private function _toFloatOrNull(v) as Float? {
-        return v != null ? v.toFloat() : null;
+        return _isNumeric(v) ? v.toFloat() : null;
+    }
+
+    private function _toNumberOrNull(v) as Number? {
+        return _isNumeric(v) ? v.toNumber() : null;
     }
 
     private function _toTrimmedStringOrNull(v) as String? {
