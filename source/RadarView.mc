@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.14.2";
+const APP_VERSION = "0.14.3";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -141,7 +141,7 @@ class RadarView extends WatchUi.View {
     private const COLOR_MINOR_TICK_ALPHA = DrawUtil.ALPHA_35;
     private const COLOR_GRID = GRAYS[3];
     private const COLOR_GRID_ALPHA = DrawUtil.ALPHA_15;
-    private const COLOR_GRID_LABEL = GRAYS[2];
+    private const COLOR_GRID_LABEL = GRAYS[3];
     private var _gridLabelInset as Number = 22;
     private var _topPanelLineHeight as Number = 18;
     private var _detailPanelLineHeight as Number = 18;
@@ -284,6 +284,8 @@ class RadarView extends WatchUi.View {
     private var _touchDownInDetailPanel as Boolean = false;
     private var _lastRadiusPx as Number = 1;
     private var _lastScreenHeight as Number = 1;
+    // Half-width of the compact panel's widest line, cached from the last draw for tap hit-testing.
+    private var _lastDetailPanelHalfWidthPx as Number = 0;
     // Timestamp-gated, not a plain flag - a standalone tap may never fire beginDrag on real hardware.
     private var _dragStopAtMs as Number?;
     private const TAP_SUPPRESS_WINDOW_MS = 300;
@@ -963,13 +965,16 @@ class RadarView extends WatchUi.View {
             return false;
         }
         var panelH = _detailPanelHeight(ac as Aircraft);
+        var cx = _lastScreenHeight / 2;
         return (
             panelH != 0 &&
-            y >= _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX
+            y >= _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX &&
+            (x - cx).abs() <=
+                _lastDetailPanelHalfWidthPx + DETAIL_TAP_SIDE_MARGIN_PX
         );
     }
 
-    // True (and opens full detail) for a tap anywhere on the compact panel, chevron margin included.
+    // True (and opens full detail) for a tap on the compact panel's actual text/chevron, not the full-width band.
     public function tryOpenDetailPanel(x as Number, y as Number) as Boolean {
         if (!_isInDetailPanelZone(x, y)) {
             return false;
@@ -1011,7 +1016,8 @@ class RadarView extends WatchUi.View {
             ringCx,
             _lastRadiusPx,
             _topPanelHeight(),
-            _topPanelHeight() // bottom band matches the header's own height, not the (variable) compact panel height
+            _topPanelHeight(), // bottom band matches the header's own height, not the (variable) compact panel height
+            _edgeMargin
         );
         _detailView = view;
         WatchUi.pushView(
@@ -3482,14 +3488,24 @@ class RadarView extends WatchUi.View {
         // Mirrors the top panel, which stops one row short of its own border for the same reason.
         dc.fillRectangle(0, panelY + 1, dc.getWidth(), panelH - 1);
 
+        var maxLineW = 0;
         for (var i = 0; i < lines.size(); i++) {
-            _drawSegmentedLine(
+            var line = lines[i] as Array<DrawUtil.ValueRun>;
+            var measured = _measureSegments(dc, line);
+            var lineW = measured[0] as Number;
+            if (lineW > maxLineW) {
+                maxLineW = lineW;
+            }
+            _drawMeasuredSegments(
                 dc,
                 cx,
                 panelY + 4 + i * _detailPanelLineHeight,
-                lines[i] as Array<DrawUtil.ValueRun>
+                line,
+                measured[1] as Array<Number>,
+                lineW
             );
         }
+        _lastDetailPanelHalfWidthPx = maxLineW / 2;
 
         _drawPanelBorder(dc, panelY, cx, cy, radiusPx);
         _drawChevronUp(dc, cx, panelY - _chevronMarginPx, CHEVRON_SIZE_PX);
@@ -3513,6 +3529,8 @@ class RadarView extends WatchUi.View {
     private const CHEVRON_SIZE_PX = 7;
     // Extra tap area above the panel's top edge, covering the chevron - so the chevron itself feels tappable.
     private const CHEVRON_TAP_MARGIN_PX = 28;
+    // Extra tap area on each side of the panel's actual text width, same touch-tolerance idea as HIT_RADIUS_PX.
+    private const DETAIL_TAP_SIDE_MARGIN_PX = 20;
 
     // "There's more above" affordance - a plain line like _drawMinusHint/_drawMenuHint, no font glyph.
     // Full white, not COLOR_TEXT, since it's an affordance, not body text - reads brighter than the panel content.
@@ -3704,6 +3722,29 @@ class RadarView extends WatchUi.View {
         );
     }
 
+    // "-" placeholder cell when text is null, instead of omitting the field entirely.
+    private function _cellOrDash(
+        label as String,
+        text as String?,
+        color as Number
+    ) as [String, Array<DrawUtil.ValueRun>] {
+        return text != null
+            ? _cell(label, text, color)
+            : _cell(label, "-", COLOR_ROUTE_DIM);
+    }
+
+    // Same as _cellOrDash, but for _degreeCell fields - the dash gets no degree glyph/suffix.
+    private function _degreeCellOrDash(
+        label as String,
+        text as String?,
+        color as Number,
+        suffix as String
+    ) as [String, Array<DrawUtil.ValueRun>] {
+        return text != null
+            ? _degreeCell(label, text, color, suffix)
+            : _cell(label, "-", COLOR_ROUTE_DIM);
+    }
+
     // Pairs both cells if both exist; otherwise adds whichever one exists as its own row; otherwise adds nothing.
     private function _gridRow(
         rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
@@ -3751,46 +3792,29 @@ class RadarView extends WatchUi.View {
         var groupBoundaries = [] as Array<Number>;
 
         var identityStart = rows.size();
-        var regCell =
-            ac.registration != null
-                ? _cell(
-                      "Registration",
-                      ac.registration as String,
-                      COLOR_IDENTITY
-                  )
-                : null;
-        _gridRow(rows, regCell, _cell("Hex", ac.hex, COLOR_IDENTITY));
+        _gridRow(
+            rows,
+            _cellOrDash("Registration", ac.registration, COLOR_IDENTITY),
+            _cell("Hex", ac.hex, COLOR_IDENTITY)
+        );
 
         var typeStr = ac.typeDesc != null ? ac.typeDesc : ac.typeCode;
-        var typeCell =
-            typeStr != null
-                ? _cell("Type", typeStr as String, COLOR_IDENTITY)
-                : null;
-        var categoryCell =
-            ac.category != null
-                ? _cell("Category", ac.category as String, COLOR_IDENTITY)
-                : null;
-        _gridRow(rows, typeCell, categoryCell);
+        _gridRow(
+            rows,
+            _cellOrDash("Type", typeStr, COLOR_IDENTITY),
+            _cellOrDash("Category", ac.category, COLOR_IDENTITY)
+        );
 
-        if (ac.operatorName != null) {
-            rows.add([
-                _cell("Operator", ac.operatorName as String, COLOR_IDENTITY),
-            ]);
-        }
+        rows.add([_cellOrDash("Operator", ac.operatorName, COLOR_IDENTITY)]);
         _markGroupIfNonEmpty(rows, groupBoundaries, identityStart);
 
         var performanceStart = rows.size();
-        var altCell = null as [String, Array<DrawUtil.ValueRun>]?;
-        if (ac.onGround) {
-            altCell = _cell("Altitude", "GND", COLOR_ALT);
-        } else if (ac.altBaro != null) {
-            altCell = _cell(
-                "Altitude",
-                _formatAltitude(ac.altBaro as Number),
-                COLOR_ALT
-            );
-        }
-        var vertRateCell = null as [String, Array<DrawUtil.ValueRun>]?;
+        var altText = ac.onGround
+            ? "GND"
+            : ac.altBaro != null
+              ? _formatAltitude(ac.altBaro as Number)
+              : null;
+        var vertRateCell = _cell("Vertical Rate", "-", COLOR_ROUTE_DIM);
         if (ac.vertRate != null) {
             var vr = ac.vertRate as Float;
             var climbing = vr > 0;
@@ -3801,63 +3825,66 @@ class RadarView extends WatchUi.View {
                 climbing ? COLOR_SUCCESS : COLOR_WARN
             );
         }
-        _gridRow(rows, altCell, vertRateCell);
+        _gridRow(
+            rows,
+            _cellOrDash("Altitude", altText, COLOR_ALT),
+            vertRateCell
+        );
 
-        var gsCell =
-            ac.gs != null
-                ? _cell(
-                      "Ground Speed",
-                      _formatSpeedKt(_round(ac.gs as Float)),
-                      COLOR_SPEED
-                  )
-                : null;
-        var iasCell =
-            ac.ias != null
-                ? _cell("IAS", _formatSpeedKt(ac.ias as Number), COLOR_SPEED)
-                : null;
-        _gridRow(rows, gsCell, iasCell);
+        _gridRow(
+            rows,
+            _cellOrDash(
+                "Ground Speed",
+                ac.gs != null ? _formatSpeedKt(_round(ac.gs as Float)) : null,
+                COLOR_SPEED
+            ),
+            _cellOrDash(
+                "IAS",
+                ac.ias != null ? _formatSpeedKt(ac.ias as Number) : null,
+                COLOR_SPEED
+            )
+        );
 
-        var tasCell =
-            ac.tas != null
-                ? _cell(
-                      "TAS",
-                      _formatSpeedKt(_round(ac.tas as Float)),
-                      COLOR_SPEED
-                  )
-                : null;
-        var machCell =
-            ac.mach != null
-                ? _cell("Mach", (ac.mach as Float).format("%.2f"), COLOR_SPEED)
-                : null;
-        _gridRow(rows, tasCell, machCell);
+        _gridRow(
+            rows,
+            _cellOrDash(
+                "TAS",
+                ac.tas != null ? _formatSpeedKt(_round(ac.tas as Float)) : null,
+                COLOR_SPEED
+            ),
+            _cellOrDash(
+                "Mach",
+                ac.mach != null ? (ac.mach as Float).format("%.2f") : null,
+                COLOR_SPEED
+            )
+        );
         _markGroupIfNonEmpty(rows, groupBoundaries, performanceStart);
 
         var navStatusStart = rows.size();
         var emergency = ac.isEmergency();
-        var hdgCell =
+        var hdgCell = _degreeCellOrDash(
+            "Heading",
             ac.heading != null
-                ? _degreeCell(
-                      "Heading",
-                      _roundHeading(ac.heading as Float).toString(),
-                      COLOR_HDG,
-                      ""
-                  )
-                : null;
-        var squawkCell = null as [String, Array<DrawUtil.ValueRun>]?;
-        if (ac.squawk != null || emergency) {
-            var squawkColor = emergency ? COLOR_EMERGENCY : COLOR_SQUAWK;
-            var squawkText = ac.squawk != null ? ac.squawk as String : "";
-            // Full space before the icon, not DrawUtil's own small fixed gap.
-            squawkCell = emergency
-                ? [
-                      "Squawk",
+                ? _roundHeading(ac.heading as Float).toString()
+                : null,
+            COLOR_HDG,
+            ""
+        );
+        var squawkColor = emergency ? COLOR_EMERGENCY : COLOR_SQUAWK;
+        // Full space before the icon, not DrawUtil's own small fixed gap.
+        var squawkCell = emergency
+            ? [
+                  "Squawk",
+                  [
                       [
-                          [squawkText + " ", squawkColor, :warning, ""] as
-                              DrawUtil.ValueRun,
-                      ],
-                  ]
-                : _cell("Squawk", squawkText, squawkColor);
-        }
+                          (ac.squawk != null ? ac.squawk as String : "") + " ",
+                          squawkColor,
+                          :warning,
+                          "",
+                      ] as DrawUtil.ValueRun,
+                  ],
+              ]
+            : _cellOrDash("Squawk", ac.squawk, squawkColor);
         _gridRow(rows, hdgCell, squawkCell);
 
         var statusParts = [] as Array<String>;
@@ -3879,57 +3906,59 @@ class RadarView extends WatchUi.View {
         _markGroupIfNonEmpty(rows, groupBoundaries, navStatusStart);
 
         var targetStart = rows.size();
-        var selAltCell =
-            ac.navAltitude != null
-                ? _cell(
-                      "Selected Alt",
-                      _formatAltitude(ac.navAltitude as Number),
-                      COLOR_DETAIL_VALUE
-                  )
-                : null;
-        var selHdgCell =
-            ac.navHeading != null
-                ? _degreeCell(
-                      "Selected Hdg",
-                      _roundHeading(ac.navHeading as Float).toString(),
-                      COLOR_DETAIL_VALUE,
-                      ""
-                  )
-                : null;
-        _gridRow(rows, selAltCell, selHdgCell);
+        _gridRow(
+            rows,
+            _cellOrDash(
+                "Selected Alt",
+                ac.navAltitude != null
+                    ? _formatAltitude(ac.navAltitude as Number)
+                    : null,
+                COLOR_DETAIL_VALUE
+            ),
+            _degreeCellOrDash(
+                "Selected Hdg",
+                ac.navHeading != null
+                    ? _roundHeading(ac.navHeading as Float).toString()
+                    : null,
+                COLOR_DETAIL_VALUE,
+                ""
+            )
+        );
         _markGroupIfNonEmpty(rows, groupBoundaries, targetStart);
 
         var envStart = rows.size();
-        if (ac.windDir != null && ac.windSpeed != null) {
-            rows.add([
-                _degreeCell(
-                    "Wind",
-                    (ac.windDir as Number).toString(),
-                    COLOR_ENV,
-                    " @ " + _formatSpeedKt(ac.windSpeed as Number)
-                ),
-            ]);
-        }
+        rows.add([
+            _degreeCellOrDash(
+                "Wind",
+                ac.windDir != null && ac.windSpeed != null
+                    ? (ac.windDir as Number).toString()
+                    : null,
+                COLOR_ENV,
+                ac.windSpeed != null
+                    ? " @ " + _formatSpeedKt(ac.windSpeed as Number)
+                    : ""
+            ),
+        ]);
 
-        var outTempCell =
-            ac.outsideAirTemp != null
-                ? _degreeCell(
-                      "Outside Temp",
-                      (ac.outsideAirTemp as Number).toString(),
-                      COLOR_ENV,
-                      "C"
-                  )
-                : null;
-        var totalTempCell =
-            ac.totalAirTemp != null
-                ? _degreeCell(
-                      "Total Air Temp",
-                      (ac.totalAirTemp as Number).toString(),
-                      COLOR_ENV,
-                      "C"
-                  )
-                : null;
-        _gridRow(rows, outTempCell, totalTempCell);
+        _gridRow(
+            rows,
+            _degreeCellOrDash(
+                "Outside Temp",
+                ac.outsideAirTemp != null
+                    ? (ac.outsideAirTemp as Number).toString()
+                    : null,
+                COLOR_ENV,
+                "C"
+            ),
+            _degreeCellOrDash(
+                "Total Air Temp",
+                ac.totalAirTemp != null
+                    ? (ac.totalAirTemp as Number).toString()
+                    : null,
+                COLOR_ENV,
+                "C"
+            )
+        );
         _markGroupIfNonEmpty(rows, groupBoundaries, envStart);
 
         // Separate rows, not one joined "dep -> arr" line - a full description is too long for one line.

@@ -153,6 +153,75 @@ module DrawUtil {
         }
     }
 
+    function _wordsInRun(s as String) as Array<String> {
+        var chars = s.toCharArray();
+        var words = [] as Array<String>;
+        var start = -1;
+        for (var i = 0; i < chars.size(); i++) {
+            if (chars[i] == ' ') {
+                if (start >= 0) {
+                    words.add(s.substring(start, i) as String);
+                    start = -1;
+                }
+            } else if (start < 0) {
+                start = i;
+            }
+        }
+        if (start >= 0) {
+            words.add(s.substring(start, chars.size()) as String);
+        }
+        return words;
+    }
+
+    // A glyph/suffix (degree mark etc.) stays attached to its run's last word, never split mid-run.
+    function wrapSegments(
+        dc as Dc,
+        font,
+        runs as Array<ValueRun>,
+        maxWidthPx as Number
+    ) as Array<Array<ValueRun> > {
+        var words = [] as Array<ValueRun>;
+        for (var i = 0; i < runs.size(); i++) {
+            var run = runs[i];
+            var parts = _wordsInRun(run[0] as String);
+            for (var j = 0; j < parts.size(); j++) {
+                var isLast = j == parts.size() - 1;
+                words.add(
+                    [
+                        parts[j],
+                        run[1] as Number,
+                        isLast ? run[2] as Symbol? : null,
+                        isLast ? run[3] as String : "",
+                    ] as ValueRun
+                );
+            }
+        }
+
+        var lines = [] as Array<Array<ValueRun> >;
+        var line = [] as Array<ValueRun>;
+        var lineW = 0;
+        var spaceW = dc.getTextDimensions(" ", font)[0];
+        for (var i = 0; i < words.size(); i++) {
+            var w = words[i];
+            var wordW = runWidth(dc, font, w);
+            var addW = (line.size() > 0 ? spaceW : 0) + wordW;
+            if (line.size() > 0 && lineW + addW > maxWidthPx) {
+                lines.add(line);
+                line = [] as Array<ValueRun>;
+                lineW = 0;
+                addW = wordW;
+            }
+            line.add(
+                line.size() > 0 ? [" " + w[0], w[1], w[2], w[3]] as ValueRun : w
+            );
+            lineW += addW;
+        }
+        if (line.size() > 0) {
+            lines.add(line);
+        }
+        return lines;
+    }
+
     // Filled triangle with a black cutout exclamation mark - canvas is always black, so no color sampling needed.
     function drawWarningIcon(
         dc as Dc,
