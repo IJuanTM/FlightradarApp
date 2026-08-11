@@ -99,10 +99,12 @@ module Projection {
         radiusKm as Float,
         radiusPx as Number
     ) as Float {
-        var metersPerPx = (radiusKm * 1000.0) / radiusPx;
-        var equatorMPerPx =
-            WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 * Math.cos(Math.toRadians(lat));
-        return Math.log(equatorMPerPx / metersPerPx, 2.0).toFloat();
+        return Math.log(
+            (WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 *
+                Math.cos(Math.toRadians(lat))) /
+                ((radiusKm * 1000.0) / radiusPx),
+            2.0
+        ).toFloat();
     }
 
     const EULERS_NUMBER = 2.718281828459045;

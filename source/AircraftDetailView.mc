@@ -23,6 +23,7 @@ class AircraftDetailView extends WatchUi.View {
     private var _topY as Number;
     private var _bottomY as Number = 0;
     private var _bottomPanelH as Number;
+    private var _screenWidthPx as Number = 0;
 
     // Adaptive: stretches toward MAX for few rows, clamps to MIN and scrolls for many. Between-group gap only.
     private var _rowHeight as Number = 20;
@@ -117,8 +118,8 @@ class AircraftDetailView extends WatchUi.View {
         _labelValueGapPx = _charW;
         _fieldGapPx = _charW * 2;
 
-        var h = dc.getHeight();
-        _bottomY = h - _bottomPanelH;
+        _screenWidthPx = dc.getWidth();
+        _bottomY = dc.getHeight() - _bottomPanelH;
 
         var available = _bottomY - _topY - _contentPadding * 2;
         var count = _rows.size();
@@ -148,8 +149,10 @@ class AircraftDetailView extends WatchUi.View {
         var y = 0;
         for (var i = 0; i < count; i++) {
             if (i > 0) {
-                var isGroupStart = i < _groupStarts.size() && _groupStarts[i];
-                y += isGroupStart ? _rowHeight : intraGap;
+                y +=
+                    i < _groupStarts.size() && _groupStarts[i]
+                        ? _rowHeight
+                        : intraGap;
             }
             _rowY.add(y);
 
@@ -164,7 +167,7 @@ class AircraftDetailView extends WatchUi.View {
                 lineCount = _arrWrapLines.size() > 1 ? _arrWrapLines.size() : 1;
             } else if (
                 _rows[i].size() == 2 &&
-                _rowContentWidth(dc, _rows[i]) > maxW
+                (_measureRow(dc, _rows[i])[0] as Number) > maxW
             ) {
                 split = true;
                 lineCount = 2;
@@ -196,8 +199,10 @@ class AircraftDetailView extends WatchUi.View {
         }
         var y = 0;
         for (var i = 1; i < count; i++) {
-            var isGroupStart = i < _groupStarts.size() && _groupStarts[i];
-            y += isGroupStart ? _rowHeight : intraGap;
+            y +=
+                i < _groupStarts.size() && _groupStarts[i]
+                    ? _rowHeight
+                    : intraGap;
         }
         var used = y + _lineH;
         return used < _visibleHeight
@@ -206,14 +211,14 @@ class AircraftDetailView extends WatchUi.View {
     }
 
     // Available width at row y, clamped by the boundary ring's chord so row text keeps clear of it.
+    // Outside the ring's vertical span there's nothing to clamp against, so width is unconstrained.
     private function _chordMaxWidth(y as Number) as Number {
         var dy = (y - _ringCy).abs();
+        if (dy >= _ringRadiusPx) {
+            return _screenWidthPx;
+        }
         return (
-            (dy < _ringRadiusPx
-                ? DrawUtil.chordHalfExtent(_ringRadiusPx, dy)
-                : 0) *
-                2 -
-            _ringMarginPx * 2
+            DrawUtil.chordHalfExtent(_ringRadiusPx, dy) * 2 - _ringMarginPx * 2
         );
     }
 
@@ -358,24 +363,31 @@ class AircraftDetailView extends WatchUi.View {
         return DrawUtil.wrapSegments(dc, _fontTiny, runs, maxWidthPx);
     }
 
-    private function _rowContentWidth(
+    // [totalWidth, labelWidths, valueWidths] - callers that also draw the row reuse the per-cell
+    // widths instead of re-measuring the same text.
+    private function _measureRow(
         dc as Dc,
         row as Array<[String, Array<DrawUtil.ValueRun>]>
-    ) as Number {
+    ) as [Number, Array<Number>, Array<Number>] {
+        var labelWidths = [] as Array<Number>;
+        var valueWidths = [] as Array<Number>;
         var w = -_fieldGapPx;
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
-            w +=
-                dc.getTextDimensions(cell[0] as String, _fontTiny)[0] +
-                _labelValueGapPx +
-                DrawUtil.segmentsWidth(
-                    dc,
-                    _fontTiny,
-                    cell[1] as Array<DrawUtil.ValueRun>
-                ) +
-                _fieldGapPx;
+            var labelW = dc.getTextDimensions(cell[0] as String, _fontTiny)[0];
+            var valueW = DrawUtil.segmentsWidth(
+                dc,
+                _fontTiny,
+                cell[1] as Array<DrawUtil.ValueRun>
+            );
+            labelWidths.add(labelW);
+            valueWidths.add(valueW);
+            w += labelW + _labelValueGapPx + valueW + _fieldGapPx;
         }
-        return w;
+        return (
+            [w, labelWidths, valueWidths] as
+            [Number, Array<Number>, Array<Number>]
+        );
     }
 
     private function _drawWrappedRow(
@@ -413,8 +425,7 @@ class AircraftDetailView extends WatchUi.View {
         cx as Number,
         h as Number
     ) as Void {
-        var bandH = h - _bottomY;
-        _closeChevronY = _bottomY + bandH / 2;
+        _closeChevronY = _bottomY + (h - _bottomY) / 2;
         dc.setColor(COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         _drawChevronDown(dc, cx, _closeChevronY, CHEVRON_SIZE);
     }
@@ -426,7 +437,10 @@ class AircraftDetailView extends WatchUi.View {
         y as Number,
         row as Array<[String, Array<DrawUtil.ValueRun>]>
     ) as Void {
-        var x = cx - Math.round(_rowContentWidth(dc, row) / 2.0).toNumber();
+        var measured = _measureRow(dc, row);
+        var labelWidths = measured[1] as Array<Number>;
+        var valueWidths = measured[2] as Array<Number>;
+        var x = cx - Math.round((measured[0] as Number) / 2.0).toNumber();
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
             dc.setColor(COLOR_ROW_LABEL, Graphics.COLOR_TRANSPARENT);
@@ -437,9 +451,7 @@ class AircraftDetailView extends WatchUi.View {
                 cell[0] as String,
                 Graphics.TEXT_JUSTIFY_LEFT
             );
-            x +=
-                dc.getTextDimensions(cell[0] as String, _fontTiny)[0] +
-                _labelValueGapPx;
+            x += (labelWidths[i] as Number) + _labelValueGapPx;
             DrawUtil.drawSegments(
                 dc,
                 x,
@@ -447,12 +459,7 @@ class AircraftDetailView extends WatchUi.View {
                 _fontTiny,
                 cell[1] as Array<DrawUtil.ValueRun>
             );
-            x +=
-                DrawUtil.segmentsWidth(
-                    dc,
-                    _fontTiny,
-                    cell[1] as Array<DrawUtil.ValueRun>
-                ) + _fieldGapPx;
+            x += (valueWidths[i] as Number) + _fieldGapPx;
         }
     }
 
@@ -505,8 +512,7 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
         if (_view.isInputSuppressed()) {
             return true;
         }
-        var coords = clickEvent.getCoordinates();
-        if (_view.isCloseBandHit(coords[1])) {
+        if (_view.isCloseBandHit(clickEvent.getCoordinates()[1])) {
             _close();
             return true;
         }

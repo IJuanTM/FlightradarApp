@@ -30,14 +30,16 @@ class RouteClient {
             callback.invoke(hex, null, null, true);
             return;
         }
-        var url =
-            BASE_URL + callsign.substring(0, 2) + "/" + callsign + ".json";
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-            :context => [hex, callback] as [String, RouteCallback],
-        };
-        Communications.makeWebRequest(url, null, options, method(:_onReceive));
+        Communications.makeWebRequest(
+            BASE_URL + callsign.substring(0, 2) + "/" + callsign + ".json",
+            null,
+            {
+                :method => Communications.HTTP_REQUEST_METHOD_GET,
+                :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
+                :context => [hex, callback] as [String, RouteCallback],
+            },
+            method(:_onReceive)
+        );
     }
 
     public function _onReceive(

@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.14.3";
+const APP_VERSION = "0.14.4";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -89,13 +89,14 @@ class TileVisibilityComparator {
             _radiusPx,
             _radiusKm
         );
-        var overlapW = _clampPositive(
-            _min(bottomRight[0], _screenW.toFloat()) - _max(topLeft[0], 0.0)
+        return (
+            _clampPositive(
+                _min(bottomRight[0], _screenW.toFloat()) - _max(topLeft[0], 0.0)
+            ) *
+            _clampPositive(
+                _min(bottomRight[1], _screenH.toFloat()) - _max(topLeft[1], 0.0)
+            )
         );
-        var overlapH = _clampPositive(
-            _min(bottomRight[1], _screenH.toFloat()) - _max(topLeft[1], 0.0)
-        );
-        return overlapW * overlapH;
     }
 
     private function _min(a as Float, b as Float) as Float {
@@ -303,8 +304,8 @@ class RadarView extends WatchUi.View {
     // The screen going dark (wrist down) doesn't hide this view - _onTick keeps polling for nobody unless told.
     private var _displayOff as Boolean = false;
 
-    // Both piggyback on _onTick's existing cadence, not their own Timer - a second resident Timer
-    // already crashed this app once with "Too Many Timers Error" (see [[connectiq_gotchas]]).
+    // Both piggyback on _onTick's existing cadence, not their own Timer - a second resident
+    // Timer already crashed this app once with "Too Many Timers Error".
     private var _zoomChangedAtMs as Number?;
     // Not lower - _onTick's own cadence (ANIM_TICK_MS) is the real floor on how fast this can fire.
     private const ZOOM_DEBOUNCE_MS = ANIM_TICK_MS;
@@ -350,10 +351,8 @@ class RadarView extends WatchUi.View {
     // Previous zoom's tiles, drawn scaled to the new view until superseded by the real tile.
     private var _staleMapTiles as Array<MapTile> = [];
     private var _staleMapTilesSetAtMs as Number?;
-    // Hard safety valve, not the primary bound (that's _pruneStaleTilesCoveredBy) - HI tiles
-    // weigh 4x a STD by pixel area, so this is the real confirmed-safe ceiling (5 HI tiles) in
-    // STD-units. Checked after every prune; if pruning ever falls behind, drop the stale set
-    // entirely rather than risk it.
+    // Safety valve, not the primary bound (_pruneStaleTilesCoveredBy is) - in STD-units since
+    // HI tiles weigh 4x a STD by pixel area.
     private const MAP_STALE_HARD_CEILING_STD_UNITS = 20;
     // A repeatedly-failing tile keeps _hasPendingMapBacklog() true forever (retried on its own
     // uncapped backoff) - this bounds how long stale tiles are held regardless of backlog state.
@@ -647,7 +646,8 @@ class RadarView extends WatchUi.View {
         // failure path already produces, reusing _onAirportInfoResult's existing icao-match/clear logic.
         if (
             _pendingDepIcao != null or
-            (_pendingArrIcao != null and _isTimedOut(_airportFetchStartMs, now))
+            _pendingArrIcao != null and
+            _isTimedOut(_airportFetchStartMs, now)
         ) {
             if (_pendingDepIcao != null) {
                 _onAirportInfoResult(_pendingDepIcao as String, null);
@@ -1087,8 +1087,7 @@ class RadarView extends WatchUi.View {
         if (view == null) {
             return;
         }
-        var stillRelevant = _hexStillSelected(hex);
-        if (!stillRelevant) {
+        if (!_hexStillSelected(hex)) {
             // Reopened for a different aircraft mid-fetch - retry for what's actually showing.
             _fetchSelectedRoute();
             return;
@@ -1146,8 +1145,7 @@ class RadarView extends WatchUi.View {
         if (view == null) {
             return;
         }
-        var stillRelevant = _hexStillSelected(_airportFetchHex);
-        if (!stillRelevant) {
+        if (!_hexStillSelected(_airportFetchHex)) {
             return;
         }
 
@@ -1512,6 +1510,10 @@ class RadarView extends WatchUi.View {
         _mapNeededTiles = [];
         // Also clears the last-requested view - otherwise re-enabling without movement never refetches.
         _mapRequestedLat = null;
+        // MapClient's own in-flight/queued tiles don't know the style changed - its dedup key is just
+        // z/x/y/tileSize, so without this a same-coordinate re-request here would silently no-op against
+        // a stale-style tile already in flight. Abandons it the same safe way a timeout does.
+        _mapClient.pruneQueue(({}) as Dictionary<String, Boolean>);
     }
 
     private function _maybeFetchBackgroundMap(
@@ -1584,13 +1586,10 @@ class RadarView extends WatchUi.View {
             return false;
         }
 
-        var idealZoom = Projection.webMercatorZoom(
-            focusLat,
-            radiusKm,
-            radiusPx
-        );
         // Native zoom, not shifted coarser - tile count is controlled via MAP_OVERSCAN_FACTOR instead.
-        var tileZ = Math.round(idealZoom).toNumber();
+        var tileZ = Math.round(
+            Projection.webMercatorZoom(focusLat, radiusKm, radiusPx)
+        ).toNumber();
         var mapHalfPx = screenHalfPx * MAP_OVERSCAN_FACTOR;
         // Args are negated from each corner's name - this returns how far the focus must shift
         // for content to move by (dx,dy), the inverse of "point at screen offset (dx,dy)".
@@ -1779,9 +1778,7 @@ class RadarView extends WatchUi.View {
         _mapRequestedLat = null;
     }
 
-    // Each tile's own two corners, not one shared scale - Mercator tiles vary in real height by
-    // latitude, so a single ratio can't represent every row correctly. Also used for stale tiles,
-    // whose own corners against the current focus/radius is what makes them redraw at the new scale.
+    // Each tile's own two corners, not one shared scale - Mercator tiles vary in real height by latitude.
     private function _drawMapTile(
         dc as Dc,
         tile as MapTile,
@@ -2073,9 +2070,8 @@ class RadarView extends WatchUi.View {
         color as Number
     ) as Void {
         var theta = Math.toRadians(45.0);
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the label inward.
-        var x = cx + Math.round(ringPx * Math.sin(theta)).toNumber();
-        var y = cy - Math.round(ringPx * Math.cos(theta)).toNumber();
+        var x = cx + _round(ringPx * Math.sin(theta));
+        var y = cy - _round(ringPx * Math.cos(theta));
         if (y < topPanelH + 10) {
             return;
         }
@@ -2095,8 +2091,9 @@ class RadarView extends WatchUi.View {
             pow10 /= 10.0;
         }
         var d = maxKm / pow10;
-        var mult =
-            d >= 10.0
+        return (
+            pow10 *
+            (d >= 10.0
                 ? 10.0
                 : d >= 5.0
                   ? 5.0
@@ -2104,8 +2101,8 @@ class RadarView extends WatchUi.View {
                     ? 3.0
                     : d >= 2.0
                       ? 2.0
-                      : 1.0;
-        return pow10 * mult;
+                      : 1.0)
+        );
     }
 
     private function _drawCompassTick(
@@ -2119,12 +2116,11 @@ class RadarView extends WatchUi.View {
         var theta = Math.toRadians(compassDeg);
         var sinT = Math.sin(theta);
         var cosT = Math.cos(theta);
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing every tick inward.
         dc.drawLine(
-            cx + Math.round(radiusPx * sinT).toNumber(),
-            cy - Math.round(radiusPx * cosT).toNumber(),
-            cx + Math.round((radiusPx - tickLen) * sinT).toNumber(),
-            cy - Math.round((radiusPx - tickLen) * cosT).toNumber()
+            cx + _round(radiusPx * sinT),
+            cy - _round(radiusPx * cosT),
+            cx + _round((radiusPx - tickLen) * sinT),
+            cy - _round((radiusPx - tickLen) * cosT)
         );
     }
 
@@ -2135,10 +2131,13 @@ class RadarView extends WatchUi.View {
         cy as Number,
         radiusPx as Number
     ) as Void {
-        var trueEdge =
-            (dc.getWidth() < dc.getHeight() ? dc.getWidth() : dc.getHeight()) /
+        var ringR =
+            (radiusPx +
+                (dc.getWidth() < dc.getHeight()
+                    ? dc.getWidth()
+                    : dc.getHeight()) /
+                    2) /
             2;
-        var ringR = (radiusPx + trueEdge) / 2;
 
         var plusPos = _buttonHintPos(cx, cy, ringR, 270.0);
         var minusPos = _buttonHintPos(cx, cy, ringR, 240.0);
@@ -2151,9 +2150,8 @@ class RadarView extends WatchUi.View {
         _drawRecenterHint(dc, recenterPos[0], recenterPos[1]);
     }
 
-    // Farthest a hint icon's own drawn pixels reach from its center - hints aren't rotated to the ring's
-    // radial direction, so the worst case is the full diagonal of the largest icon (s=6 -> 6*sqrt(2) =~ 8.5px,
-    // rounded up). A fixed geometric fact, not font-derived - Monkey C consts can't call Math.sqrt anyway.
+    // Farthest a hint icon's own drawn pixels reach from its center (largest icon diagonal,
+    // s=6 -> ~8.5px) - hardcoded since Monkey C consts can't call Math.sqrt.
     private const BUTTON_HINT_REACH_PX = 9;
 
     private function _buttonHintPos(
@@ -2163,9 +2161,8 @@ class RadarView extends WatchUi.View {
         compassDeg as Float
     ) as [Number, Number] {
         var theta = Math.toRadians(compassDeg);
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing every hint inward.
-        var x = cx + Math.round(ringR * Math.sin(theta)).toNumber();
-        var y = cy - Math.round(ringR * Math.cos(theta)).toNumber();
+        var x = cx + _round(ringR * Math.sin(theta));
+        var y = cy - _round(ringR * Math.cos(theta));
         return [x, y];
     }
 
@@ -2302,10 +2299,9 @@ class RadarView extends WatchUi.View {
             Math.PI;
         dc.setColor(COLOR_TEXT, Graphics.COLOR_TRANSPARENT);
         dc.drawCircle(x, y, FETCH_SPINNER_R);
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the orbit inward.
         dc.fillCircle(
-            x + Math.round(FETCH_SPINNER_R * Math.cos(theta)).toNumber(),
-            y + Math.round(FETCH_SPINNER_R * Math.sin(theta)).toNumber(),
+            x + _round(FETCH_SPINNER_R * Math.cos(theta)),
+            y + _round(FETCH_SPINNER_R * Math.sin(theta)),
             FETCH_SPINNER_DOT_R
         );
     }
@@ -2680,8 +2676,11 @@ class RadarView extends WatchUi.View {
             }
 
             _drawAircraftIcon(dc, pos[0], pos[1], ac);
-            if (Settings.showVertRateChevron) {
-                _drawVertRateChevron(dc, pos[0], pos[1], ac);
+            var chevronCenter = Settings.showVertRateChevron
+                ? _chevronCenter(pos[0], pos[1], ac)
+                : null;
+            if (chevronCenter != null) {
+                _drawVertRateChevron(dc, chevronCenter as [Number, Number], ac);
             }
             if (ac.isEmergency()) {
                 _drawEmergencyBadge(dc, pos[0], pos[1], ac);
@@ -2689,14 +2688,11 @@ class RadarView extends WatchUi.View {
 
             // Reserved for every aircraft ahead of the label pass, so no label covers an icon or clips a chevron.
             _reserveRect(ac.hex, _iconRect(pos[0], pos[1], ac));
-            if (Settings.showVertRateChevron) {
-                var chevronRect = _chevronRect(pos[0], pos[1], ac);
-                if (chevronRect != null) {
-                    _reserveRect(
-                        ac.hex,
-                        chevronRect as [Number, Number, Number, Number]
-                    );
-                }
+            if (chevronCenter != null) {
+                _reserveRect(
+                    ac.hex,
+                    _chevronRect(chevronCenter as [Number, Number])
+                );
             }
             if (ac.isEmergency()) {
                 _reserveRect(ac.hex, _emergencyBadgeRect(pos[0], pos[1], ac));
@@ -2821,7 +2817,10 @@ class RadarView extends WatchUi.View {
     ) as Void {
         _drawAircraftIcon(dc, x, y, ac);
         if (Settings.showVertRateChevron) {
-            _drawVertRateChevron(dc, x, y, ac);
+            var chevronCenter = _chevronCenter(x, y, ac);
+            if (chevronCenter != null) {
+                _drawVertRateChevron(dc, chevronCenter as [Number, Number], ac);
+            }
         }
         if (ac.isEmergency()) {
             _drawEmergencyBadge(dc, x, y, ac);
@@ -3029,11 +3028,10 @@ class RadarView extends WatchUi.View {
             ICON_MARKER_CLEARANCE +
             EMERGENCY_BADGE_EXTRA_CLEARANCE
         ).toFloat();
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the badge toward the icon.
         return (
             [
-                Math.round(x + r * EMERGENCY_BADGE_SIN).toNumber(),
-                Math.round(y - r * EMERGENCY_BADGE_COS).toNumber(),
+                _round(x + r * EMERGENCY_BADGE_SIN),
+                _round(y - r * EMERGENCY_BADGE_COS),
             ] as [Number, Number]
         );
     }
@@ -3080,8 +3078,7 @@ class RadarView extends WatchUi.View {
         ac as Aircraft
     ) as [Number, Number, Number] {
         var scale = _sizeScaleForAircraft(ac);
-        var gap = _iconHalfExtent(ac) + ICON_MARKER_CLEARANCE;
-        var tipY = y - gap;
+        var tipY = y - (_iconHalfExtent(ac) + ICON_MARKER_CLEARANCE);
         var baseY = tipY - (SELECTION_ARROW_LEN * scale).toNumber();
         var halfW = (SELECTION_ARROW_WIDTH * scale).toNumber();
         return [tipY, baseY, halfW] as [Number, Number, Number];
@@ -3191,24 +3188,20 @@ class RadarView extends WatchUi.View {
         var theta = Math.toRadians(
             climbing ? CHEVRON_ANGLE_CLIMB_DEG : CHEVRON_ANGLE_DESCEND_DEG
         );
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing the chevron toward the icon.
-        var cx = x + Math.round(r * Math.sin(theta)).toNumber();
-        var cy = y - Math.round(r * Math.cos(theta)).toNumber();
+        var cx = x + _round(r * Math.sin(theta));
+        var cy = y - _round(r * Math.cos(theta));
         return [cx, cy] as [Number, Number];
     }
 
+    // Callers compute center once via _chevronCenter and pass it to both this and _chevronRect,
+    // so the per-aircraft trig isn't done twice in the same frame.
     private function _drawVertRateChevron(
         dc as Dc,
-        x as Number,
-        y as Number,
+        center as [Number, Number],
         ac as Aircraft
     ) as Void {
-        var center = _chevronCenter(x, y, ac);
-        if (center == null) {
-            return;
-        }
-        var cx = center[0] as Number;
-        var cy = center[1] as Number;
+        var cx = center[0];
+        var cy = center[1];
         var dir = (ac.vertRate as Float) > 0 ? 1 : -1;
         dc.setColor(_colorForAircraft(ac), Graphics.COLOR_TRANSPARENT);
         dc.drawLine(cx - 3, cy + dir * 3, cx, cy);
@@ -3216,16 +3209,10 @@ class RadarView extends WatchUi.View {
     }
 
     private function _chevronRect(
-        x as Number,
-        y as Number,
-        ac as Aircraft
-    ) as [Number, Number, Number, Number]? {
-        var center = _chevronCenter(x, y, ac);
-        if (center == null) {
-            return null;
-        }
-        var cx = center[0] as Number;
-        var cy = center[1] as Number;
+        center as [Number, Number]
+    ) as [Number, Number, Number, Number] {
+        var cx = center[0];
+        var cy = center[1];
         return (
             [
                 cx - CHEVRON_RECT_HALF,
@@ -3272,6 +3259,7 @@ class RadarView extends WatchUi.View {
         return COLOR_AIRCRAFT_DEFAULT;
     }
 
+    // Rounds instead of truncating - .toNumber() truncates toward zero, which would bias every caller inward.
     private function _round(v as Float) as Number {
         return (v + (v >= 0 ? 0.5 : -0.5)).toNumber();
     }
@@ -3467,7 +3455,6 @@ class RadarView extends WatchUi.View {
         );
     }
 
-    // Takes lines rather than recomputing them - onUpdate already built them once for the height calc.
     private function _drawDetailPanel(
         dc as Dc,
         cx as Number,

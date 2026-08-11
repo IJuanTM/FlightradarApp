@@ -87,8 +87,9 @@ class Aircraft {
         emergency = _toTrimmedStringOrNull(dict["emergency"]);
 
         var mcp = dict["nav_altitude_mcp"];
-        var navAlt = mcp != null ? mcp : dict["nav_altitude_fms"];
-        navAltitude = _toNumberOrNull(navAlt);
+        navAltitude = _toNumberOrNull(
+            mcp != null ? mcp : dict["nav_altitude_fms"]
+        );
         navHeading = _toFloatOrNull(dict["nav_heading"]);
 
         var seenPos = dict["seen_pos"];

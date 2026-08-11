@@ -71,28 +71,25 @@ class AirplanesLiveClient {
         _lastRequestStartMs = System.getTimer();
 
         var payload = _slot.activePayload() as Array;
-        var lat = payload[0] as Float;
-        var lon = payload[1] as Float;
         var radiusNm = (payload[2] as Float) * 0.539957;
         if (radiusNm < 1.0) {
             radiusNm = 1.0;
         }
 
-        var url =
-            BASE_URL +
-            "/" +
-            lat.toString() +
-            "/" +
-            lon.toString() +
-            "/" +
-            radiusNm.format("%.1f");
         // No :responseType - this endpoint's Content-Type varies (JSON normally, text/plain on a 429),
         // and a fixed responseType gets rejected outright on real devices when it doesn't match.
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_GET,
-        };
-
-        Communications.makeWebRequest(url, null, options, method(:_onReceive));
+        Communications.makeWebRequest(
+            BASE_URL +
+                "/" +
+                (payload[0] as Float).toString() +
+                "/" +
+                (payload[1] as Float).toString() +
+                "/" +
+                radiusNm.format("%.1f"),
+            null,
+            { :method => Communications.HTTP_REQUEST_METHOD_GET },
+            method(:_onReceive)
+        );
     }
 
     public function _onReceive(

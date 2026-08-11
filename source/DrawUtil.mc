@@ -116,11 +116,14 @@ module DrawUtil {
         }
 
         var iconCx = x + beforeW + WARNING_MARK_R;
-        var textH = dc.getTextDimensions("0", font)[1];
-        drawWarningIcon(dc, iconCx, y + textH / 2, WARNING_MARK_R, color);
-        // Text drawn after the icon needs its own color restored - drawWarningIcon leaves dc's color set to black.
+        drawWarningIcon(
+            dc,
+            iconCx,
+            y + dc.getTextDimensions("0", font)[1] / 2,
+            WARNING_MARK_R,
+            color
+        );
         if (after.length() > 0) {
-            dc.setColor(color, Graphics.COLOR_TRANSPARENT);
             dc.drawText(
                 iconCx + WARNING_MARK_R,
                 y,
@@ -223,6 +226,7 @@ module DrawUtil {
     }
 
     // Filled triangle with a black cutout exclamation mark - canvas is always black, so no color sampling needed.
+    // Leaves dc's color set to `color` on return, not black, so callers don't need their own reset.
     function drawWarningIcon(
         dc as Dc,
         cx as Number,
@@ -239,9 +243,9 @@ module DrawUtil {
         // Fixed 1px stem/dot (not scaled with halfSize) - drawLine keeps the stem exactly centered on cx.
         dc.setColor(0x000000, Graphics.COLOR_TRANSPARENT);
         var dotY = cy + halfSize - 2;
-        var stemBottom = dotY - 2;
-        dc.drawLine(cx, cy - (halfSize * 0.5).toNumber(), cx, stemBottom);
+        dc.drawLine(cx, cy - (halfSize * 0.5).toNumber(), cx, dotY - 2);
         dc.fillCircle(cx, dotY, 1);
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
     }
 
     // Two-line chevron ("^" or "v"), vertex at (x,y) - caller sets color first. pointUp=true draws pointing up.

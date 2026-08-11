@@ -178,12 +178,18 @@ module AircraftClassifier {
         "wb57" => [48.0, 31.0] as [Float, Float],
     };
 
-    // Safety net for missing category - MTOW 75,000-300,000lbs tier.
+    // Safety net for missing category - MTOW 75,000-300,000lbs tier. Includes every typeCode
+    // TYPE_TO_ICON maps to the same shape as a code already listed here, not just the base variant.
     const LARGE_TYPE_CODES =
         [
+            "A318",
             "A319",
+            "A19N",
             "A320",
+            "A20N",
             "A321",
+            "A21N",
+            "A330",
             "A332",
             "A333",
             "A338",
@@ -199,7 +205,8 @@ module AircraftClassifier {
             "C130",
         ] as Array<String>;
 
-    // Safety net for missing category - MTOW >300,000lbs tier (incl. military transports).
+    // Safety net for missing category - MTOW >300,000lbs tier (incl. military transports). Includes
+    // every typeCode TYPE_TO_ICON maps to the same shape as a code already listed here.
     const SUPER_HEAVY_TYPE_CODES =
         [
             "B762",
@@ -212,16 +219,25 @@ module AircraftClassifier {
             "B788",
             "B789",
             "B78X",
+            "B741",
             "B742",
             "B743",
             "B744",
+            "B74D",
+            "B74S",
+            "B74R",
+            "BLCF",
+            "BSCA",
             "B748",
             "A342",
             "A343",
             "A345",
             "A346",
             "A388",
+            "DC10",
             "MD11",
+            "A124",
+            "A225",
             "C5M",
             "C17",
             "K35R",
@@ -266,7 +282,6 @@ module AircraftClassifier {
         "E737" => "e737",
         "J328" => "airliner",
         "E170" => "airliner",
-        "E75S/L" => "airliner",
         "E75L" => "airliner",
         "E75S" => "airliner",
         "A148" => "airliner",
@@ -726,7 +741,6 @@ module AircraftClassifier {
     // Shared by RadarView._classify() - scale is the caller's baseScale * sizeScale already combined.
     function iconHalfExtentForShape(shape as String, scale as Float) as Number {
         var diag = ICON_HALF_DIAGONAL[shape];
-        var srcHalf = diag != null ? diag as Float : 30.0;
-        return (srcHalf * scale).toNumber();
+        return ((diag != null ? diag as Float : 30.0) * scale).toNumber();
     }
 }

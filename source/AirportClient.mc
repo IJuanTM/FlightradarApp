@@ -14,15 +14,14 @@ class AirportClient {
         icao as String,
         callback as InfoCallback
     ) as Void {
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-            :context => [icao, callback] as [String, InfoCallback],
-        };
         Communications.makeWebRequest(
             BASE_URL,
             { "icao" => icao },
-            options,
+            {
+                :method => Communications.HTTP_REQUEST_METHOD_GET,
+                :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
+                :context => [icao, callback] as [String, InfoCallback],
+            },
             method(:_onReceive)
         );
     }

@@ -63,24 +63,22 @@ class OpenSkyClient {
             return;
         }
 
-        var params = {
-            "grant_type" => "client_credentials",
-            "client_id" => _clientId,
-            "client_secret" => _clientSecret,
-        };
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_POST,
-            :headers => {
-                "Content-Type"
-                =>
-                Communications.REQUEST_CONTENT_TYPE_URL_ENCODED,
-            },
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-        };
         Communications.makeWebRequest(
             TOKEN_URL,
-            params,
-            options,
+            {
+                "grant_type" => "client_credentials",
+                "client_id" => _clientId,
+                "client_secret" => _clientSecret,
+            },
+            {
+                :method => Communications.HTTP_REQUEST_METHOD_POST,
+                :headers => {
+                    "Content-Type"
+                    =>
+                    Communications.REQUEST_CONTENT_TYPE_URL_ENCODED,
+                },
+                :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
+            },
             method(:_onTokenReceive)
         );
     }
@@ -115,7 +113,13 @@ class OpenSkyClient {
         var dict = data as Dictionary;
         var token = dict["access_token"];
         var expiresIn = dict["expires_in"];
-        if (!(token instanceof Lang.String) or expiresIn == null) {
+        if (
+            !(token instanceof Lang.String) or
+            expiresIn == null or
+            expiresIn instanceof Lang.Dictionary or
+            expiresIn instanceof Lang.Array or
+            expiresIn instanceof Lang.Boolean
+        ) {
             _failPendingTrack();
             return;
         }
@@ -131,21 +135,21 @@ class OpenSkyClient {
         }
     }
 
-    public function _fetchTrackWithToken(token as String) as Void {
+    private function _fetchTrackWithToken(token as String) as Void {
         var hex = _slot.activePayload() as String?;
         if (hex == null) {
             return;
         }
-        var url = TRACKS_URL + "?icao24=" + hex + "&time=0";
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :headers => { "Authorization" => "Bearer " + token },
-            :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-        };
+        // icao24/time travel via the params dict (auto-encoded), not hand-concatenated into the URL,
+        // so a malformed hex from the feed can't inject extra query parameters.
         Communications.makeWebRequest(
-            url,
-            null,
-            options,
+            TRACKS_URL,
+            { "icao24" => hex, "time" => 0 },
+            {
+                :method => Communications.HTTP_REQUEST_METHOD_GET,
+                :headers => { "Authorization" => "Bearer " + token },
+                :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
+            },
             method(:_onTrackReceive)
         );
     }
