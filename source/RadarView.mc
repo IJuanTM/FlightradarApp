@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.14.1";
+const APP_VERSION = "0.14.2";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -645,8 +645,7 @@ class RadarView extends WatchUi.View {
         // failure path already produces, reusing _onAirportInfoResult's existing icao-match/clear logic.
         if (
             _pendingDepIcao != null or
-            _pendingArrIcao != null and
-            _isTimedOut(_airportFetchStartMs, now)
+            (_pendingArrIcao != null and _isTimedOut(_airportFetchStartMs, now))
         ) {
             if (_pendingDepIcao != null) {
                 _onAirportInfoResult(_pendingDepIcao as String, null);
@@ -3271,6 +3270,10 @@ class RadarView extends WatchUi.View {
         return (v + (v >= 0 ? 0.5 : -0.5)).toNumber();
     }
 
+    private function _roundHeading(v as Float) as Number {
+        return ((_round(v) % 360) + 360) % 360;
+    }
+
     private var _labelOverlapMarginPx as Number = 4;
     private var _labelLineGapPx as Number = 2;
     // Scaled by aircraft size like the reticle/icon, with margin to clear the reticle at every size tier.
@@ -3650,7 +3653,7 @@ class RadarView extends WatchUi.View {
         if (ac.heading != null) {
             statSegs.add(
                 [
-                    _round(ac.heading as Float).toString(),
+                    _roundHeading(ac.heading as Float).toString(),
                     COLOR_HDG,
                     :degree,
                     "",
@@ -3835,7 +3838,7 @@ class RadarView extends WatchUi.View {
             ac.heading != null
                 ? _degreeCell(
                       "Heading",
-                      _round(ac.heading as Float).toString(),
+                      _roundHeading(ac.heading as Float).toString(),
                       COLOR_HDG,
                       ""
                   )
@@ -3888,7 +3891,7 @@ class RadarView extends WatchUi.View {
             ac.navHeading != null
                 ? _degreeCell(
                       "Selected Hdg",
-                      _round(ac.navHeading as Float).toString(),
+                      _roundHeading(ac.navHeading as Float).toString(),
                       COLOR_DETAIL_VALUE,
                       ""
                   )

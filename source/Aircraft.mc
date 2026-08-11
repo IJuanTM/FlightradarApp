@@ -64,7 +64,8 @@ class Aircraft {
         track = _toFloatOrNull(dict["track"]);
         var trueHeading = dict["true_heading"];
         var hdgSrc = trueHeading != null ? trueHeading : dict["mag_heading"];
-        heading = hdgSrc != null ? _toFloatOrNull(hdgSrc) : track;
+        var hdgVal = hdgSrc != null ? _toFloatOrNull(hdgSrc) : null;
+        heading = hdgVal != null ? hdgVal : track;
 
         var cat = dict["category"];
         category = cat instanceof Lang.String ? cat : null;
@@ -162,6 +163,9 @@ class Aircraft {
     }
 
     private function _toBoolFlag(v) as Boolean {
+        if (v instanceof Lang.Boolean) {
+            return v as Boolean;
+        }
         return _isNumeric(v) && v.toNumber() != 0;
     }
 
