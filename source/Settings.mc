@@ -84,6 +84,8 @@ module Settings {
     // MapTiler style id (see MAP_STYLE_OPTIONS) and whether to request its "-dark" variant.
     var mapStyle as String = "base";
     var mapDarkMode as Boolean = true;
+    // Opt-in - a second network source (nearby-airport lookups), same rationale as showBackgroundMap.
+    var showAirports as Boolean = false;
 
     // Filters - what traffic appears at all.
     // Opt-in - ground vehicles hidden by default, unlike hideGroundedPlanes below.
@@ -123,6 +125,7 @@ module Settings {
         showBackgroundMap = _loadBool("showBackgroundMap", false);
         mapStyle = _loadString("mapStyle", "base");
         mapDarkMode = _loadBool("mapDarkMode", true);
+        showAirports = _loadBool("showAirports", false);
 
         showGroundVehicles = _loadBool("showGroundVehicles", false);
         hideGroundedPlanes = _loadBool("hideGroundedPlanes", false);
@@ -205,6 +208,11 @@ module Settings {
     function setMapDarkMode(v as Boolean) as Void {
         mapDarkMode = v;
         Storage.setValue("mapDarkMode", v);
+    }
+
+    function setShowAirports(v as Boolean) as Void {
+        showAirports = v;
+        Storage.setValue("showAirports", v);
     }
 
     function setShowGroundVehicles(v as Boolean) as Void {

@@ -203,7 +203,7 @@ class Aircraft {
         return s;
     }
 
-    // airplanes.live pads "flight" to a fixed width with spaces.
+    // adsb.fi pads "flight" to a fixed width with spaces.
     private function _trim(s as String) as String {
         var chars = s.toCharArray();
         var start = 0;

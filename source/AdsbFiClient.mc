@@ -4,8 +4,8 @@ import Toybox.System;
 import Toybox.Timer;
 
 // A class (not a module) because Communications.makeWebRequest's callback needs a bound method(:symbol).
-class AirplanesLiveClient {
-    private const BASE_URL = "https://api.airplanes.live/v2/point";
+class AdsbFiClient {
+    private const BASE_URL = "https://opendata.adsb.fi/api/v3/lat";
 
     // tooMuchData distinguishes the known response-size-ceiling failure (-402/-403) from a generic failure.
     typedef FetchCallback as
@@ -13,11 +13,12 @@ class AirplanesLiveClient {
             (
                 aircraft as Array<Aircraft>,
                 ok as Boolean,
-                tooMuchData as Boolean
+                tooMuchData as Boolean,
+                code as Number
             ) as Void
         );
 
-    // airplanes.live documents a 1 req/sec limit - a bit of margin above that.
+    // adsb.fi documents a 1 req/sec limit - a bit of margin above that.
     private const MIN_REQUEST_INTERVAL_MS = 1050;
 
     // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
@@ -76,15 +77,15 @@ class AirplanesLiveClient {
             radiusNm = 1.0;
         }
 
-        // No :responseType - this endpoint's Content-Type varies (JSON normally, text/plain on a 429),
-        // and a fixed responseType gets rejected outright on real devices when it doesn't match.
+        // No :responseType - trusts the platform to auto-detect from the response's Content-Type,
+        // same defensive default every other web request in this app uses.
         Communications.makeWebRequest(
             BASE_URL +
                 "/" +
                 (payload[0] as Float).toString() +
-                "/" +
+                "/lon/" +
                 (payload[1] as Float).toString() +
-                "/" +
+                "/dist/" +
                 radiusNm.format("%.1f"),
             null,
             { :method => Communications.HTTP_REQUEST_METHOD_GET },
@@ -97,13 +98,18 @@ class AirplanesLiveClient {
         data as Dictionary or String or Null
     ) as Void {
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            _resolveFetch([], false, _isSizeCeilingError(responseCode));
+            _resolveFetch(
+                [],
+                false,
+                _isSizeCeilingError(responseCode),
+                responseCode
+            );
             return;
         }
 
         var acRaw = (data as Dictionary).get("ac");
         if (!(acRaw instanceof Lang.Array)) {
-            _resolveFetch([], false, false);
+            _resolveFetch([], false, false, responseCode);
             return;
         }
 
@@ -112,19 +118,20 @@ class AirplanesLiveClient {
         for (var i = 0; i < arr.size(); i++) {
             result.add(new Aircraft(arr[i] as Dictionary));
         }
-        _resolveFetch(result, true, false);
+        _resolveFetch(result, true, false, responseCode);
     }
 
     // Delivers to the active request's own callback before promoting any queued request, so a response is never attributed to the wrong focus point.
     private function _resolveFetch(
         aircraft as Array<Aircraft>,
         ok as Boolean,
-        tooMuchData as Boolean
+        tooMuchData as Boolean,
+        code as Number
     ) as Void {
         var cb = _slot.activeCallback() as FetchCallback?;
         var promoted = _slot.clearAndPromote();
         if (cb != null) {
-            cb.invoke(aircraft, ok, tooMuchData);
+            cb.invoke(aircraft, ok, tooMuchData, code);
         }
         if (promoted) {
             _dispatchOrThrottle();

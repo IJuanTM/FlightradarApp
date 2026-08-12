@@ -185,7 +185,7 @@ class OpenSkyClient {
                         points.add([
                             lat.toFloat(),
                             lon.toFloat(),
-                            // OpenSky reports meters, airplanes.live (and this whole app) works in feet.
+                            // OpenSky reports meters, adsb.fi (and this whole app) works in feet.
                             alt != null
                                 ? (alt.toFloat() * 3.28084).toNumber()
                                 : 0,

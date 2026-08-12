@@ -26,7 +26,69 @@ module MenuBuilder {
             new WatchUi.MenuItem(Rez.Strings.MenuGeneral, null, :general, null)
         );
         menu.addItem(
+            new WatchUi.MenuItem(Rez.Strings.MenuStatus, null, :status, null)
+        );
+        menu.addItem(
             new WatchUi.MenuItem("v" + $.APP_VERSION, null, :appVersion, null)
+        );
+        return menu;
+    }
+
+    // Read-only - last-known ok/fail per network source, from ApiStatus. Rebuilt fresh on open, same
+    // as every other menu here reading live state; nothing here changes while the menu is showing.
+    function buildStatusMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({ :title => Rez.Strings.StatusMenuTitle });
+        var feedLabel = ApiStatus.label(ApiStatus.feedState);
+        if (ApiStatus.feedState == ApiStatus.FAILED) {
+            feedLabel += " (" + ApiStatus.feedCode.toString() + ")";
+        }
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.StatusFeed,
+                feedLabel,
+                :statusFeed,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.StatusMap,
+                ApiStatus.label(ApiStatus.mapState),
+                :statusMap,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.StatusAirports,
+                ApiStatus.label(ApiStatus.airportsState),
+                :statusAirports,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.StatusRoute,
+                ApiStatus.label(ApiStatus.routeState),
+                :statusRoute,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.StatusAirportInfo,
+                ApiStatus.label(ApiStatus.airportInfoState),
+                :statusAirportInfo,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.StatusTrack,
+                ApiStatus.label(ApiStatus.trackState),
+                :statusTrack,
+                null
+            )
         );
         return menu;
     }
@@ -78,6 +140,15 @@ module MenuBuilder {
                 null,
                 :mapDarkMode,
                 Settings.mapDarkMode,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowAirports,
+                null,
+                :showAirports,
+                Settings.showAirports,
                 null
             )
         );
@@ -310,7 +381,25 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
             );
             return;
         }
+
+        if (id == :status) {
+            WatchUi.pushView(
+                MenuBuilder.buildStatusMenu(),
+                new StatusMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
     }
+}
+
+// Read-only - every row is informational, selecting one does nothing.
+class StatusMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {}
 }
 
 class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
@@ -345,6 +434,8 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setShowBackgroundMap(enabled);
         } else if (id == :mapDarkMode) {
             Settings.setMapDarkMode(enabled);
+        } else if (id == :showAirports) {
+            Settings.setShowAirports(enabled);
         }
     }
 }

@@ -13,12 +13,12 @@ class MapClient {
     public const TILE_SIZE_HI as Number = 512;
     // Generous margin above the slowest cold fetch actually measured (~1s) - a hung tile would otherwise permanently block every other tile and the aircraft poll behind it.
     private const TILE_TIMEOUT_MS = 3000;
-    // SDK docs: Timer's minimum interval defaults to 50ms - same floor AirplanesLiveClient's own throttle uses.
+    // SDK docs: Timer's minimum interval defaults to 50ms - same floor AdsbFiClient's own throttle uses.
     private const MIN_WAKE_DELAY_MS = 50;
 
     private var _apiKey as String?;
     private var _currentStartMs as Number?;
-    // One-shot, not a local - see AirplanesLiveClient._throttleTimer for why an unstored Timer is unsafe.
+    // One-shot, not a local - see AdsbFiClient._throttleTimer for why an unstored Timer is unsafe.
     private var _wakeTimer as Timer.Timer?;
 
     typedef MapBitmap as Graphics.BitmapReference or WatchUi.BitmapResource;

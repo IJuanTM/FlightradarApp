@@ -130,7 +130,7 @@ Settings are grouped into four submenus, reached via the on-device menu (Enter/M
 
 | Source                                         | Used for                                                                                                                  |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [airplanes.live](https://airplanes.live)       | Live aircraft positions within your zoom radius, polled continuously while the app is open, never while the screen is off |
+| [adsb.fi](https://adsb.fi)                     | Live aircraft positions within your zoom radius, polled continuously while the app is open, never while the screen is off |
 | [OpenSky Network](https://opensky-network.org) | Historical flight track for the selected aircraft, fetched once on selection, then grown live                             |
 | VRS standing data (`adsb.lol`)                 | Scheduled departure/arrival route for the selected aircraft's callsign                                                    |
 | [airport-data.com](https://airport-data.com)   | City/country/IATA lookup for the resolved departure/arrival airports                                                      |

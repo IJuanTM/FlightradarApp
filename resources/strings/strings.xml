@@ -7,6 +7,7 @@
   <string id="MenuAircraft">Aircraft</string>
   <string id="MenuLabels">Aircraft Labels</string>
   <string id="MenuGeneral">General</string>
+  <string id="MenuStatus">API Status</string>
 
   <string id="DisplayMenuTitle">Display</string>
   <string id="MenuShowRangeRings">Range Rings</string>
@@ -15,6 +16,7 @@
   <string id="MenuMapStyle">Map Style</string>
   <string id="MenuMapDarkMode">Map Dark Mode</string>
   <string id="MenuShowButtonHints">Button Hints</string>
+  <string id="MenuShowAirports">Airports</string>
 
   <string id="MapStyleMenuTitle">Map Style</string>
   <string id="MapStyleBackdrop">Backdrop</string>
@@ -50,6 +52,14 @@
   <string id="GeneralMenuTitle">General</string>
   <string id="MenuMetricUnits">Metric Units</string>
   <string id="MenuBatterySaver">Battery Saver</string>
+
+  <string id="StatusMenuTitle">API Status</string>
+  <string id="StatusFeed">Aircraft Feed</string>
+  <string id="StatusMap">Background Map</string>
+  <string id="StatusAirports">Nearby Airports</string>
+  <string id="StatusRoute">Route Lookup</string>
+  <string id="StatusAirportInfo">Airport Info</string>
+  <string id="StatusTrack">Track History</string>
 
   <string id="NoSignal">No Signal</string>
   <string id="TooBusy">Too Busy</string>

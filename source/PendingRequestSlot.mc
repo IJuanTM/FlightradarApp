@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-// Shared by AirplanesLiveClient/OpenSkyClient - each wants only one physical request in flight, and no :context/generation id exists to correlate a second one safely.
+// Shared by AdsbFiClient/OpenSkyClient - each wants only one physical request in flight, and no :context/generation id exists to correlate a second one safely.
 // Payload/callback are untyped (Object?/Method?, not generic - Monkey C has no generic classes); each caller casts back to its own shape, documented at its own _slot field.
 class PendingRequestSlot {
     private var _activePayload as Object?;

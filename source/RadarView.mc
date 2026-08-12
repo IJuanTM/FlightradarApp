@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.14.4";
+const APP_VERSION = "0.15.0";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -149,50 +149,55 @@ class RadarView extends WatchUi.View {
     private const COLOR_TRAIL_ALPHA = DrawUtil.ALPHA_95;
     private const COLOR_TEXT = GRAYS[5];
 
-    // Identical to ../TerminalWatchface's own COLORS array - every accent below indexes into this, not a hand-picked hex.
+    // Not an accent - kept out of COLORS below, which is hues only.
+    private const WHITE = 0xffffff;
+
+    // User-specified palette (2026-08-12) - every channel is 0x55/0xa5/0xfa, hue-sorted below.
     private const COLORS =
         [
-            0xffffff, // 0  white
-            0x55ff77, // 1  green
-            0x55ffff, // 2  cyan
-            0xffee55, // 3  yellow
-            0xff9944, // 4  orange
-            0xff5555, // 5  red
-            0x6699ff, // 6  blue
-            0xff55ff, // 7  magenta
-            0x777777, // 8  light grey (unused here - GRAYS covers structural chrome instead)
-            0xaa77ff, // 9  purple
+            0xfa5555, // 0  red
+            0xfaa555, // 1  orange
+            0xfafa55, // 2  yellow
+            0x55fa55, // 3  green
+            0x55fafa, // 4  cyan
+            0x55a5fa, // 5  azure
+            0x5555fa, // 6  blue
+            0xa555fa, // 7  purple
+            0xfa55fa, // 8  magenta
+            0xfa55a5, // 9  rose
         ] as Array<Number>;
 
-    private const COLOR_USER = COLORS[2]; // cyan
+    private const COLOR_USER = COLORS[4]; // cyan
+    private const COLOR_AIRPORT = COLORS[5]; // azure
     // Not magenta (disliked) - green contrasts well against white, the default aircraft color.
-    private const COLOR_SELECTED = COLORS[1]; // green
-    private const COLOR_EMERGENCY = COLORS[5]; // red
+    private const COLOR_SELECTED = COLORS[3]; // green
+    private const COLOR_EMERGENCY = COLORS[0]; // red
 
-    private const COLOR_AIRCRAFT_DEFAULT = COLORS[0]; // white
-    private const COLOR_AIRCRAFT_LIGHT = COLORS[3]; // yellow
+    private const COLOR_AIRCRAFT_DEFAULT = WHITE;
+    private const COLOR_AIRCRAFT_LIGHT = COLORS[2]; // yellow
     private const COLOR_AIRCRAFT_HEAVY = COLORS[6]; // blue
-    private const COLOR_AIRCRAFT_FAST = COLORS[9]; // purple
-    private const COLOR_HELICOPTER = COLORS[4]; // orange
-    private const COLOR_MILITARY = COLORS[7]; // magenta
+    private const COLOR_AIRCRAFT_FAST = COLORS[7]; // purple
+    private const COLOR_HELICOPTER = COLORS[1]; // orange
+    private const COLOR_MILITARY = COLORS[8]; // magenta
+    private const COLOR_GROUND = COLORS[9]; // rose
 
     // "Grey" full-detail values are white - label and value would read as the same dim tone otherwise.
-    private const COLOR_DETAIL_VALUE = COLORS[0]; // white
+    private const COLOR_DETAIL_VALUE = WHITE;
     // Route's loading/unknown/failed states only, to read as "not resolved" rather than a fact.
     private const COLOR_ROUTE_DIM = COLOR_GRID_LABEL;
     // Identity/reference fields - not grey, row labels are already grey.
-    private const COLOR_IDENTITY = COLORS[2]; // cyan
-    private const COLOR_ENV = COLORS[9]; // purple
+    private const COLOR_IDENTITY = COLORS[4]; // cyan
+    private const COLOR_ENV = COLORS[7]; // purple
 
     // Detail panel value colors - not tied to aircraft category, just distinguishing fields at a glance.
     private const COLOR_ALT = COLORS[6]; // blue
-    private const COLOR_SPEED = COLORS[3]; // yellow
+    private const COLOR_SPEED = COLORS[2]; // yellow
     // Orange, not cyan - would collide with COLOR_IDENTITY (also cyan).
-    private const COLOR_HDG = COLORS[4]; // orange
-    private const COLOR_SQUAWK = COLORS[7]; // magenta
+    private const COLOR_HDG = COLORS[1]; // orange
+    private const COLOR_SQUAWK = COLORS[8]; // magenta
     // Shared status semantics across top/detail panels: green = done/good, orange = caution.
-    private const COLOR_SUCCESS = COLORS[1]; // green
-    private const COLOR_WARN = COLORS[4]; // orange
+    private const COLOR_SUCCESS = COLORS[3]; // green
+    private const COLOR_WARN = COLORS[1]; // orange
 
     // Indexed alongside Settings.ZOOM_LEVELS_KM - real round-number distances, not derived from it.
     private const GRID_STEP_KM as Array<Float> = [1.0, 5.0, 10.0, 25.0];
@@ -215,6 +220,7 @@ class RadarView extends WatchUi.View {
     private var _aircraftByHex as Dictionary<String, Aircraft> = {};
     private var _lastFetchOk as Boolean = true;
     private var _lastFetchTooMuchData as Boolean = false;
+    private var _lastFetchCode as Number = 0;
     // True once the current view (location/zoom) has a successful fetch - reset on pan/zoom so the
     // status text shows "Fetching" for a genuine new-view load, not a same-view background poll.
     private var _viewHasFreshData as Boolean = false;
@@ -322,10 +328,27 @@ class RadarView extends WatchUi.View {
     private var _mapLoadingText as String = "";
     private var _fontSmall as Graphics.FontType = Graphics.FONT_SMALL;
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
-    private var _client as AirplanesLiveClient = new AirplanesLiveClient();
+    private var _client as AdsbFiClient = new AdsbFiClient();
     private var _openSky as OpenSkyClient = new OpenSkyClient();
     private var _routeClient as RouteClient = new RouteClient();
     private var _airportClient as AirportClient = new AirportClient();
+    private var _nearbyAirportsClient as NearbyAirportsClient =
+        new NearbyAirportsClient();
+    // Keyed by icao, merged (never replaced) on each fetch - airports don't move, so one seen once
+    // stays drawable even after the view moves past the radius that originally found it.
+    private var _nearbyAirports as Dictionary<String, [String, Float, Float]> =
+        {};
+    private var _airportsRequestedLat as Float?;
+    private var _airportsRequestedLon as Float?;
+    private var _airportsRequestedRadiusKm as Float?;
+    private var _airportsNextFetchAtMs as Number?;
+    // Airports change basically never - a long cooldown is a fair-use courtesy to the free OpenAIP
+    // account tier, not tuned for responsiveness like the map/aircraft polls.
+    private const AIRPORTS_MIN_REFETCH_INTERVAL_MS = 20000;
+    private const AIRPORTS_REFETCH_MARGIN_FACTOR = 0.5;
+    private const AIRPORTS_OVERSCAN_FACTOR = 1.2;
+    private const AIRPORT_MARKER_R = 3;
+    private const AIRPORT_LABEL_GAP = 2;
 
     private var _mapClient as MapClient = new MapClient(
         method(:_onTileReceive)
@@ -371,7 +394,7 @@ class RadarView extends WatchUi.View {
     private var _mapRequestedZoomIndex as Number?;
     private var _mapRequestedLat as Float?;
     private var _mapRequestedLon as Float?;
-    // Same backoff shape as the airplanes.live poll, shared across all tiles since only one
+    // Same backoff shape as the aircraft-feed poll, shared across all tiles since only one
     // request is ever in flight.
     private var _mapNextRetryAtMs as Number?;
     private var _mapRetryBackoffMs as Number = MAP_INITIAL_RETRY_BACKOFF_MS;
@@ -634,7 +657,7 @@ class RadarView extends WatchUi.View {
         // (cancelAllRequests() crashed on real hardware) - a hung callback would otherwise leave
         // that request (and, via MapClient's own busy-check, the aircraft poll too) stuck forever.
         if (_fetchInFlight and _isTimedOut(_fetchStartMs, now)) {
-            _onFetchResult([], false, false);
+            _onFetchResult([], false, false, 0);
         }
         if (_trackFetchInFlight and _isTimedOut(_trackFetchStartMs, now)) {
             _onTrackResult(_trackFetchHex as String, [], false);
@@ -646,8 +669,7 @@ class RadarView extends WatchUi.View {
         // failure path already produces, reusing _onAirportInfoResult's existing icao-match/clear logic.
         if (
             _pendingDepIcao != null or
-            _pendingArrIcao != null and
-            _isTimedOut(_airportFetchStartMs, now)
+            (_pendingArrIcao != null and _isTimedOut(_airportFetchStartMs, now))
         ) {
             if (_pendingDepIcao != null) {
                 _onAirportInfoResult(_pendingDepIcao as String, null);
@@ -1082,6 +1104,7 @@ class RadarView extends WatchUi.View {
     ) as Void {
         _routeFetchInFlight = false;
         _mapClient.resumeFor(:route);
+        ApiStatus.setRoute(ok);
 
         var view = _detailView;
         if (view == null) {
@@ -1141,6 +1164,7 @@ class RadarView extends WatchUi.View {
         icao as String,
         text as String?
     ) as Void {
+        ApiStatus.setAirportInfo(text != null);
         var view = _detailView;
         if (view == null) {
             return;
@@ -1213,6 +1237,7 @@ class RadarView extends WatchUi.View {
         _trackFetchInFlight = false;
         _detailLinesCacheHex = null;
         _mapClient.resumeFor(:track);
+        ApiStatus.setTrack(ok);
 
         var stillSelected = _hexStillSelected(hex);
 
@@ -1275,11 +1300,14 @@ class RadarView extends WatchUi.View {
     public function _onFetchResult(
         aircraft as Array<Aircraft>,
         ok as Boolean,
-        tooMuchData as Boolean
+        tooMuchData as Boolean,
+        code as Number
     ) as Void {
         _fetchInFlight = false;
         _lastFetchOk = ok;
         _lastFetchTooMuchData = tooMuchData;
+        _lastFetchCode = code;
+        ApiStatus.setFeed(ok, code);
         _mapClient.resumeFor(:poll);
 
         if (ok) {
@@ -1369,7 +1397,7 @@ class RadarView extends WatchUi.View {
         var topPanelH = _topPanelHeightFor(topLines);
 
         if (!_hasFix or _centerLat == null or _centerLon == null) {
-            dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
+            dc.setColor(WHITE, Graphics.COLOR_TRANSPARENT);
             dc.drawText(
                 cx,
                 cy,
@@ -1459,6 +1487,18 @@ class RadarView extends WatchUi.View {
             topPanelH,
             h - bottomPanelH
         );
+        if (Settings.showAirports) {
+            _maybeFetchNearbyAirports(focusLat, focusLon, radiusKm);
+            _drawNearbyAirports(
+                dc,
+                focusLat,
+                focusLon,
+                cx,
+                cy,
+                radiusPx,
+                radiusKm
+            );
+        }
         _drawAircraft(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
 
         if (selected != null) {
@@ -1700,6 +1740,61 @@ class RadarView extends WatchUi.View {
         return true;
     }
 
+    private function _maybeFetchNearbyAirports(
+        focusLat as Float,
+        focusLon as Float,
+        radiusKm as Float
+    ) as Void {
+        if (!Settings.showAirports or !_hasFix) {
+            return;
+        }
+        var now = System.getTimer();
+        var nextFetchAt = _airportsNextFetchAtMs;
+        if (nextFetchAt != null and now < (nextFetchAt as Number)) {
+            return;
+        }
+
+        var requestedLat = _airportsRequestedLat;
+        if (
+            requestedLat != null and
+            _airportsRequestedRadiusKm == radiusKm and
+            Projection.distanceKm(
+                requestedLat as Float,
+                _airportsRequestedLon as Float,
+                focusLat,
+                focusLon
+            ) <=
+                radiusKm * AIRPORTS_REFETCH_MARGIN_FACTOR
+        ) {
+            return;
+        }
+
+        _airportsRequestedLat = focusLat;
+        _airportsRequestedLon = focusLon;
+        _airportsRequestedRadiusKm = radiusKm;
+        _airportsNextFetchAtMs = now + AIRPORTS_MIN_REFETCH_INTERVAL_MS;
+        _nearbyAirportsClient.fetchNearby(
+            focusLat,
+            focusLon,
+            (radiusKm * 1000 * AIRPORTS_OVERSCAN_FACTOR).toNumber(),
+            method(:_onNearbyAirportsResult)
+        );
+    }
+
+    public function _onNearbyAirportsResult(
+        airports as Array<[String, Float, Float]>,
+        ok as Boolean
+    ) as Void {
+        ApiStatus.setAirports(ok);
+        if (ok) {
+            for (var i = 0; i < airports.size(); i++) {
+                var airport = airports[i];
+                _nearbyAirports[airport[0]] = airport;
+            }
+            WatchUi.requestUpdate();
+        }
+    }
+
     private function _hasPendingMapBacklog() as Boolean {
         for (var i = 0; i < _mapNeededTiles.size(); i++) {
             var t = _mapNeededTiles[i];
@@ -1745,6 +1840,7 @@ class RadarView extends WatchUi.View {
         }
         _mapNextRetryAtMs = null;
         _mapRetryBackoffMs = MAP_INITIAL_RETRY_BACKOFF_MS;
+        ApiStatus.setMap(true);
 
         var key = _mapClient.tileKeyFor(z, x, y, tileSize);
         // Discarded if panned/zoomed away mid-flight, or the feature got toggled off.
@@ -1768,6 +1864,7 @@ class RadarView extends WatchUi.View {
     }
 
     private function _mapScheduleRetry() as Void {
+        ApiStatus.setMap(false);
         _mapNextRetryAtMs = System.getTimer() + _mapRetryBackoffMs;
         _mapRetryBackoffMs *= 2;
         if (_mapRetryBackoffMs > MAP_MAX_RETRY_BACKOFF_MS) {
@@ -2036,7 +2133,7 @@ class RadarView extends WatchUi.View {
         dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
         dc.drawCircle(cx, cy, radiusPx);
         // White, not the usual dim grid-label grey - this is the actual current zoom level, not a secondary reference ring.
-        _drawRingLabel(dc, cx, cy, radiusPx, radiusKm, topPanelH, COLORS[0]);
+        _drawRingLabel(dc, cx, cy, radiusPx, radiusKm, topPanelH, WHITE);
 
         if (Settings.showRangeRings) {
             for (var deg = 0; deg < 360; deg += 30) {
@@ -2168,7 +2265,7 @@ class RadarView extends WatchUi.View {
 
     // Zoom in (KEY_UP). White, not COLOR_TEXT, to match the chevron's brightness.
     private function _drawPlusHint(dc as Dc, x as Number, y as Number) as Void {
-        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
+        dc.setColor(WHITE, Graphics.COLOR_TRANSPARENT);
         var s = 6;
         dc.drawLine(x - s, y, x + s, y);
         dc.drawLine(x, y - s, x, y + s);
@@ -2180,14 +2277,14 @@ class RadarView extends WatchUi.View {
         x as Number,
         y as Number
     ) as Void {
-        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
+        dc.setColor(WHITE, Graphics.COLOR_TRANSPARENT);
         var s = 6;
         dc.drawLine(x - s, y, x + s, y);
     }
 
     // Menu (KEY_ENTER/KEY_MENU).
     private function _drawMenuHint(dc as Dc, x as Number, y as Number) as Void {
-        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
+        dc.setColor(WHITE, Graphics.COLOR_TRANSPARENT);
         var s = 4;
         dc.drawLine(x - s, y - 3, x + s, y - 3);
         dc.drawLine(x - s, y, x + s, y);
@@ -2200,7 +2297,7 @@ class RadarView extends WatchUi.View {
         x as Number,
         y as Number
     ) as Void {
-        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
+        dc.setColor(WHITE, Graphics.COLOR_TRANSPARENT);
         var s = 6;
         var gap = 2;
         dc.drawLine(x, y - s, x, y - gap);
@@ -2228,7 +2325,10 @@ class RadarView extends WatchUi.View {
         if (!_lastFetchOk) {
             return _lastFetchTooMuchData
                 ? [_tooBusyText, COLOR_WARN]
-                : [_noSignalText, COLOR_EMERGENCY];
+                : [
+                      _noSignalText + " " + _lastFetchCode.toString(),
+                      COLOR_EMERGENCY,
+                  ];
         }
         if (_fetchInFlight && !_viewHasFreshData) {
             return [_fetchingText, COLOR_GRID_LABEL];
@@ -2487,6 +2587,48 @@ class RadarView extends WatchUi.View {
         dc.setColor(COLOR_USER, Graphics.COLOR_TRANSPARENT);
         dc.drawCircle(pos[0], pos[1], 5);
         dc.fillCircle(pos[0], pos[1], 2);
+    }
+
+    // Fixed background reference points, not aircraft - own simple pass, no declutter reservation.
+    private function _drawNearbyAirports(
+        dc as Dc,
+        focusLat as Float,
+        focusLon as Float,
+        cx as Number,
+        cy as Number,
+        radiusPx as Number,
+        radiusKm as Float
+    ) as Void {
+        var airports = _nearbyAirports.values();
+        for (var i = 0; i < airports.size(); i++) {
+            var airport = airports[i];
+            var lat = airport[1] as Float;
+            var lon = airport[2] as Float;
+            if (
+                Projection.distanceKm(focusLat, focusLon, lat, lon) > radiusKm
+            ) {
+                continue;
+            }
+            var pos = Projection.toScreen(
+                focusLat,
+                focusLon,
+                lat,
+                lon,
+                cx,
+                cy,
+                radiusPx,
+                radiusKm
+            );
+            dc.setColor(COLOR_AIRPORT, Graphics.COLOR_TRANSPARENT);
+            dc.fillCircle(pos[0], pos[1], AIRPORT_MARKER_R);
+            dc.drawText(
+                pos[0],
+                pos[1] + AIRPORT_MARKER_R + AIRPORT_LABEL_GAP,
+                _fontTiny,
+                airport[0] as String,
+                Graphics.TEXT_JUSTIFY_CENTER
+            );
+        }
     }
 
     // Clamped so the arrow can't land inside the top/bottom panel bands - z-order alone isn't enough here.
@@ -3243,6 +3385,9 @@ class RadarView extends WatchUi.View {
         if (ac.military) {
             return COLOR_MILITARY;
         }
+        if (ac.isGroundVehicle() or ac.isObstacle()) {
+            return COLOR_GROUND;
+        }
         var cat = _effectiveCategory(ac);
         if (cat.equals("A7")) {
             return COLOR_HELICOPTER;
@@ -3527,7 +3672,7 @@ class RadarView extends WatchUi.View {
         y as Number,
         s as Number
     ) as Void {
-        dc.setColor(COLORS[0], Graphics.COLOR_TRANSPARENT);
+        dc.setColor(WHITE, Graphics.COLOR_TRANSPARENT);
         DrawUtil.drawChevron(dc, x, y, s, true);
     }
 
