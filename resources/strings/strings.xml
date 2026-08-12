@@ -5,18 +5,27 @@
   <string id="MenuDisplay">Display</string>
   <string id="MenuFilters">Filters</string>
   <string id="MenuAircraft">Aircraft</string>
-  <string id="MenuLabels">Aircraft Labels</string>
   <string id="MenuGeneral">General</string>
   <string id="MenuStatus">API Status</string>
 
   <string id="DisplayMenuTitle">Display</string>
+  <string id="MenuShowButtonHints">Button Hints</string>
+  <string id="MenuRadar">Radar</string>
+  <string id="MenuMap">Map</string>
+  <string id="MenuAirports">Airports</string>
+
+  <string id="RadarMenuTitle">Radar</string>
   <string id="MenuShowRangeRings">Range Rings</string>
   <string id="MenuShowGridLines">Grid Lines</string>
+
+  <string id="MapMenuTitle">Map</string>
   <string id="MenuShowBackgroundMap">Background Map</string>
   <string id="MenuMapStyle">Map Style</string>
   <string id="MenuMapDarkMode">Map Dark Mode</string>
-  <string id="MenuShowButtonHints">Button Hints</string>
+
+  <string id="AirportsMenuTitle">Airports</string>
   <string id="MenuShowAirports">Airports</string>
+  <string id="MenuShowSmallAirports">Small Airports</string>
 
   <string id="MapStyleMenuTitle">Map Style</string>
   <string id="MapStyleBackdrop">Backdrop</string>
@@ -37,14 +46,24 @@
   <string id="MenuHideMilitary">Hide Military</string>
 
   <string id="AircraftMenuTitle">Aircraft</string>
+  <string id="MenuAircraftOverlays">Overlays</string>
+  <string id="MenuAircraftColoring">Coloring</string>
+  <string id="MenuLabels">Labels</string>
+
+  <string id="AircraftOverlaysMenuTitle">Overlays</string>
   <string id="MenuShowTrack">Show Track</string>
   <string id="MenuShowVertRateChevron">Climb/Descend Arrows</string>
+
+  <string id="AircraftColoringMenuTitle">Coloring</string>
   <string id="MenuDimGroundedAircraft">Dim Grounded Aircraft</string>
   <string id="MenuDimStaleAircraft">Dim Stale Aircraft</string>
   <string id="MenuSingleColorMode">Single Color Mode</string>
 
-  <string id="LabelsMenuTitle">Aircraft Labels</string>
+  <string id="LabelsMenuTitle">Labels</string>
   <string id="MenuLabelsSub">Show Labels</string>
+  <string id="MenuLabelFields">Fields</string>
+
+  <string id="LabelFieldsMenuTitle">Fields</string>
   <string id="LabelCallsign">Callsign</string>
   <string id="LabelSpeed">Speed</string>
   <string id="LabelAltitude">Altitude</string>

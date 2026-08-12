@@ -20,9 +20,6 @@ module MenuBuilder {
             )
         );
         menu.addItem(
-            new WatchUi.MenuItem(Rez.Strings.MenuLabels, null, :labels, null)
-        );
-        menu.addItem(
             new WatchUi.MenuItem(Rez.Strings.MenuGeneral, null, :general, null)
         );
         menu.addItem(
@@ -51,10 +48,40 @@ module MenuBuilder {
         return menu;
     }
 
-    // Screen-chrome toggles (rings/grid/hints/background map), not the aircraft themselves or app-wide behavior.
+    // Top-level display hub: Radar/Map/Airports are sub-submenus, Button Hints lives here directly, last.
     function buildDisplayMenu() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({
             :title => Rez.Strings.DisplayMenuTitle,
+        });
+        menu.addItem(
+            new WatchUi.MenuItem(Rez.Strings.MenuRadar, null, :radar, null)
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(Rez.Strings.MenuMap, null, :map, null)
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.MenuAirports,
+                null,
+                :airports,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.ToggleMenuItem(
+                Rez.Strings.MenuShowButtonHints,
+                null,
+                :showButtonHints,
+                Settings.showButtonHints,
+                null
+            )
+        );
+        return menu;
+    }
+
+    function buildRadarMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.RadarMenuTitle,
         });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
@@ -74,6 +101,14 @@ module MenuBuilder {
                 null
             )
         );
+        return menu;
+    }
+
+    // Background map and its style/dark-mode options only - not the airport overlay, which is its own layer.
+    function buildMapMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.MapMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowBackgroundMap,
@@ -101,6 +136,13 @@ module MenuBuilder {
                 null
             )
         );
+        return menu;
+    }
+
+    function buildAirportsMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.AirportsMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuShowAirports,
@@ -112,10 +154,10 @@ module MenuBuilder {
         );
         menu.addItem(
             new WatchUi.ToggleMenuItem(
-                Rez.Strings.MenuShowButtonHints,
+                Rez.Strings.MenuShowSmallAirports,
                 null,
-                :showButtonHints,
-                Settings.showButtonHints,
+                :showSmallAirports,
+                Settings.showSmallAirports,
                 null
             )
         );
@@ -179,9 +221,36 @@ module MenuBuilder {
         return menu;
     }
 
+    // Pure hub - all 3 sub-groups below cover the full set, nothing left to put directly here.
     function buildAircraftMenu() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({
             :title => Rez.Strings.AircraftMenuTitle,
+        });
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.MenuAircraftOverlays,
+                null,
+                :aircraftOverlays,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.MenuAircraftColoring,
+                null,
+                :aircraftColoring,
+                null
+            )
+        );
+        menu.addItem(
+            new WatchUi.MenuItem(Rez.Strings.MenuLabels, null, :labels, null)
+        );
+        return menu;
+    }
+
+    function buildAircraftOverlaysMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.AircraftOverlaysMenuTitle,
         });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
@@ -201,6 +270,13 @@ module MenuBuilder {
                 null
             )
         );
+        return menu;
+    }
+
+    function buildAircraftColoringMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.AircraftColoringMenuTitle,
+        });
         menu.addItem(
             new WatchUi.ToggleMenuItem(
                 Rez.Strings.MenuDimGroundedAircraft,
@@ -231,6 +307,7 @@ module MenuBuilder {
         return menu;
     }
 
+    // Show Labels (the master switch) lives here directly, the 3 fields it gates are a sub-submenu.
     function buildLabelsMenu() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({ :title => Rez.Strings.LabelsMenuTitle });
         menu.addItem(
@@ -242,7 +319,21 @@ module MenuBuilder {
                 null
             )
         );
+        menu.addItem(
+            new WatchUi.MenuItem(
+                Rez.Strings.MenuLabelFields,
+                null,
+                :labelFields,
+                null
+            )
+        );
+        return menu;
+    }
 
+    function buildLabelFieldsMenu() as WatchUi.Menu2 {
+        var menu = new WatchUi.Menu2({
+            :title => Rez.Strings.LabelFieldsMenuTitle,
+        });
         var fields = Settings.LABEL_FIELDS;
         for (var i = 0; i < fields.size(); i++) {
             var field = fields[i];
@@ -256,7 +347,6 @@ module MenuBuilder {
                 )
             );
         }
-
         return menu;
     }
 
@@ -322,15 +412,6 @@ class MainMenuDelegate extends WatchUi.Menu2InputDelegate {
             return;
         }
 
-        if (id == :labels) {
-            WatchUi.pushView(
-                MenuBuilder.buildLabelsMenu(),
-                new LabelsMenuDelegate(),
-                WatchUi.SLIDE_LEFT
-            );
-            return;
-        }
-
         if (id == :general) {
             WatchUi.pushView(
                 MenuBuilder.buildGeneralMenu(),
@@ -368,6 +449,72 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
     public function onSelect(item as WatchUi.MenuItem) as Void {
         var id = item.getId();
 
+        if (id == :radar) {
+            WatchUi.pushView(
+                MenuBuilder.buildRadarMenu(),
+                new RadarMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
+
+        if (id == :map) {
+            WatchUi.pushView(
+                MenuBuilder.buildMapMenu(),
+                new MapMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
+
+        if (id == :airports) {
+            WatchUi.pushView(
+                MenuBuilder.buildAirportsMenu(),
+                new AirportsMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+            return;
+        }
+
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        if (id == :showButtonHints) {
+            Settings.setShowButtonHints(
+                (item as WatchUi.ToggleMenuItem).isEnabled()
+            );
+        }
+    }
+}
+
+class RadarMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        var id = item.getId();
+        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
+
+        if (id == :showRangeRings) {
+            Settings.setShowRangeRings(enabled);
+        } else if (id == :showGridLines) {
+            Settings.setShowGridLines(enabled);
+        }
+    }
+}
+
+class MapMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        var id = item.getId();
+
         if (id == :mapStyle) {
             WatchUi.pushView(
                 MenuBuilder.buildMapStyleMenu(),
@@ -382,18 +529,30 @@ class DisplayMenuDelegate extends WatchUi.Menu2InputDelegate {
         }
         var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
 
-        if (id == :showRangeRings) {
-            Settings.setShowRangeRings(enabled);
-        } else if (id == :showGridLines) {
-            Settings.setShowGridLines(enabled);
-        } else if (id == :showButtonHints) {
-            Settings.setShowButtonHints(enabled);
-        } else if (id == :showBackgroundMap) {
+        if (id == :showBackgroundMap) {
             Settings.setShowBackgroundMap(enabled);
         } else if (id == :mapDarkMode) {
             Settings.setMapDarkMode(enabled);
-        } else if (id == :showAirports) {
+        }
+    }
+}
+
+class AirportsMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        var id = item.getId();
+        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
+
+        if (id == :showAirports) {
             Settings.setShowAirports(enabled);
+        } else if (id == :showSmallAirports) {
+            Settings.setShowSmallAirports(enabled);
         }
     }
 }
@@ -448,6 +607,36 @@ class AircraftMenuDelegate extends WatchUi.Menu2InputDelegate {
     }
 
     public function onSelect(item as WatchUi.MenuItem) as Void {
+        var id = item.getId();
+
+        if (id == :aircraftOverlays) {
+            WatchUi.pushView(
+                MenuBuilder.buildAircraftOverlaysMenu(),
+                new AircraftOverlaysMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+        } else if (id == :aircraftColoring) {
+            WatchUi.pushView(
+                MenuBuilder.buildAircraftColoringMenu(),
+                new AircraftColoringMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+        } else if (id == :labels) {
+            WatchUi.pushView(
+                MenuBuilder.buildLabelsMenu(),
+                new LabelsMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
+        }
+    }
+}
+
+class AircraftOverlaysMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
         if (!(item instanceof WatchUi.ToggleMenuItem)) {
             return;
         }
@@ -458,7 +647,23 @@ class AircraftMenuDelegate extends WatchUi.Menu2InputDelegate {
             Settings.setShowSelectedTrail(enabled);
         } else if (id == :showVertRateChevron) {
             Settings.setShowVertRateChevron(enabled);
-        } else if (id == :dimGroundedAircraft) {
+        }
+    }
+}
+
+class AircraftColoringMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        var id = item.getId();
+        var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
+
+        if (id == :dimGroundedAircraft) {
             Settings.setDimGroundedAircraft(enabled);
         } else if (id == :dimStaleAircraft) {
             Settings.setDimStaleAircraft(enabled);
@@ -474,18 +679,40 @@ class LabelsMenuDelegate extends WatchUi.Menu2InputDelegate {
     }
 
     public function onSelect(item as WatchUi.MenuItem) as Void {
-        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+        var id = item.getId();
+
+        if (id == :labelFields) {
+            WatchUi.pushView(
+                MenuBuilder.buildLabelFieldsMenu(),
+                new LabelFieldsMenuDelegate(),
+                WatchUi.SLIDE_LEFT
+            );
             return;
         }
 
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
+        if (id == :labelsMaster) {
+            Settings.setLabelsEnabled(
+                (item as WatchUi.ToggleMenuItem).isEnabled()
+            );
+        }
+    }
+}
+
+class LabelFieldsMenuDelegate extends WatchUi.Menu2InputDelegate {
+    public function initialize() {
+        Menu2InputDelegate.initialize();
+    }
+
+    public function onSelect(item as WatchUi.MenuItem) as Void {
+        if (!(item instanceof WatchUi.ToggleMenuItem)) {
+            return;
+        }
         var id = item.getId();
         var enabled = (item as WatchUi.ToggleMenuItem).isEnabled();
-
-        if (id == :labelsMaster) {
-            Settings.setLabelsEnabled(enabled);
-        } else {
-            Settings.setLabelFieldEnabled(id as String, enabled);
-        }
+        Settings.setLabelFieldEnabled(id as String, enabled);
     }
 }
 

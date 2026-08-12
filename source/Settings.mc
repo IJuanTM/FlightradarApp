@@ -75,17 +75,23 @@ module Settings {
 
     var zoomIndex as Number = 0;
 
-    // Map chrome toggles.
+    // Radar-screen chrome toggles.
     var showRangeRings as Boolean = true;
     var showGridLines as Boolean = false;
     var showButtonHints as Boolean = true;
+
+    // Map toggles.
     // Opt-in - a background map is the biggest network/battery cost in the app, default off.
     var showBackgroundMap as Boolean = false;
     // MapTiler style id (see MAP_STYLE_OPTIONS) and whether to request its "-dark" variant.
-    var mapStyle as String = "base";
+    var mapStyle as String = "dataviz";
     var mapDarkMode as Boolean = true;
-    // Opt-in - a second network source (nearby-airport lookups), same rationale as showBackgroundMap.
-    var showAirports as Boolean = false;
+
+    // Airport overlay toggles - independent of the background map, drawn on the radar either way.
+    var showAirports as Boolean = true;
+    // Opt-out - airports without an IATA code (gliding sites, small airstrips, etc) are the majority
+    // of what OpenAIP returns and clutter the view fast, unlike the well-known ones with an IATA code.
+    var showSmallAirports as Boolean = true;
 
     // Filters - what traffic appears at all.
     // Opt-in - ground vehicles hidden by default, unlike hideGroundedPlanes below.
@@ -96,9 +102,11 @@ module Settings {
     // Opt-in - military aircraft shown (just tinted) by default, same pattern as showGroundVehicles.
     var hideMilitary as Boolean = false;
 
-    // Aircraft display toggles - all opt-out, default on.
+    // Aircraft overlays - both opt-out, default on.
     var showSelectedTrail as Boolean = true;
     var showVertRateChevron as Boolean = true;
+
+    // Aircraft coloring.
     var dimGroundedAircraft as Boolean = true;
     var dimStaleAircraft as Boolean = true;
     var singleColorMode as Boolean = false;
@@ -122,10 +130,12 @@ module Settings {
         showRangeRings = _loadBool("showRangeRings", true);
         showGridLines = _loadBool("showGridLines", false);
         showButtonHints = _loadBool("showButtonHints", true);
+
         showBackgroundMap = _loadBool("showBackgroundMap", false);
-        mapStyle = _loadString("mapStyle", "base");
+        mapStyle = _loadString("mapStyle", "dataviz");
         mapDarkMode = _loadBool("mapDarkMode", true);
-        showAirports = _loadBool("showAirports", false);
+        showAirports = _loadBool("showAirports", true);
+        showSmallAirports = _loadBool("showSmallAirports", true);
 
         showGroundVehicles = _loadBool("showGroundVehicles", false);
         hideGroundedPlanes = _loadBool("hideGroundedPlanes", false);
@@ -134,6 +144,7 @@ module Settings {
 
         showSelectedTrail = _loadBool("showSelectedTrail", true);
         showVertRateChevron = _loadBool("showVertRateChevron", true);
+
         dimGroundedAircraft = _loadBool("dimGroundedAircraft", true);
         dimStaleAircraft = _loadBool("dimStaleAircraft", true);
         singleColorMode = _loadBool("singleColorMode", false);
@@ -213,6 +224,11 @@ module Settings {
     function setShowAirports(v as Boolean) as Void {
         showAirports = v;
         Storage.setValue("showAirports", v);
+    }
+
+    function setShowSmallAirports(v as Boolean) as Void {
+        showSmallAirports = v;
+        Storage.setValue("showSmallAirports", v);
     }
 
     function setShowGroundVehicles(v as Boolean) as Void {

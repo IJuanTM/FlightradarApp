@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.15.1";
+const APP_VERSION = "0.15.2";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -338,11 +338,12 @@ class RadarView extends WatchUi.View {
         new NearbyAirportsClient();
     // Keyed by icao, merged (never replaced) on each fetch - airports don't move, so one seen once
     // stays drawable even after the view moves past the radius that originally found it.
-    private var _nearbyAirports as Dictionary<String, [String, Float, Float]> =
-        {};
+    private var _nearbyAirports as
+        Dictionary<String, NearbyAirportsClient.NearbyAirport> = {};
     // Draw order for _nearbyAirports - appended to only when a fetch adds a genuinely new icao, so
     // _drawNearbyAirports never has to rebuild it from the dictionary on every frame.
-    private var _nearbyAirportsList as Array<[String, Float, Float]> = [];
+    private var _nearbyAirportsList as
+        Array<NearbyAirportsClient.NearbyAirport> = [];
     private var _airportsRequestedLat as Float?;
     private var _airportsRequestedLon as Float?;
     private var _airportsRequestedRadiusKm as Float?;
@@ -353,6 +354,8 @@ class RadarView extends WatchUi.View {
     private const AIRPORTS_REFETCH_MARGIN_FACTOR = 0.5;
     private const AIRPORTS_OVERSCAN_FACTOR = 1.2;
     private const AIRPORT_MARKER_R = 3;
+    private const AIRPORT_MARKER_R_SMALL = 2;
+    private const AIRPORT_SMALL_DIM_FACTOR = 0.75;
     private const AIRPORT_LABEL_GAP = 2;
 
     private var _mapClient as MapClient = new MapClient(
@@ -1787,7 +1790,7 @@ class RadarView extends WatchUi.View {
     }
 
     public function _onNearbyAirportsResult(
-        airports as Array<[String, Float, Float]>,
+        airports as Array<NearbyAirportsClient.NearbyAirport>,
         ok as Boolean
     ) as Void {
         ApiStatus.setState(ApiStatus.airports, ok);
@@ -2605,10 +2608,15 @@ class RadarView extends WatchUi.View {
         radiusKm as Float
     ) as Void {
         var airports = _nearbyAirportsList;
+        var showSmall = Settings.showSmallAirports;
         for (var i = 0; i < airports.size(); i++) {
             var airport = airports[i];
-            var lat = airport[1] as Float;
-            var lon = airport[2] as Float;
+            var isSmall = airport[2] as Boolean;
+            if (!showSmall && isSmall) {
+                continue;
+            }
+            var lat = airport[3] as Float;
+            var lon = airport[4] as Float;
             if (
                 Projection.distanceKm(focusLat, focusLon, lat, lon) > radiusKm
             ) {
@@ -2624,13 +2632,17 @@ class RadarView extends WatchUi.View {
                 radiusPx,
                 radiusKm
             );
-            dc.setColor(COLOR_AIRPORT, Graphics.COLOR_TRANSPARENT);
-            dc.fillCircle(pos[0], pos[1], AIRPORT_MARKER_R);
+            var markerR = isSmall ? AIRPORT_MARKER_R_SMALL : AIRPORT_MARKER_R;
+            var markerColor = isSmall
+                ? _dimColor(COLOR_AIRPORT, AIRPORT_SMALL_DIM_FACTOR)
+                : COLOR_AIRPORT;
+            dc.setColor(markerColor, Graphics.COLOR_TRANSPARENT);
+            dc.fillCircle(pos[0], pos[1], markerR);
             dc.drawText(
                 pos[0],
-                pos[1] + AIRPORT_MARKER_R + AIRPORT_LABEL_GAP,
+                pos[1] + markerR + AIRPORT_LABEL_GAP,
                 _fontTiny,
-                airport[0] as String,
+                airport[1] as String,
                 Graphics.TEXT_JUSTIFY_CENTER
             );
         }
@@ -3089,10 +3101,10 @@ class RadarView extends WatchUi.View {
         return endGlobal - Math.floor(endGlobal / step) * step;
     }
 
-    private const GROUNDED_DIM_FACTOR = 0.45;
+    private const GROUNDED_DIM_FACTOR = 0.75;
     // A position this old hasn't actually moved across several poll cycles - likely a fringe-of-coverage ghost.
     private const STALE_POSITION_SEC = 15.0;
-    private const STALE_DIM_FACTOR = 0.55;
+    private const STALE_DIM_FACTOR = 0.75;
     // Tied to source PNGs' 3px/unit rendering - on-screen icon size stays constant if that changes.
     private const ICON_BASE_SCALE = 0.226667;
     private const ICON_RECT_MARGIN = 2;

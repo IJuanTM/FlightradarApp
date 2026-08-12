@@ -6,13 +6,15 @@ import Toybox.Lang;
 class NearbyAirportsClient {
     private const BASE_URL = "https://api.core.openaip.net/api/airports";
     // Trims the response - full airport objects include runways/frequencies/etc, unused here.
-    private const FIELDS = "name,icaoCode,geometry";
+    private const FIELDS = "name,icaoCode,iataCode,geometry";
     private const RESULT_LIMIT = 30;
 
+    // [icao, label, isSmall, lat, lon] - icao is the stable identity/dictionary key, label is what's
+    // actually drawn (IATA when present), isSmall marks airports without an IATA code (see _parseItem).
+    typedef NearbyAirport as [String, String, Boolean, Float, Float];
+
     typedef NearbyAirportsCallback as
-        (Method
-            (airports as Array<[String, Float, Float]>, ok as Boolean) as Void
-        );
+        (Method(airports as Array<NearbyAirport>, ok as Boolean) as Void);
 
     // Payload is [lat, lon, radiusMeters] - see PendingRequestSlot for the active/queued contract.
     private var _slot as PendingRequestSlot = new PendingRequestSlot();
@@ -34,7 +36,7 @@ class NearbyAirportsClient {
 
     private function _performFetch() as Void {
         if (!_ensureApiKeyLoaded()) {
-            _resolve([] as Array<[String, Float, Float]>, false);
+            _resolve([] as Array<NearbyAirport>, false);
             return;
         }
 
@@ -78,18 +80,18 @@ class NearbyAirportsClient {
         data as Dictionary or String or Null
     ) as Void {
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            _resolve([] as Array<[String, Float, Float]>, false);
+            _resolve([] as Array<NearbyAirport>, false);
             return;
         }
 
         var items = (data as Dictionary)["items"];
-        var result = [] as Array<[String, Float, Float]>;
+        var result = [] as Array<NearbyAirport>;
         if (items instanceof Lang.Array) {
             var arr = items as Array;
             for (var i = 0; i < arr.size(); i++) {
                 var airport = _parseItem(arr[i]);
                 if (airport != null) {
-                    result.add(airport as [String, Float, Float]);
+                    result.add(airport as NearbyAirport);
                 }
             }
         }
@@ -97,7 +99,7 @@ class NearbyAirportsClient {
     }
 
     // GeoJSON "coordinates" is [lon, lat], the opposite order from the "pos" query param above.
-    private function _parseItem(entry as Object?) as [String, Float, Float]? {
+    private function _parseItem(entry as Object?) as NearbyAirport? {
         if (!(entry instanceof Lang.Dictionary)) {
             return null;
         }
@@ -106,6 +108,11 @@ class NearbyAirportsClient {
         if (!(icao instanceof Lang.String)) {
             return null;
         }
+        // IATA (3-char) is more widely recognized than ICAO (4-char) - prefer it when present.
+        var iata = dict["iataCode"];
+        var hasIata =
+            iata instanceof Lang.String && (iata as String).length() > 0;
+        var label = hasIata ? iata as String : icao as String;
 
         var geometry = dict["geometry"];
         if (!(geometry instanceof Lang.Dictionary)) {
@@ -122,14 +129,14 @@ class NearbyAirportsClient {
         }
 
         return (
-            [icao as String, lat.toFloat(), lon.toFloat()] as
-            [String, Float, Float]
+            [icao as String, label, !hasIata, lat.toFloat(), lon.toFloat()] as
+            NearbyAirport
         );
     }
 
     // Delivers to the active request's own callback before promoting any queued request.
     private function _resolve(
-        airports as Array<[String, Float, Float]>,
+        airports as Array<NearbyAirport>,
         ok as Boolean
     ) as Void {
         var cb = _slot.activeCallback() as NearbyAirportsCallback?;
