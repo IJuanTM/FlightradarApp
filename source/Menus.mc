@@ -38,58 +38,16 @@ module MenuBuilder {
     // as every other menu here reading live state; nothing here changes while the menu is showing.
     function buildStatusMenu() as WatchUi.Menu2 {
         var menu = new WatchUi.Menu2({ :title => Rez.Strings.StatusMenuTitle });
-        var feedLabel = ApiStatus.label(ApiStatus.feedState);
-        if (ApiStatus.feedState == ApiStatus.FAILED) {
-            feedLabel += " (" + ApiStatus.feedCode.toString() + ")";
+        for (var i = 0; i < ApiStatus.SOURCES.size(); i++) {
+            var source = ApiStatus.SOURCES[i];
+            var label = ApiStatus.label(source.state);
+            if (source == ApiStatus.feed and source.state == ApiStatus.FAILED) {
+                label += " (" + ApiStatus.feedCode.toString() + ")";
+            }
+            menu.addItem(
+                new WatchUi.MenuItem(source.stringId, label, :status, null)
+            );
         }
-        menu.addItem(
-            new WatchUi.MenuItem(
-                Rez.Strings.StatusFeed,
-                feedLabel,
-                :statusFeed,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.MenuItem(
-                Rez.Strings.StatusMap,
-                ApiStatus.label(ApiStatus.mapState),
-                :statusMap,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.MenuItem(
-                Rez.Strings.StatusAirports,
-                ApiStatus.label(ApiStatus.airportsState),
-                :statusAirports,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.MenuItem(
-                Rez.Strings.StatusRoute,
-                ApiStatus.label(ApiStatus.routeState),
-                :statusRoute,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.MenuItem(
-                Rez.Strings.StatusAirportInfo,
-                ApiStatus.label(ApiStatus.airportInfoState),
-                :statusAirportInfo,
-                null
-            )
-        );
-        menu.addItem(
-            new WatchUi.MenuItem(
-                Rez.Strings.StatusTrack,
-                ApiStatus.label(ApiStatus.trackState),
-                :statusTrack,
-                null
-            )
-        );
         return menu;
     }
 

@@ -9,37 +9,42 @@ module ApiStatus {
         FAILED,
     }
 
-    var feedState = NEVER_TRIED;
+    class Source {
+        public var stringId as ResourceId;
+        public var state = NEVER_TRIED;
+
+        public function initialize(stringId as ResourceId) {
+            self.stringId = stringId;
+        }
+    }
+
+    var feed = new Source(Rez.Strings.StatusFeed);
+    var map = new Source(Rez.Strings.StatusMap);
+    var airports = new Source(Rez.Strings.StatusAirports);
+    var route = new Source(Rez.Strings.StatusRoute);
+    var airportInfo = new Source(Rez.Strings.StatusAirportInfo);
+    var track = new Source(Rez.Strings.StatusTrack);
+
+    // Looped over by MenuBuilder.buildStatusMenu - add a new source here and it shows up for free.
+    var SOURCES as Array<Source> = [
+        feed,
+        map,
+        airports,
+        route,
+        airportInfo,
+        track,
+    ];
+
+    // Only the feed currently has a meaningful failure code to show - add more here if that changes.
     var feedCode as Number = 0;
-    var mapState = NEVER_TRIED;
-    var airportsState = NEVER_TRIED;
-    var routeState = NEVER_TRIED;
-    var airportInfoState = NEVER_TRIED;
-    var trackState = NEVER_TRIED;
+
+    function setState(source as Source, ok as Boolean) as Void {
+        source.state = ok ? OK : FAILED;
+    }
 
     function setFeed(ok as Boolean, code as Number) as Void {
-        feedState = ok ? OK : FAILED;
         feedCode = code;
-    }
-
-    function setMap(ok as Boolean) as Void {
-        mapState = ok ? OK : FAILED;
-    }
-
-    function setAirports(ok as Boolean) as Void {
-        airportsState = ok ? OK : FAILED;
-    }
-
-    function setRoute(ok as Boolean) as Void {
-        routeState = ok ? OK : FAILED;
-    }
-
-    function setAirportInfo(ok as Boolean) as Void {
-        airportInfoState = ok ? OK : FAILED;
-    }
-
-    function setTrack(ok as Boolean) as Void {
-        trackState = ok ? OK : FAILED;
+        setState(feed, ok);
     }
 
     function label(state) as String {

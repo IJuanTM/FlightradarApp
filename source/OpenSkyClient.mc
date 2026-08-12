@@ -113,13 +113,7 @@ class OpenSkyClient {
         var dict = data as Dictionary;
         var token = dict["access_token"];
         var expiresIn = dict["expires_in"];
-        if (
-            !(token instanceof Lang.String) or
-            expiresIn == null or
-            expiresIn instanceof Lang.Dictionary or
-            expiresIn instanceof Lang.Array or
-            expiresIn instanceof Lang.Boolean
-        ) {
+        if (!(token instanceof Lang.String) or !JsonUtil.isNumeric(expiresIn)) {
             _failPendingTrack();
             return;
         }

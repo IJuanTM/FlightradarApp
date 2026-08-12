@@ -51,7 +51,7 @@ class Aircraft {
         if (ab instanceof Lang.String) {
             onGround = true;
             altBaro = 0;
-        } else if (_isNumeric(ab)) {
+        } else if (JsonUtil.isNumeric(ab)) {
             onGround = false;
             altBaro = ab.toNumber();
         } else {
@@ -143,20 +143,8 @@ class Aircraft {
         );
     }
 
-    // Excludes only the types with no .toNumber()/.toFloat() (Dictionary/Array/Boolean) - String is kept, it has both.
-    private function _isNumeric(v) as Boolean {
-        return (
-            v != null and
-            !(
-                v instanceof Lang.Dictionary or
-                v instanceof Lang.Array or
-                v instanceof Lang.Boolean
-            )
-        );
-    }
-
     private function _toFloat(v, def as Float) as Float {
-        if (!_isNumeric(v)) {
+        if (!JsonUtil.isNumeric(v)) {
             return def;
         }
         var f = v.toFloat();
@@ -167,15 +155,15 @@ class Aircraft {
         if (v instanceof Lang.Boolean) {
             return v as Boolean;
         }
-        return _isNumeric(v) && v.toNumber() != 0;
+        return JsonUtil.isNumeric(v) && v.toNumber() != 0;
     }
 
     private function _toFloatOrNull(v) as Float? {
-        return _isNumeric(v) ? v.toFloat() : null;
+        return JsonUtil.isNumeric(v) ? v.toFloat() : null;
     }
 
     private function _toNumberOrNull(v) as Number? {
-        return _isNumeric(v) ? v.toNumber() : null;
+        return JsonUtil.isNumeric(v) ? v.toNumber() : null;
     }
 
     private function _toTrimmedStringOrNull(v) as String? {

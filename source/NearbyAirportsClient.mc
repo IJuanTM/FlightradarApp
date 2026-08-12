@@ -117,25 +117,13 @@ class NearbyAirportsClient {
         }
         var lon = (coords as Array)[0];
         var lat = (coords as Array)[1];
-        if (!_isNumeric(lat) or !_isNumeric(lon)) {
+        if (!JsonUtil.isNumeric(lat) or !JsonUtil.isNumeric(lon)) {
             return null;
         }
 
         return (
             [icao as String, lat.toFloat(), lon.toFloat()] as
             [String, Float, Float]
-        );
-    }
-
-    // Excludes only the types with no .toFloat() (Dictionary/Array/Boolean).
-    private function _isNumeric(v) as Boolean {
-        return (
-            v != null and
-            !(
-                v instanceof Lang.Dictionary or
-                v instanceof Lang.Array or
-                v instanceof Lang.Boolean
-            )
         );
     }
 

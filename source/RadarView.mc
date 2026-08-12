@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.15.0";
+const APP_VERSION = "0.15.1";
 
 // Sorts needed tiles by on-screen visible area; the center-of-screen tile is always pinned first.
 class TileVisibilityComparator {
@@ -220,7 +220,9 @@ class RadarView extends WatchUi.View {
     private var _aircraftByHex as Dictionary<String, Aircraft> = {};
     private var _lastFetchOk as Boolean = true;
     private var _lastFetchTooMuchData as Boolean = false;
-    private var _lastFetchCode as Number = 0;
+    // Formatted once per fetch result, not per frame - _fetchStatusLine can show "No Signal" for a
+    // long stretch while the feed is down.
+    private var _noSignalCodeText as String = "";
     // True once the current view (location/zoom) has a successful fetch - reset on pan/zoom so the
     // status text shows "Fetching" for a genuine new-view load, not a same-view background poll.
     private var _viewHasFreshData as Boolean = false;
@@ -338,6 +340,9 @@ class RadarView extends WatchUi.View {
     // stays drawable even after the view moves past the radius that originally found it.
     private var _nearbyAirports as Dictionary<String, [String, Float, Float]> =
         {};
+    // Draw order for _nearbyAirports - appended to only when a fetch adds a genuinely new icao, so
+    // _drawNearbyAirports never has to rebuild it from the dictionary on every frame.
+    private var _nearbyAirportsList as Array<[String, Float, Float]> = [];
     private var _airportsRequestedLat as Float?;
     private var _airportsRequestedLon as Float?;
     private var _airportsRequestedRadiusKm as Float?;
@@ -1104,7 +1109,7 @@ class RadarView extends WatchUi.View {
     ) as Void {
         _routeFetchInFlight = false;
         _mapClient.resumeFor(:route);
-        ApiStatus.setRoute(ok);
+        ApiStatus.setState(ApiStatus.route, ok);
 
         var view = _detailView;
         if (view == null) {
@@ -1164,7 +1169,7 @@ class RadarView extends WatchUi.View {
         icao as String,
         text as String?
     ) as Void {
-        ApiStatus.setAirportInfo(text != null);
+        ApiStatus.setState(ApiStatus.airportInfo, text != null);
         var view = _detailView;
         if (view == null) {
             return;
@@ -1237,7 +1242,7 @@ class RadarView extends WatchUi.View {
         _trackFetchInFlight = false;
         _detailLinesCacheHex = null;
         _mapClient.resumeFor(:track);
-        ApiStatus.setTrack(ok);
+        ApiStatus.setState(ApiStatus.track, ok);
 
         var stillSelected = _hexStillSelected(hex);
 
@@ -1306,7 +1311,9 @@ class RadarView extends WatchUi.View {
         _fetchInFlight = false;
         _lastFetchOk = ok;
         _lastFetchTooMuchData = tooMuchData;
-        _lastFetchCode = code;
+        if (!ok) {
+            _noSignalCodeText = _noSignalText + " " + code.toString();
+        }
         ApiStatus.setFeed(ok, code);
         _mapClient.resumeFor(:poll);
 
@@ -1550,9 +1557,7 @@ class RadarView extends WatchUi.View {
         _mapNeededTiles = [];
         // Also clears the last-requested view - otherwise re-enabling without movement never refetches.
         _mapRequestedLat = null;
-        // MapClient's own in-flight/queued tiles don't know the style changed - its dedup key is just
-        // z/x/y/tileSize, so without this a same-coordinate re-request here would silently no-op against
-        // a stale-style tile already in flight. Abandons it the same safe way a timeout does.
+        // MapClient's own dedup key is just z/x/y/tileSize, blind to the style change underneath it.
         _mapClient.pruneQueue(({}) as Dictionary<String, Boolean>);
     }
 
@@ -1785,10 +1790,13 @@ class RadarView extends WatchUi.View {
         airports as Array<[String, Float, Float]>,
         ok as Boolean
     ) as Void {
-        ApiStatus.setAirports(ok);
+        ApiStatus.setState(ApiStatus.airports, ok);
         if (ok) {
             for (var i = 0; i < airports.size(); i++) {
                 var airport = airports[i];
+                if (!_nearbyAirports.hasKey(airport[0])) {
+                    _nearbyAirportsList.add(airport);
+                }
                 _nearbyAirports[airport[0]] = airport;
             }
             WatchUi.requestUpdate();
@@ -1840,7 +1848,7 @@ class RadarView extends WatchUi.View {
         }
         _mapNextRetryAtMs = null;
         _mapRetryBackoffMs = MAP_INITIAL_RETRY_BACKOFF_MS;
-        ApiStatus.setMap(true);
+        ApiStatus.setState(ApiStatus.map, true);
 
         var key = _mapClient.tileKeyFor(z, x, y, tileSize);
         // Discarded if panned/zoomed away mid-flight, or the feature got toggled off.
@@ -1864,7 +1872,7 @@ class RadarView extends WatchUi.View {
     }
 
     private function _mapScheduleRetry() as Void {
-        ApiStatus.setMap(false);
+        ApiStatus.setState(ApiStatus.map, false);
         _mapNextRetryAtMs = System.getTimer() + _mapRetryBackoffMs;
         _mapRetryBackoffMs *= 2;
         if (_mapRetryBackoffMs > MAP_MAX_RETRY_BACKOFF_MS) {
@@ -2325,10 +2333,7 @@ class RadarView extends WatchUi.View {
         if (!_lastFetchOk) {
             return _lastFetchTooMuchData
                 ? [_tooBusyText, COLOR_WARN]
-                : [
-                      _noSignalText + " " + _lastFetchCode.toString(),
-                      COLOR_EMERGENCY,
-                  ];
+                : [_noSignalCodeText, COLOR_EMERGENCY];
         }
         if (_fetchInFlight && !_viewHasFreshData) {
             return [_fetchingText, COLOR_GRID_LABEL];
@@ -2599,7 +2604,7 @@ class RadarView extends WatchUi.View {
         radiusPx as Number,
         radiusKm as Float
     ) as Void {
-        var airports = _nearbyAirports.values();
+        var airports = _nearbyAirportsList;
         for (var i = 0; i < airports.size(); i++) {
             var airport = airports[i];
             var lat = airport[1] as Float;
