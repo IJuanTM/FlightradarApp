@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.16.1";
+const APP_VERSION = "0.17.0";
 // Movement below this is tap jitter, not a drag - shared by the radar pan and the detail-view scroll.
 const DRAG_THRESHOLD_PX = 32;
 // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
@@ -300,16 +300,16 @@ class RadarView extends WatchUi.View {
     private var _ticksSincePoll as Number = 0;
     // Held here, not a local - an unreferenced Timer can be garbage-collected before it fires.
     private var _detailTimer as Timer.Timer?;
-    // Drives the fetch spinner's orbit animation, without redrawing so often it hurts battery.
-    private const ANIM_TICK_MS = 100;
-    // Doubled in battery saver mode, set once in onShow - a running Timer's interval can't change.
-    private var _tickIntervalMs as Number = ANIM_TICK_MS;
-    // The screen going dark (wrist down) doesn't hide this view - _onTick keeps polling for nobody unless told.
+    private const TICK_MS = 250;
+    // Doubled in battery saver mode, set once per timer start - a running Timer's interval can't change.
+    private var _tickIntervalMs as Number = TICK_MS;
+    // The screen going dark (wrist down) doesn't hide this view, so the tick is stopped here instead of in onHide.
     private var _displayOff as Boolean = false;
+    private var _tickPausedForDisplay as Boolean = false;
 
     private var _zoomChangedAtMs as Number?;
-    // Not lower - _onTick's own cadence (ANIM_TICK_MS) is the real floor on how fast this can fire.
-    private const ZOOM_DEBOUNCE_MS = ANIM_TICK_MS;
+    // Not lower - _onTick's own cadence (TICK_MS) is the real floor on how fast this can fire.
+    private const ZOOM_DEBOUNCE_MS = TICK_MS;
     private var _nextRetryAtMs as Number?;
     private var _retryBackoffMs as Number = INITIAL_RETRY_BACKOFF_MS;
     private const INITIAL_RETRY_BACKOFF_MS = 1000;
@@ -524,15 +524,8 @@ class RadarView extends WatchUi.View {
         _segmentGapPx = _charW;
     }
 
-    // A single recurring Timer, not two - a second one alongside the poll timer hit the "Too Many Timers" limit.
     public function onShow() as Void {
-        _tickIntervalMs = Settings.batterySaverMode
-            ? ANIM_TICK_MS * 2
-            : ANIM_TICK_MS;
-        var timer = new Timer.Timer();
-        timer.start(method(:_onTick), _tickIntervalMs, true);
-        _pollTimer = timer;
-        _ticksSincePoll = 0;
+        _startTick();
 
         if (!_hasFix) {
             _tryLastKnownPosition();
@@ -576,6 +569,20 @@ class RadarView extends WatchUi.View {
     }
 
     public function onHide() as Void {
+        _stopTick();
+        _tickPausedForDisplay = false;
+    }
+
+    // A single recurring Timer, not two - a second one alongside the poll timer hit the "Too Many Timers" limit.
+    private function _startTick() as Void {
+        _tickIntervalMs = Settings.batterySaverMode ? TICK_MS * 2 : TICK_MS;
+        var timer = new Timer.Timer();
+        timer.start(method(:_onTick), _tickIntervalMs, true);
+        _pollTimer = timer;
+        _ticksSincePoll = 0;
+    }
+
+    private function _stopTick() as Void {
         if (_pollTimer != null) {
             (_pollTimer as Timer.Timer).stop();
             _pollTimer = null;
@@ -595,8 +602,12 @@ class RadarView extends WatchUi.View {
     public function onDisplayModeChanged(mode as System.DisplayMode) as Void {
         var wasOff = _displayOff;
         _displayOff = mode == System.DISPLAY_MODE_OFF;
-        if (wasOff && !_displayOff) {
-            _ticksSincePoll = 0;
+        if (!wasOff && _displayOff && _pollTimer != null) {
+            _stopTick();
+            _tickPausedForDisplay = true;
+        } else if (wasOff && !_displayOff && _tickPausedForDisplay) {
+            _tickPausedForDisplay = false;
+            _startTick();
             _fetchNow();
         }
     }
@@ -618,10 +629,6 @@ class RadarView extends WatchUi.View {
     }
 
     public function _onTick() as Void {
-        if (_displayOff) {
-            return;
-        }
-
         var now = System.getTimer();
 
         // Timer context only - a precaution against dispatching inside a Communications callback.
@@ -711,10 +718,6 @@ class RadarView extends WatchUi.View {
             ) {
                 WatchUi.requestUpdate();
             }
-        }
-
-        if (_fetchInFlight) {
-            WatchUi.requestUpdate();
         }
     }
 
@@ -1678,6 +1681,23 @@ class RadarView extends WatchUi.View {
         var neededList = [] as Array<[Number, Number, Number, Number]>;
         for (var tx = minTileX; tx <= maxTileX; tx++) {
             for (var ty = minTileY; ty <= maxTileY; ty++) {
+                // The tile range is a square, but the display is round - its corner tiles can lie wholly outside it.
+                if (
+                    !_tileTouchesCircle(
+                        tx,
+                        ty,
+                        tileZ,
+                        focusLat,
+                        focusLon,
+                        cx,
+                        cy,
+                        radiusPx,
+                        radiusKm,
+                        mapHalfPx
+                    )
+                ) {
+                    continue;
+                }
                 neededKeys[_mapClient.tileKeyFor(tileZ, tx, ty, tileSize)] =
                     true;
                 neededList.add([tileZ, tx, ty, tileSize]);
@@ -1811,6 +1831,57 @@ class RadarView extends WatchUi.View {
             // Otherwise the refetch-margin check suppresses every retry until the view moves.
             _airportsRequestedLat = null;
         }
+    }
+
+    private function _tileTouchesCircle(
+        tx as Number,
+        ty as Number,
+        tileZ as Number,
+        focusLat as Float,
+        focusLon as Float,
+        cx as Number,
+        cy as Number,
+        radiusPx as Number,
+        radiusKm as Float,
+        circleR as Float
+    ) as Boolean {
+        var topLeftLatLon = Projection.tileToLatLon(tx, ty, tileZ);
+        var bottomRightLatLon = Projection.tileToLatLon(tx + 1, ty + 1, tileZ);
+        var topLeft = Projection.toScreenF(
+            focusLat,
+            focusLon,
+            topLeftLatLon[0],
+            topLeftLatLon[1],
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
+        var bottomRight = Projection.toScreenF(
+            focusLat,
+            focusLon,
+            bottomRightLatLon[0],
+            bottomRightLatLon[1],
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
+        var nearestX =
+            cx < topLeft[0]
+                ? topLeft[0]
+                : cx > bottomRight[0]
+                  ? bottomRight[0]
+                  : cx;
+        var nearestY =
+            cy < topLeft[1]
+                ? topLeft[1]
+                : cy > bottomRight[1]
+                  ? bottomRight[1]
+                  : cy;
+        var dx = nearestX - cx;
+        var dy = nearestY - cy;
+        return dx * dx + dy * dy <= circleR * circleR;
     }
 
     private function _hasPendingMapBacklog() as Boolean {
@@ -2375,49 +2446,7 @@ class RadarView extends WatchUi.View {
             );
         }
 
-        if (_fetchInFlight) {
-            var spinnerY = _topPanelLineHeight / 2 + 4;
-            var screenR =
-                (dc.getWidth() < dc.getHeight()
-                    ? dc.getWidth()
-                    : dc.getHeight()) / 2;
-            // Right end of the first line's visible chord - the screen's own corner lies outside the round display.
-            _drawFetchSpinner(
-                dc,
-                cx +
-                    DrawUtil.chordHalfExtent(screenR, (spinnerY - cy).abs()) -
-                    FETCH_SPINNER_R -
-                    FETCH_SPINNER_EDGE_PX,
-                spinnerY
-            );
-        }
-
         _drawPanelBorder(dc, panelH, cx, cy, radiusPx);
-    }
-
-    private const FETCH_SPINNER_R = 5;
-    private const FETCH_SPINNER_EDGE_PX = 6;
-    private const FETCH_SPINNER_DOT_R = 2;
-    private const FETCH_SPINNER_PERIOD_MS = 1200;
-
-    // A dot orbiting a ring, not a static dot - no rotational symmetry, so it still reads as motion at this redraw rate.
-    private function _drawFetchSpinner(
-        dc as Dc,
-        x as Number,
-        y as Number
-    ) as Void {
-        var theta =
-            ((System.getTimer() % FETCH_SPINNER_PERIOD_MS).toFloat() /
-                FETCH_SPINNER_PERIOD_MS) *
-            2 *
-            Math.PI;
-        dc.setColor(COLOR_TEXT, Graphics.COLOR_TRANSPARENT);
-        dc.drawCircle(x, y, FETCH_SPINNER_R);
-        dc.fillCircle(
-            x + _round(FETCH_SPINNER_R * Math.cos(theta)),
-            y + _round(FETCH_SPINNER_R * Math.sin(theta)),
-            FETCH_SPINNER_DOT_R
-        );
     }
 
     private function _drawPanelBorder(
