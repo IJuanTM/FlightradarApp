@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.17.0";
+const APP_VERSION = "0.17.1";
 // Movement below this is tap jitter, not a drag - shared by the radar pan and the detail-view scroll.
 const DRAG_THRESHOLD_PX = 32;
 // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
@@ -306,6 +306,7 @@ class RadarView extends WatchUi.View {
     // The screen going dark (wrist down) doesn't hide this view, so the tick is stopped here instead of in onHide.
     private var _displayOff as Boolean = false;
     private var _tickPausedForDisplay as Boolean = false;
+    private var _detailTickPausedForDisplay as Boolean = false;
 
     private var _zoomChangedAtMs as Number?;
     // Not lower - _onTick's own cadence (TICK_MS) is the real floor on how fast this can fire.
@@ -602,13 +603,25 @@ class RadarView extends WatchUi.View {
     public function onDisplayModeChanged(mode as System.DisplayMode) as Void {
         var wasOff = _displayOff;
         _displayOff = mode == System.DISPLAY_MODE_OFF;
-        if (!wasOff && _displayOff && _pollTimer != null) {
-            _stopTick();
-            _tickPausedForDisplay = true;
-        } else if (wasOff && !_displayOff && _tickPausedForDisplay) {
-            _tickPausedForDisplay = false;
-            _startTick();
-            _fetchNow();
+        if (!wasOff && _displayOff) {
+            if (_pollTimer != null) {
+                _stopTick();
+                _tickPausedForDisplay = true;
+            }
+            if (_detailTimer != null) {
+                _stopDetailTimer();
+                _detailTickPausedForDisplay = true;
+            }
+        } else if (wasOff && !_displayOff) {
+            if (_tickPausedForDisplay) {
+                _tickPausedForDisplay = false;
+                _startTick();
+                _fetchNow();
+            }
+            if (_detailTickPausedForDisplay) {
+                _detailTickPausedForDisplay = false;
+                _startDetailTimer();
+            }
         }
     }
 
@@ -1024,7 +1037,11 @@ class RadarView extends WatchUi.View {
         );
         _routeFetchRetried = false;
         _fetchSelectedRoute();
-        // pushView's onHide stops _onTick, so retries and timeouts need their own tick while this view is up.
+        _startDetailTimer();
+    }
+
+    // pushView's onHide stops _onTick, so retries and timeouts need their own tick while the detail view is up.
+    private function _startDetailTimer() as Void {
         _stopDetailTimer();
         var timer = new Timer.Timer();
         timer.start(method(:_onDetailTick), DETAIL_TICK_MS, true);
@@ -1215,6 +1232,12 @@ class RadarView extends WatchUi.View {
     public function onDetailClosed() as Void {
         _detailView = null;
         _stopDetailTimer();
+        _detailTickPausedForDisplay = false;
+        // A deferred lookup would otherwise run from _onTick for a view that's gone, holding the map paused meanwhile.
+        _routeFetchPending = false;
+        if (!_routeFetchInFlight) {
+            _mapClient.resumeFor(:route);
+        }
         _pendingDepIcao = null;
         _pendingArrIcao = null;
         _airportFetchStartMs = null;
