@@ -49,18 +49,17 @@ class AirportClient {
             return;
         }
 
-        var codes =
-            iata instanceof Lang.String && (iata as String).length() > 0
-                ? icao + "/" + (iata as String)
-                : icao;
-        var text =
+        cb.invoke(
+            icao,
             TextUtil.foldDiacritics(_cleanLocation(location as String)) +
-            ", " +
-            TextUtil.foldDiacritics(country as String) +
-            " (" +
-            codes +
-            ")";
-        cb.invoke(icao, text);
+                ", " +
+                TextUtil.foldDiacritics(country as String) +
+                " (" +
+                (iata instanceof Lang.String && (iata as String).length() > 0
+                    ? icao + "/" + (iata as String)
+                    : icao) +
+                ")"
+        );
     }
 
     // Some entries phrase location as "<municipality>, near <city>" - the city after "near" is more recognizable.

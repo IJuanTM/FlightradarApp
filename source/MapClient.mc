@@ -198,29 +198,27 @@ class MapClient {
         _currentStartMs = System.getTimer();
         _awaitingReceive = true;
         var opt = Settings.mapStyleOption(Settings.mapStyle);
-        var suffix = opt != null ? opt.urlSuffix : "-v4";
         // x stays unwrapped for drawing past the antimeridian - only the served tile index wraps.
         var tilesPerRow = 1 << z;
-        var wrappedX = ((x % tilesPerRow) + tilesPerRow) % tilesPerRow;
-        var url =
+        Communications.makeImageRequest(
             URL_PREFIX +
-            Settings.mapStyle +
-            suffix +
-            (Settings.mapDarkMode ? "-dark" : "") +
-            "/" +
-            TILE_SIZE_STD.toString() +
-            "/" +
-            z.toString() +
-            "/" +
-            wrappedX.toString() +
-            "/" +
-            y.toString() +
-            (tileSize == TILE_SIZE_HI ? "@2x" : "") +
-            ".png";
-        var params = {
-            "key" => _apiKey,
-        };
-        Communications.makeImageRequest(url, params, {}, method(:_onReceive));
+                Settings.mapStyle +
+                (opt != null ? opt.urlSuffix : "-v4") +
+                (Settings.mapDarkMode ? "-dark" : "") +
+                "/" +
+                TILE_SIZE_STD.toString() +
+                "/" +
+                z.toString() +
+                "/" +
+                (((x % tilesPerRow) + tilesPerRow) % tilesPerRow).toString() +
+                "/" +
+                y.toString() +
+                (tileSize == TILE_SIZE_HI ? "@2x" : "") +
+                ".png",
+            { "key" => _apiKey },
+            {},
+            method(:_onReceive)
+        );
     }
 
     public function _onReceive(
