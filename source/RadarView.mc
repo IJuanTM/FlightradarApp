@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.17.1";
+const APP_VERSION = "0.17.2";
 // Movement below this is tap jitter, not a drag - shared by the radar pan and the detail-view scroll.
 const DRAG_THRESHOLD_PX = 32;
 // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
@@ -647,8 +647,7 @@ class RadarView extends WatchUi.View {
         // Timer context only - a precaution against dispatching inside a Communications callback.
         _mapClient.tick();
 
-        // Retries here too, not just from their own result handlers - a pending fetch deferred because MapClient was busy has no other event to wake it back up once that clears.
-        // A failure's backoff wins over a refetch queued before it failed.
+        // A fetch deferred by a busy MapClient has no other wake-up, but a failure's backoff still wins.
         if (_refetchPending && _nextRetryAtMs == null) {
             _fetchNow();
         }
@@ -972,11 +971,10 @@ class RadarView extends WatchUi.View {
             return false;
         }
         var panelH = _detailPanelHeight(ac as Aircraft);
-        var cx = _lastScreenHeight / 2;
         return (
             panelH != 0 &&
             y >= _lastScreenHeight - panelH - CHEVRON_TAP_MARGIN_PX &&
-            (x - cx).abs() <=
+            (x - _lastScreenHeight / 2).abs() <=
                 _lastDetailPanelHalfWidthPx + DETAIL_TAP_SIDE_MARGIN_PX
         );
     }
@@ -1693,9 +1691,9 @@ class RadarView extends WatchUi.View {
         var minTileY = tileA[1] < tileB[1] ? tileA[1] : tileB[1];
         var maxTileY = tileA[1] > tileB[1] ? tileA[1] : tileB[1];
 
-        var tileCount = (maxTileX - minTileX + 1) * (maxTileY - minTileY + 1);
         var tileSize =
-            tileCount <= MAP_MAX_TILES_FOR_HI_RES
+            (maxTileX - minTileX + 1) * (maxTileY - minTileY + 1) <=
+            MAP_MAX_TILES_FOR_HI_RES
                 ? _mapClient.TILE_SIZE_HI
                 : _mapClient.TILE_SIZE_STD;
 
@@ -2803,10 +2801,11 @@ class RadarView extends WatchUi.View {
 
     // Scales RGB toward black - matches alpha-blending over the black radar, not over a map tile.
     private function _dimColor(color as Number, factor as Float) as Number {
-        var r = (((color >> 16) & 0xff) * factor).toNumber();
-        var g = (((color >> 8) & 0xff) * factor).toNumber();
-        var b = ((color & 0xff) * factor).toNumber();
-        return (r << 16) | (g << 8) | b;
+        return (
+            ((((color >> 16) & 0xff) * factor).toNumber() << 16) |
+            ((((color >> 8) & 0xff) * factor).toNumber() << 8) |
+            ((color & 0xff) * factor).toNumber()
+        );
     }
 
     // Auto-hides on top of the user's own Settings while "too busy" - reverts once a normal response returns.
@@ -3431,15 +3430,19 @@ class RadarView extends WatchUi.View {
         if (rate == null or (rate as Float).abs() < VERT_RATE_THRESHOLD_FPM) {
             return null;
         }
-        var climbing = (rate as Float) > 0;
         // Angle+radius past the icon's extent, not a flat offset, so it clears small icons too.
         var r = (_iconHalfExtent(ac) + ICON_MARKER_CLEARANCE).toFloat();
         var theta = Math.toRadians(
-            climbing ? CHEVRON_ANGLE_CLIMB_DEG : CHEVRON_ANGLE_DESCEND_DEG
+            (rate as Float) > 0
+                ? CHEVRON_ANGLE_CLIMB_DEG
+                : CHEVRON_ANGLE_DESCEND_DEG
         );
-        var cx = x + _round(r * Math.sin(theta));
-        var cy = y - _round(r * Math.cos(theta));
-        return [cx, cy] as [Number, Number];
+        return (
+            [
+                x + _round(r * Math.sin(theta)),
+                y - _round(r * Math.cos(theta)),
+            ] as [Number, Number]
+        );
     }
 
     private function _drawVertRateChevron(

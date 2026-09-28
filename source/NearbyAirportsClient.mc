@@ -39,11 +39,6 @@ class NearbyAirportsClient {
 
         var payload = _slot.activePayload() as Array;
 
-        var options = {
-            :method => Communications.HTTP_REQUEST_METHOD_GET,
-            :headers => { "x-openaip-api-key" => _apiKey },
-        };
-
         Communications.makeWebRequest(
             BASE_URL,
             {
@@ -54,7 +49,10 @@ class NearbyAirportsClient {
                 "limit" => RESULT_LIMIT.toString(),
                 "fields" => FIELDS,
             },
-            options,
+            {
+                :method => Communications.HTTP_REQUEST_METHOD_GET,
+                :headers => { "x-openaip-api-key" => _apiKey },
+            },
             method(:_onReceive)
         );
     }

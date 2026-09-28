@@ -364,9 +364,8 @@ class AircraftDetailView extends WatchUi.View {
         dc.setClip(0, _topY + 1, w, _bottomY - _topY - 1);
         for (var i = 0; i < _rows.size(); i++) {
             var y = _contentTop + (_rowY[i] as Number) - _scrollPx;
-            var lineCount = _rowLineCount[i] as Number;
             if (
-                y + (lineCount > 1 ? lineCount * _lineH : _rowHeight) < _topY ||
+                y + (_rowLineCount[i] as Number) * _lineH < _topY ||
                 y > _bottomY
             ) {
                 continue;
