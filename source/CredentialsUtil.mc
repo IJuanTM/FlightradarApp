@@ -3,7 +3,7 @@ import Toybox.WatchUi;
 
 // Each client loads its own named section of the one gitignored credentials.json resource.
 module CredentialsUtil {
-    // Null if the resource, section, or any requested field is missing/wrong-typed.
+    // Null if the section or any requested field is missing or not a string.
     function loadStrings(
         section as String,
         keys as Array<String>

@@ -47,6 +47,8 @@ class AircraftDetailView extends WatchUi.View {
     private var _fieldGapPx as Number = 16;
 
     private const CHEVRON_SIZE = 7;
+    // A resolved route string (city, country, codes) rarely wraps past this at the ring's narrowest width.
+    private const ROUTE_ROW_MAX_LINES = 3;
     // The swipe/tap that opens this view can leave trailing touch events for it - swallow input briefly on show.
     private const INPUT_SUPPRESS_WINDOW_MS = 300;
     private var _inputSuppressedUntilMs as Number = 0;
@@ -64,6 +66,7 @@ class AircraftDetailView extends WatchUi.View {
     // Deferred to onUpdate since wrapping needs a Dc for text measurement, which setDepartureText/setArrivalText don't have.
     private var _depWrapDirty as Boolean = true;
     private var _arrWrapDirty as Boolean = true;
+    private var _onClosed as (Method() as Void);
     private var _ringMarginPx as Number = 10;
 
     public function initialize(
@@ -78,9 +81,11 @@ class AircraftDetailView extends WatchUi.View {
         ringRadiusPx as Number,
         topPanelH as Number,
         bottomPanelH as Number,
-        edgeMarginPx as Number
+        edgeMarginPx as Number,
+        onClosed as (Method() as Void)
     ) {
         View.initialize();
+        _onClosed = onClosed;
         _headerText = headerText;
         _headerColor = headerColor;
         _rows = rows;
@@ -133,17 +138,31 @@ class AircraftDetailView extends WatchUi.View {
         _arrWrapDirty = false;
     }
 
-    // Single pass so a row needing extra lines (wrap or split) pushes every row after it down correctly.
     private function _layoutRows(dc as Dc) as Void {
-        var count = _rows.size();
         var intraGap = _lineH + _intraGroupGapPaddingPx;
-        var estimatedUsed = _singleLineContentHeight(count, intraGap);
-        var estimatedTop = _centeredContentTop(estimatedUsed);
+        var scrolls =
+            _singleLineContentHeight(_rows.size(), intraGap) > _visibleHeight;
+        _layoutPass(dc, intraGap, scrolls);
+        // Only wraps/splits made it scroll - redo at the position-independent band width, so no further pass is needed.
+        if (!scrolls && _totalContentHeight > _visibleHeight) {
+            _layoutPass(dc, intraGap, true);
+        }
+    }
+
+    // Single pass so a row needing extra lines (wrap or split) pushes every row after it down correctly.
+    private function _layoutPass(
+        dc as Dc,
+        intraGap as Number,
+        scrolls as Boolean
+    ) as Void {
+        var count = _rows.size();
+        var contentTop0 = _topY + _contentPadding;
+        // Content only grows past the single-line estimate, so each row ends up between contentTop0 and this.
+        var estimatedTop = _centeredContentTop(
+            _singleLineContentHeight(count, intraGap)
+        );
         // Scrolling can bring any row to the band's narrowest point, so every row has to fit there.
-        var bandMaxW =
-            estimatedUsed > _visibleHeight
-                ? _minChordWidth(_topY, _bottomY)
-                : null;
+        var bandMaxW = scrolls ? _minChordWidth(_topY, _bottomY) : null;
         _rowY = [];
         _rowLineCount = [];
         _rowSplit = [];
@@ -158,11 +177,16 @@ class AircraftDetailView extends WatchUi.View {
             var lineCount = 1;
             var split = false;
             var measures = [] as Array<[Number, Array<Number>, Array<Number>]>;
-            var rowTop = estimatedTop + y;
+            var isRouteRow = i == _depRowIndex || i == _arrRowIndex;
             var maxW =
                 bandMaxW != null
                     ? bandMaxW as Number
-                    : _minChordWidth(rowTop, rowTop + _lineH * 2);
+                    : _minChordWidth(
+                          contentTop0 + y,
+                          estimatedTop +
+                              y +
+                              (isRouteRow ? ROUTE_ROW_MAX_LINES : 2) * _lineH
+                      );
             var row = _rows[i];
             if (i == _depRowIndex) {
                 _depWrapLines = _wrapRouteRow(dc, i, maxW);
@@ -235,6 +259,11 @@ class AircraftDetailView extends WatchUi.View {
         return (
             DrawUtil.chordHalfExtent(_ringRadiusPx, dy) * 2 - _ringMarginPx * 2
         );
+    }
+
+    // Every way this view can leave the screen passes through here, including a default back behavior.
+    public function onHide() as Void {
+        _onClosed.invoke();
     }
 
     public function onShow() as Void {
@@ -337,8 +366,7 @@ class AircraftDetailView extends WatchUi.View {
             var y = _contentTop + (_rowY[i] as Number) - _scrollPx;
             var lineCount = _rowLineCount[i] as Number;
             if (
-                y + (lineCount > 1 ? lineCount * _lineH : _rowHeight) <
-                    _contentTop ||
+                y + (lineCount > 1 ? lineCount * _lineH : _rowHeight) < _topY ||
                 y > _bottomY
             ) {
                 continue;
@@ -495,19 +523,14 @@ class AircraftDetailView extends WatchUi.View {
 
 class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     private var _view as AircraftDetailView;
-    private var _radarView as RadarView;
     private var _dragStartY as Number?;
     private var _dragLastY as Number?;
     private var _dragCommitted as Boolean = false;
     private const SCROLL_STEP_PX = 40;
 
-    public function initialize(
-        view as AircraftDetailView,
-        radarView as RadarView
-    ) {
+    public function initialize(view as AircraftDetailView) {
         BehaviorDelegate.initialize();
         _view = view;
-        _radarView = radarView;
     }
 
     public function onKey(keyEvent as WatchUi.KeyEvent) as Boolean {
@@ -584,7 +607,6 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     }
 
     private function _close() as Void {
-        _radarView.onDetailClosed();
         WatchUi.popView(WatchUi.SLIDE_DOWN);
     }
 }

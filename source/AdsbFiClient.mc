@@ -120,7 +120,6 @@ class AdsbFiClient {
         _resolveFetch(result, true, false, responseCode);
     }
 
-    // Delivers to the active request's own callback before promoting any queued request, so a response is never attributed to the wrong focus point.
     private function _resolveFetch(
         aircraft as Array<Aircraft>,
         ok as Boolean,
@@ -137,7 +136,6 @@ class AdsbFiClient {
         }
     }
 
-    // -402/-403 are Communications' own response-size/memory-ceiling codes - distinct from a real connectivity failure.
     private function _isSizeCeilingError(responseCode as Number) as Boolean {
         return responseCode == -402 or responseCode == -403;
     }

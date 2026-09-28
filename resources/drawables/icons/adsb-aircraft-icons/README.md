@@ -17,14 +17,14 @@ project. If you need a non-GPL alternative, see "Other sources" below.
 ## What's in this package
 
 - `../svg/` - the 83 SVG silhouettes this app ships (top-down view), a subset of tar1090's 92.
-  The CSVs below are the full upstream tables, so they also reference icons not shipped here
+  The CSVs below cover tar1090's full icon set, so they also reference icons not shipped here
   (e.g. `single_turbo`, `twin_small`, `v22_fast`).
-- `icao_type_designator_to_icon.csv` - 380 rows (plus header), ICAO type designator (e.g. `A320`,
+- `icao_type_designator_to_icon.csv` - 381 rows (plus header), ICAO type designator (e.g. `A320`,
   `B738`, `H60`, `C130`) -> icon file + a size-scaling factor.
-- `icao_type_description_to_icon.csv` - 23-row fallback table keyed by the ICAO type
+- `icao_type_description_to_icon.csv` - 24-row fallback table keyed by the ICAO type
   *description* code (wing/engine-count/engine-type, e.g. `L2J` = landplane, 2 engines, jet).
   Used when the specific type designator isn't in the first table.
-- `adsb_category_to_icon.csv` - 14-row fallback table keyed by the ADS-B broadcast emitter
+- `adsb_category_to_icon.csv` - 15-row fallback table keyed by the ADS-B broadcast emitter
   category (e.g. `A5` = heavy, `A7` = rotorcraft, `B2` = balloon). Used as the last resort
   when neither of the above matches.
 - `icon_manifest.json` — dimensions per icon, for programmatic use.
@@ -46,7 +46,7 @@ field) — every aircraft broadcasts one of A0–A7, B0–B7, C0–C7 in flight.
 - Some icons have an `accent` path (windows/canopy lines, cockpit strip) — I rendered those
   as a thin lighter stroke over the main silhouette fill.
 - A handful of ground-vehicle/ground-object icons (`ground_emergency`, `ground_service`,
-  `ground_unknown`, `ground_fixed`) were originally bitmap-style layered SVGs with
+  `ground_unknown`, `ground_fixed` - shipped here as `ground_tower`) were originally bitmap-style layered SVGs with
   placeholder colors; I substituted a default dark grey/white color scheme.
 - All are top-down silhouettes, sized for a ~30px marker on a map; scale them up for a
   parts catalogue / legend view.

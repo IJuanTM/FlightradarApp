@@ -193,18 +193,22 @@ module Settings {
         return ZOOM_LEVELS[zoomIndex][2];
     }
 
-    function zoomIn() as Void {
-        if (zoomIndex > 0) {
-            zoomIndex -= 1;
-            Storage.setValue("zoomIndex", zoomIndex);
+    function zoomIn() as Boolean {
+        if (zoomIndex == 0) {
+            return false;
         }
+        zoomIndex -= 1;
+        Storage.setValue("zoomIndex", zoomIndex);
+        return true;
     }
 
-    function zoomOut() as Void {
-        if (zoomIndex < ZOOM_LEVELS.size() - 1) {
-            zoomIndex += 1;
-            Storage.setValue("zoomIndex", zoomIndex);
+    function zoomOut() as Boolean {
+        if (zoomIndex == ZOOM_LEVELS.size() - 1) {
+            return false;
         }
+        zoomIndex += 1;
+        Storage.setValue("zoomIndex", zoomIndex);
+        return true;
     }
 
     // id is the menu item id, which is also the setting's own name.

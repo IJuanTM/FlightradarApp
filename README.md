@@ -15,7 +15,7 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 - **Tap to select** any aircraft for a live historical flight track, a compact detail panel, and climb/descend chevrons
 - **Swipe up** on a selected aircraft for a full-screen detail view: registration, type, category, altitude, vertical rate, ground/indicated/true airspeed, Mach, heading, squawk, autopilot-selected altitude/heading, wind, outside/total air temperature, and departure/arrival airports
 - Emergency squawk (7500 / 7600 / 7700) warning badge, drawn ahead of everything else
-- Optional OSM background map (dark raster tiles), fetched incrementally per-tile and cached _(off by default, the biggest network/battery cost in the app)_
+- Optional OSM background map (MapTiler raster tiles, selectable style, dark variant by default), fetched incrementally per-tile and cached _(off by default, the biggest network/battery cost in the app)_
 - Range rings, compass ticks, and a lat/lon grid overlay, all independently toggleable
 - Ground-vehicle and fixed-obstacle (towers, masts, tethered balloons) filtering, grounded/stale-position dimming, military filtering
 - Battery Saver mode (widens the poll interval) and Single Color Mode (uniform aircraft color, no category coding)
@@ -31,7 +31,7 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 ![Radar view](image_1.png)
 
 - **Top**: fetch status (`Live` / `Fetching...` / `No Signal` / `Too Busy`) and your current coordinates
-- Optional dark OSM background map behind everything, tiles load in as you pan/zoom with a "Loading..." placeholder for tiles not yet cached
+- Optional OSM background map behind everything, tiles load in as you pan/zoom with a "Loading..." placeholder for tiles not yet cached
 - Range rings sit at round-number distances; the outer boundary ring is labeled with the current zoom radius
 - Your position is a green triangle; an edge arrow points toward it instead if you've panned it out of view
 - Aircraft are drawn as rotated silhouette icons tinted by category, with an optional callsign/speed/altitude label
@@ -78,7 +78,7 @@ Reached via the on-device menu (Enter/Menu button).
 | Map → Map Style           | MapTiler style for the background map                                  |
 | Map → Map Dark Mode       | Use the style's dark variant                                           |
 | Airports → Airports       | Nearby airport markers                                                 |
-| Airports → Small Airports | Also show airfields without an IATA code (airstrips, gliding sites)    |
+| Airports → Small Airports | Also show ICAO-coded airfields that have no IATA code                   |
 | Button Hints              | Edge glyphs showing what Up / Down / Menu / Esc do                     |
 
 ### Filters
@@ -140,7 +140,7 @@ Read-only: the last known ok/failed state of each network source.
 | [OpenSky Network](https://opensky-network.org) | Historical flight track for the selected aircraft, fetched once on selection, then grown live                             |
 | VRS standing data (`adsb.lol`)                 | Scheduled departure/arrival route for the selected aircraft's callsign                                                    |
 | [airport-data.com](https://airport-data.com)   | City/country/IATA lookup for the resolved departure/arrival airports                                                      |
-| [MapTiler](https://www.maptiler.com)           | Dark OSM raster background map tiles, fetched on demand as you pan/zoom _(off by default)_                                |
+| [MapTiler](https://www.maptiler.com)           | OSM raster background map tiles, fetched on demand as you pan/zoom _(off by default)_                                     |
 | [OpenAIP](https://www.openaip.net)             | Nearby airport markers, fetched as you pan/zoom                                                                           |
 
 All sources are free. OpenSky (OAuth client credentials), MapTiler and OpenAIP (API keys) need a free account; their credentials go in the gitignored `resources/jsonData/credentials.json` under `OpenSky` (`clientId`, `clientSecret`), `MapTiler` (`apiKey`) and `OpenAIP` (`apiKey`), and are bundled at build time. Route and airport-info lookups only fire when the full detail view is opened, never during regular polling.

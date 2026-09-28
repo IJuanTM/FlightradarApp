@@ -1,7 +1,6 @@
 import Toybox.Communications;
 import Toybox.Lang;
 
-// OpenAIP Core API - requires an API key.
 class NearbyAirportsClient {
     private const BASE_URL = "https://api.core.openaip.net/api/airports";
     // Trims the response - full airport objects include runways/frequencies/etc, unused here.
@@ -82,14 +81,15 @@ class NearbyAirportsClient {
         }
 
         var items = (data as Dictionary)["items"];
+        if (!(items instanceof Lang.Array)) {
+            _resolve([] as Array<NearbyAirport>, false);
+            return;
+        }
         var result = [] as Array<NearbyAirport>;
-        if (items instanceof Lang.Array) {
-            var arr = items as Array;
-            for (var i = 0; i < arr.size(); i++) {
-                var airport = _parseItem(arr[i]);
-                if (airport != null) {
-                    result.add(airport as NearbyAirport);
-                }
+        for (var i = 0; i < items.size(); i++) {
+            var airport = _parseItem(items[i]);
+            if (airport != null) {
+                result.add(airport as NearbyAirport);
             }
         }
         _resolve(result, true);
@@ -131,7 +131,6 @@ class NearbyAirportsClient {
         );
     }
 
-    // Delivers to the active request's own callback before promoting any queued request.
     private function _resolve(
         airports as Array<NearbyAirport>,
         ok as Boolean

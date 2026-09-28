@@ -61,10 +61,7 @@ class Aircraft {
 
         gs = JsonUtil.toFloatOrNull(dict["gs"]);
         track = JsonUtil.toFloatOrNull(dict["track"]);
-        var hdgVal = JsonUtil.toFloatOrNull(dict["true_heading"]);
-        if (hdgVal == null) {
-            hdgVal = JsonUtil.toFloatOrNull(dict["mag_heading"]);
-        }
+        var hdgVal = _floatOr(dict["true_heading"], dict["mag_heading"]);
         heading = hdgVal != null ? hdgVal : track;
 
         var cat = dict["category"];
@@ -77,10 +74,7 @@ class Aircraft {
         var flagsNum = JsonUtil.toNumberOrNull(dict["dbFlags"]);
         military = flagsNum != null && (flagsNum & 1) != 0;
 
-        vertRate = JsonUtil.toFloatOrNull(dict["baro_rate"]);
-        if (vertRate == null) {
-            vertRate = JsonUtil.toFloatOrNull(dict["geom_rate"]);
-        }
+        vertRate = _floatOr(dict["baro_rate"], dict["geom_rate"]);
 
         squawk = _toTrimmedStringOrNull(dict["squawk"]);
 
@@ -88,16 +82,13 @@ class Aircraft {
 
         emergency = _toTrimmedStringOrNull(dict["emergency"]);
 
-        var mcp = dict["nav_altitude_mcp"];
-        navAltitude = JsonUtil.toNumberOrNull(
-            mcp != null ? mcp : dict["nav_altitude_fms"]
-        );
+        navAltitude = JsonUtil.toNumberOrNull(dict["nav_altitude_mcp"]);
+        if (navAltitude == null) {
+            navAltitude = JsonUtil.toNumberOrNull(dict["nav_altitude_fms"]);
+        }
         navHeading = JsonUtil.toFloatOrNull(dict["nav_heading"]);
 
-        var seenPos = dict["seen_pos"];
-        positionAgeSec = JsonUtil.toFloatOrNull(
-            seenPos != null ? seenPos : dict["seen"]
-        );
+        positionAgeSec = _floatOr(dict["seen_pos"], dict["seen"]);
 
         var ownOp = _toTrimmedStringOrNull(dict["ownOp"]);
         operatorName =
@@ -154,7 +145,13 @@ class Aircraft {
         if (v instanceof Lang.Boolean) {
             return v as Boolean;
         }
-        return JsonUtil.isNumeric(v) && v.toNumber() != 0;
+        var n = JsonUtil.toNumberOrNull(v);
+        return n != null && n != 0;
+    }
+
+    private function _floatOr(primary, fallback) as Float? {
+        var f = JsonUtil.toFloatOrNull(primary);
+        return f != null ? f : JsonUtil.toFloatOrNull(fallback);
     }
 
     private function _toTrimmedStringOrNull(v) as String? {

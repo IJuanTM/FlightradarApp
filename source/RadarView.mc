@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.16.0";
+const APP_VERSION = "0.16.1";
 // Movement below this is tap jitter, not a drag - shared by the radar pan and the detail-view scroll.
 const DRAG_THRESHOLD_PX = 32;
 // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
@@ -239,17 +239,21 @@ class RadarView extends WatchUi.View {
     // [singleColorMode, useMetricUnits] - both affect the built output but aren't tied to any poll/fetch.
     private var _detailLinesCacheFlags as [Boolean, Boolean]?;
     // Same idea again, for every visible aircraft's on-map label - see _buildLabelLinesCached.
-    private var _labelLinesCache as
-        Dictionary<
-            String,
-            [Array<DrawUtil.ValueRun>, Array<DrawUtil.ValueRun>]
-        > = {};
+    // [top, bottom, topMeasure, bottomMeasure] - measures are null for an empty line.
+    typedef LabelEntry as
+        [
+            Array<DrawUtil.ValueRun>,
+            Array<DrawUtil.ValueRun>,
+            [Number, Array<Number>]?,
+            [Number, Array<Number>]?,
+        ];
+    private var _labelLinesCache as Dictionary<String, LabelEntry> = {};
     // [showCallsign, showSpeed, showAltitude, singleColorMode, useMetricUnits].
     private var _labelLinesCacheFlags as
         [Boolean, Boolean, Boolean, Boolean, Boolean]?;
 
     private var _selectedHex as String?;
-    // [lat, lon, altitudeFt, onGround] - altitude/ground drive the trail's gradient/dashed rendering.
+    // [lat, lon, altitudeFt, onGround] - onGround drives the trail's dashed rendering.
     private var _selectedTrack as Array<[Float, Float, Number, Boolean]> = [];
     private var _trackFetchInFlight as Boolean = false;
     private var _trackFetchStartMs as Number?;
@@ -267,8 +271,9 @@ class RadarView extends WatchUi.View {
     private var _routeFetchInFlight as Boolean = false;
     private var _routeFetchStartMs as Number?;
     private var _routeFetchHex as String?;
+    private var _routeFetchSeq as Number = 0;
     private var _routeFetchRetried as Boolean = false;
-    // Set when _fetchSelectedRoute deferred because a map tile was already in flight - retried from _onDetailTick.
+    // Set when _fetchSelectedRoute deferred because a map tile was already in flight - retried on the next tick.
     private var _routeFetchPending as Boolean = false;
     // Departure/arrival lookups run independently and may overlap - AirportClient is stateless, with no timeout of its own.
     private var _airportFetchHex as String?;
@@ -302,7 +307,6 @@ class RadarView extends WatchUi.View {
     // The screen going dark (wrist down) doesn't hide this view - _onTick keeps polling for nobody unless told.
     private var _displayOff as Boolean = false;
 
-    // Both piggyback on _onTick's cadence rather than their own Timer - see onShow.
     private var _zoomChangedAtMs as Number?;
     // Not lower - _onTick's own cadence (ANIM_TICK_MS) is the real floor on how fast this can fire.
     private const ZOOM_DEBOUNCE_MS = ANIM_TICK_MS;
@@ -326,9 +330,6 @@ class RadarView extends WatchUi.View {
     private var _nearbyAirportsClient as NearbyAirportsClient =
         new NearbyAirportsClient();
     // Merged, never replaced, per fetch - airports don't move, so one seen once stays drawable after the view moves on.
-    private var _nearbyAirports as
-        Dictionary<String, NearbyAirportsClient.NearbyAirport> = {};
-    // Draw order for _nearbyAirports, appended only on a new icao so drawing never rebuilds it from the dictionary.
     private var _nearbyAirportsList as
         Array<NearbyAirportsClient.NearbyAirport> = [];
     private var _airportsRequestedLat as Float?;
@@ -339,7 +340,7 @@ class RadarView extends WatchUi.View {
     private const AIRPORTS_MIN_REFETCH_INTERVAL_MS = 20000;
     private const AIRPORTS_REFETCH_MARGIN_FACTOR = 0.5;
     private const AIRPORTS_OVERSCAN_FACTOR = 1.2;
-    // Oldest-seen evicted first past this - keeps the merge-never-replace cache bounded on a long panning session.
+    // Least recently fetched evicted first past this - keeps the merged cache bounded on a long panning session.
     private const AIRPORTS_CACHE_MAX = 150;
     private const AIRPORT_MARKER_R = 3;
     private const AIRPORT_MARKER_R_SMALL = 2;
@@ -623,11 +624,12 @@ class RadarView extends WatchUi.View {
 
         var now = System.getTimer();
 
-        // Timer context only - dispatching from inside a Communications callback is the off-limits nested shape.
+        // Timer context only - a precaution against dispatching inside a Communications callback.
         _mapClient.tick();
 
         // Retries here too, not just from their own result handlers - a pending fetch deferred because MapClient was busy has no other event to wake it back up once that clears.
-        if (_refetchPending) {
+        // A failure's backoff wins over a refetch queued before it failed.
+        if (_refetchPending && _nextRetryAtMs == null) {
             _fetchNow();
         }
         if (_trackFetchPending) {
@@ -744,15 +746,17 @@ class RadarView extends WatchUi.View {
     }
 
     public function zoomIn() as Void {
-        Settings.zoomIn();
-        _scheduleDebouncedFetch();
-        WatchUi.requestUpdate();
+        if (Settings.zoomIn()) {
+            _scheduleDebouncedFetch();
+            WatchUi.requestUpdate();
+        }
     }
 
     public function zoomOut() as Void {
-        Settings.zoomOut();
-        _scheduleDebouncedFetch();
-        WatchUi.requestUpdate();
+        if (Settings.zoomOut()) {
+            _scheduleDebouncedFetch();
+            WatchUi.requestUpdate();
+        }
     }
 
     // A fresh zoom action supersedes any pending failure retry for the old level.
@@ -1006,17 +1010,18 @@ class RadarView extends WatchUi.View {
             _lastRadiusPx,
             bandH,
             bandH,
-            _edgeMargin
+            _edgeMargin,
+            method(:onDetailClosed)
         );
         _detailView = view;
         WatchUi.pushView(
             view,
-            new AircraftDetailDelegate(view, self),
+            new AircraftDetailDelegate(view),
             WatchUi.SLIDE_UP
         );
         _routeFetchRetried = false;
         _fetchSelectedRoute();
-        // pushView's onHide stops _onTick, so this view gets its own tick - never alongside _pollTimer, see onShow.
+        // pushView's onHide stops _onTick, so retries and timeouts need their own tick while this view is up.
         _stopDetailTimer();
         var timer = new Timer.Timer();
         timer.start(method(:_onDetailTick), DETAIL_TICK_MS, true);
@@ -1041,11 +1046,12 @@ class RadarView extends WatchUi.View {
     // AirportClient itself has no timeout - synthesize the same "no info" fallback its own failure path produces.
     private function _checkRouteTimeouts(now as Number) as Void {
         if (_routeFetchInFlight and _isTimedOut(_routeFetchStartMs, now)) {
-            _onRouteResult(_routeFetchHex as String, null, null, false);
+            _onRouteResult(_routeFetchSeq, null, null, false);
         }
+        // && / ||, not and / or - the Prettier Monkey C formatter mis-prints (A or B) and C, flipping its meaning.
         if (
-            _pendingDepIcao != null or
-            (_pendingArrIcao != null and _isTimedOut(_airportFetchStartMs, now))
+            (_pendingDepIcao != null || _pendingArrIcao != null) &&
+            _isTimedOut(_airportFetchStartMs, now)
         ) {
             if (_pendingDepIcao != null) {
                 _onAirportInfoResult(_pendingDepIcao as String, null);
@@ -1074,26 +1080,31 @@ class RadarView extends WatchUi.View {
         _routeFetchInFlight = true;
         _routeFetchStartMs = System.getTimer();
         _routeFetchHex = hex;
+        _routeFetchSeq += 1;
         var ac = _selectedAircraft();
         var callsign = ac != null ? (ac as Aircraft).flight : null;
         if (callsign == null) {
             // No callsign to look up by - same "no route found" outcome as a 404.
-            _onRouteResult(hex as String, null, null, true);
+            _onRouteResult(_routeFetchSeq, null, null, true);
             return;
         }
         _routeClient.fetchRoute(
-            hex as String,
+            _routeFetchSeq,
             callsign as String,
             method(:_onRouteResult)
         );
     }
 
     public function _onRouteResult(
-        hex as String,
+        requestId as Number,
         dep as String?,
         arr as String?,
         ok as Boolean
     ) as Void {
+        if (requestId != _routeFetchSeq) {
+            return;
+        }
+        var hex = _routeFetchHex as String;
         _routeFetchInFlight = false;
         _mapClient.resumeFor(:route);
         ApiStatus.setState(ApiStatus.route, ok);
@@ -1103,8 +1114,12 @@ class RadarView extends WatchUi.View {
             return;
         }
         if (!_hexStillSelected(hex)) {
-            // Reopened for a different aircraft mid-fetch - retry for what's actually showing.
-            _fetchSelectedRoute();
+            if (_selectedHex != null) {
+                // Reopened for a different aircraft mid-fetch - retry for what's actually showing.
+                _fetchSelectedRoute();
+            } else {
+                _showRouteUnavailable(view as AircraftDetailView);
+            }
             return;
         }
 
@@ -1143,12 +1158,14 @@ class RadarView extends WatchUi.View {
             _fetchSelectedRoute();
             return;
         }
-        (view as AircraftDetailView).setDepartureText(
+        _showRouteUnavailable(view as AircraftDetailView);
+    }
+
+    private function _showRouteUnavailable(view as AircraftDetailView) as Void {
+        view.setDepartureText(
             DrawUtil.plainRuns("Unavailable", COLOR_ROUTE_DIM)
         );
-        (view as AircraftDetailView).setArrivalText(
-            DrawUtil.plainRuns("Unavailable", COLOR_ROUTE_DIM)
-        );
+        view.setArrivalText(DrawUtil.plainRuns("Unavailable", COLOR_ROUTE_DIM));
     }
 
     // Checks both pending slots - icao alone doesn't say dep vs arr (touch-and-go can have dep==arr).
@@ -1162,6 +1179,8 @@ class RadarView extends WatchUi.View {
             return;
         }
         if (!_hexStillSelected(_airportFetchHex)) {
+            _pendingDepIcao = null;
+            _pendingArrIcao = null;
             return;
         }
 
@@ -1189,7 +1208,7 @@ class RadarView extends WatchUi.View {
         }
     }
 
-    // Called from AircraftDetailDelegate once the pushed view is popped, so a late route result has nothing left to update.
+    // Called from the detail view's onHide, so a late route result has nothing left to update.
     public function onDetailClosed() as Void {
         _detailView = null;
         _stopDetailTimer();
@@ -1772,20 +1791,21 @@ class RadarView extends WatchUi.View {
     ) as Void {
         ApiStatus.setState(ApiStatus.airports, ok);
         if (ok) {
+            var fetched = ({}) as Dictionary<String, Boolean>;
             for (var i = 0; i < airports.size(); i++) {
-                var airport = airports[i];
-                if (!_nearbyAirports.hasKey(airport[0])) {
-                    _nearbyAirportsList.add(airport);
-                }
-                _nearbyAirports[airport[0]] = airport;
+                fetched[airports[i][0]] = true;
             }
-            var excess = _nearbyAirportsList.size() - AIRPORTS_CACHE_MAX;
-            if (excess > 0) {
-                for (var i = 0; i < excess; i++) {
-                    _nearbyAirports.remove(_nearbyAirportsList[i][0]);
+            var merged = [] as Array<NearbyAirportsClient.NearbyAirport>;
+            for (var i = 0; i < _nearbyAirportsList.size(); i++) {
+                var cached = _nearbyAirportsList[i];
+                if (!fetched.hasKey(cached[0])) {
+                    merged.add(cached);
                 }
-                _nearbyAirportsList = _nearbyAirportsList.slice(excess, null);
             }
+            merged.addAll(airports);
+            var excess = merged.size() - AIRPORTS_CACHE_MAX;
+            _nearbyAirportsList =
+                excess > 0 ? merged.slice(excess, null) : merged;
             WatchUi.requestUpdate();
         } else {
             // Otherwise the refetch-margin check suppresses every retry until the view moves.
@@ -1820,7 +1840,7 @@ class RadarView extends WatchUi.View {
         var stillNeeded =
             _mapNeededKeys.hasKey(key) and Settings.showBackgroundMap;
         if (bitmap == null) {
-            // A tile pruneQueue abandoned also arrives as null - not a network failure.
+            // An abandoned tile also arrives as null - only one something still needs is a failure worth retrying.
             if (stillNeeded) {
                 _mapScheduleRetry();
             }
@@ -1839,7 +1859,9 @@ class RadarView extends WatchUi.View {
             resolved = bitmap as Graphics.BitmapType;
         }
         if (resolved == null) {
-            _mapScheduleRetry();
+            if (stillNeeded) {
+                _mapScheduleRetry();
+            }
             return;
         }
         _mapNextRetryAtMs = null;
@@ -2234,7 +2256,7 @@ class RadarView extends WatchUi.View {
         _drawRecenterHint(dc, recenterPos[0], recenterPos[1]);
     }
 
-    // Farthest a hint icon's pixels reach from its center (largest diagonal, s=6 -> ~8.5px) - consts can't call Math.sqrt.
+    // Conservative any-angle bound on a hint's reach - the real radial reach at each hint's angle is at most 6px.
     private const BUTTON_HINT_REACH_PX = 9;
 
     private function _buttonHintPos(
@@ -2354,10 +2376,19 @@ class RadarView extends WatchUi.View {
         }
 
         if (_fetchInFlight) {
+            var spinnerY = _topPanelLineHeight / 2 + 4;
+            var screenR =
+                (dc.getWidth() < dc.getHeight()
+                    ? dc.getWidth()
+                    : dc.getHeight()) / 2;
+            // Right end of the first line's visible chord - the screen's own corner lies outside the round display.
             _drawFetchSpinner(
                 dc,
-                dc.getWidth() - 12,
-                _topPanelLineHeight / 2 + 4
+                cx +
+                    DrawUtil.chordHalfExtent(screenR, (spinnerY - cy).abs()) -
+                    FETCH_SPINNER_R -
+                    FETCH_SPINNER_EDGE_PX,
+                spinnerY
             );
         }
 
@@ -2365,6 +2396,7 @@ class RadarView extends WatchUi.View {
     }
 
     private const FETCH_SPINNER_R = 5;
+    private const FETCH_SPINNER_EDGE_PX = 6;
     private const FETCH_SPINNER_DOT_R = 2;
     private const FETCH_SPINNER_PERIOD_MS = 1200;
 
@@ -2717,7 +2749,7 @@ class RadarView extends WatchUi.View {
         return false;
     }
 
-    // Scales RGB toward black - exactly equivalent to alpha-blending over the radar's pure black background.
+    // Scales RGB toward black - matches alpha-blending over the black radar, not over a map tile.
     private function _dimColor(color as Number, factor as Float) as Number {
         var r = (((color >> 16) & 0xff) * factor).toNumber();
         var g = (((color >> 8) & 0xff) * factor).toNumber();
@@ -2813,15 +2845,22 @@ class RadarView extends WatchUi.View {
             }
             _lastDrawnPositions.add([ac.hex, pos[0], pos[1]]);
 
-            _drawAircraftIcon(dc, pos[0], pos[1], ac);
             var chevronCenter = Settings.showVertRateChevron
                 ? _chevronCenter(pos[0], pos[1], ac)
                 : null;
-            if (chevronCenter != null) {
-                _drawVertRateChevron(dc, chevronCenter as [Number, Number], ac);
-            }
-            if (ac.isEmergency()) {
-                _drawEmergencyBadge(dc, pos[0], pos[1], ac);
+            // The selected aircraft only reserves space here - it's drawn once, on top, after the label pass.
+            if (!isSelected) {
+                _drawAircraftIcon(dc, pos[0], pos[1], ac);
+                if (chevronCenter != null) {
+                    _drawVertRateChevron(
+                        dc,
+                        chevronCenter as [Number, Number],
+                        ac
+                    );
+                }
+                if (ac.isEmergency()) {
+                    _drawEmergencyBadge(dc, pos[0], pos[1], ac);
+                }
             }
 
             // Reserved for every aircraft ahead of the label pass, so no label covers an icon or clips a chevron.
@@ -2837,7 +2876,6 @@ class RadarView extends WatchUi.View {
             }
 
             if (isSelected) {
-                _drawSelectionReticle(dc, pos[0], pos[1], ac);
                 _reserveRect(ac.hex, _selectionReticleRect(pos[0], pos[1], ac));
             }
         }
@@ -3428,7 +3466,7 @@ class RadarView extends WatchUi.View {
 
     private var _labelOverlapMarginPx as Number = 4;
     private var _labelLineGapPx as Number = 2;
-    // Scaled by aircraft size like the reticle/icon, with margin to clear the reticle at every size tier.
+    // Scaled by aircraft size like the icon, with margin to clear the icon and a descent chevron at every size tier.
     private var _labelVoffsetBase as Float = 18.0;
 
     // Two rows (callsign / speed+altitude), not one wide line - a narrower footprint loses fewer overlap checks.
@@ -3443,21 +3481,21 @@ class RadarView extends WatchUi.View {
         showAltitude as Boolean,
         lineH as Number
     ) as Void {
-        var lines = _buildLabelLinesCached(
+        var entry = _buildLabelLinesCached(
+            dc,
             ac,
             showCallsign,
             showSpeed,
             showAltitude
         );
-        var top = lines[0] as Array<DrawUtil.ValueRun>;
-        var bottom = lines[1] as Array<DrawUtil.ValueRun>;
+        var top = entry[0];
+        var bottom = entry[1];
         if (top.size() == 0 && bottom.size() == 0) {
             return;
         }
 
-        // Measured once and reused for drawing - this runs for every labeled aircraft, every redraw.
-        var topM = top.size() > 0 ? _measureSegments(dc, top) : null;
-        var bottomM = bottom.size() > 0 ? _measureSegments(dc, bottom) : null;
+        var topM = entry[2];
+        var bottomM = entry[3];
         var topW = topM != null ? (topM as [Number, Array<Number>])[0] : 0;
         var bottomW =
             bottomM != null ? (bottomM as [Number, Array<Number>])[0] : 0;
@@ -3558,19 +3596,30 @@ class RadarView extends WatchUi.View {
         }
     }
 
+    // Measured when built, not per redraw - this runs for every labeled aircraft, every frame.
     private function _buildLabelLinesCached(
+        dc as Dc,
         ac as Aircraft,
         showCallsign as Boolean,
         showSpeed as Boolean,
         showAltitude as Boolean
-    ) as [Array<DrawUtil.ValueRun>, Array<DrawUtil.ValueRun>] {
+    ) as LabelEntry {
         var cached = _labelLinesCache[ac.hex];
         if (cached != null) {
             return cached;
         }
         var lines = _buildLabelLines(ac, showCallsign, showSpeed, showAltitude);
-        _labelLinesCache[ac.hex] = lines;
-        return lines;
+        var top = lines[0];
+        var bottom = lines[1];
+        var entry =
+            [
+                top,
+                bottom,
+                top.size() > 0 ? _measureSegments(dc, top) : null,
+                bottom.size() > 0 ? _measureSegments(dc, bottom) : null,
+            ] as LabelEntry;
+        _labelLinesCache[ac.hex] = entry;
+        return entry;
     }
 
     // Same colors as the detail views (callsign=aircraft, speed=yellow, altitude=blue), so labels read consistently.
@@ -3809,7 +3858,7 @@ class RadarView extends WatchUi.View {
 
         var trackStatus = "";
         var trackColor = COLOR_GRID_LABEL;
-        if (_trackFetchInFlight) {
+        if (_trackFetchInFlight || _trackFetchPending) {
             trackStatus = "Loading Track...";
         } else if (_trackHasHistory) {
             trackStatus = "Track Loaded";

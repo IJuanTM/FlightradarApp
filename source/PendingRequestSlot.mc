@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-// One request in flight per client (no :context id to correlate a second); payload/callback are untyped since Monkey C has no generics.
+// One request in flight per client keeps late responses unambiguous; payload/callback are untyped since Monkey C has no generics.
 class PendingRequestSlot {
     private var _activePayload as Object?;
     private var _activeCallback as Method?;
@@ -29,7 +29,7 @@ class PendingRequestSlot {
         return true;
     }
 
-    // True return means a queued request was promoted into active and should be dispatched now.
+    // Callers must read the active callback before this, or a response gets delivered to the promoted request; true means dispatch now.
     public function clearAndPromote() as Boolean {
         _activePayload = null;
         _activeCallback = null;

@@ -186,11 +186,6 @@ module AircraftClassifier {
             "A20N",
             "A321",
             "A21N",
-            "A330",
-            "A332",
-            "A333",
-            "A338",
-            "A339",
             "B731",
             "B732",
             "B733",
@@ -239,6 +234,11 @@ module AircraftClassifier {
             "A343",
             "A345",
             "A346",
+            "A330",
+            "A332",
+            "A333",
+            "A338",
+            "A339",
             "A306",
             "A359",
             "A35K",
@@ -658,11 +658,12 @@ module AircraftClassifier {
         "C5" => "ground_tower",
     };
 
-    // Patches real gaps in TYPE_TO_ICON for 767/787/Dash-8/ATR.
+    // Patches real gaps in TYPE_TO_ICON for 767/787/A340/Dash-8/ATR.
     const TYPE_PREFIX_SUPPLEMENT as Array<[String, String]> =
         [
             ["B76", "heavy_2e"],
             ["B78", "heavy_2e"],
+            ["A34", "heavy_4e"],
             ["DH8", "twin_large"],
             ["AT4", "twin_large"],
             ["AT7", "twin_large"],
@@ -700,13 +701,17 @@ module AircraftClassifier {
     // Missing category is normal for both cheap GA transponders and large military transports.
     function effectiveCategory(ac as Aircraft) as String {
         var cat = ac.category;
-        if (cat != null) {
+        // A0/B0 mean "no category information" - no better a size signal than a missing category.
+        if (cat != null && !cat.equals("A0") && !cat.equals("B0")) {
             return cat as String;
         }
         if (matchesType(ac.typeCode, SUPER_HEAVY_TYPE_CODES)) {
             return "A5";
         }
-        return matchesType(ac.typeCode, LARGE_TYPE_CODES) ? "A3" : "A1";
+        if (matchesType(ac.typeCode, LARGE_TYPE_CODES)) {
+            return "A3";
+        }
+        return cat != null ? cat as String : "A1";
     }
 
     function shapeKeyForCategory(ac as Aircraft, cat as String) as String {

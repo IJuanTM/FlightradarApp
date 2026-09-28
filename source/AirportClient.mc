@@ -1,7 +1,7 @@
 import Toybox.Communications;
 import Toybox.Lang;
 
-// Fetched on demand for departure/arrival ICAO codes, never polled - no in-flight guard needed.
+// Callback travels via :context, not an instance field, so concurrent fetches can't cross - no in-flight guard needed.
 class AirportClient {
     private const BASE_URL = "https://airport-data.com/api/ap_info.json";
 
@@ -9,7 +9,6 @@ class AirportClient {
 
     public function initialize() {}
 
-    // Callback travels via :context, not an instance field, so concurrent fetches can't cross.
     public function fetchInfo(
         icao as String,
         callback as InfoCallback

@@ -11,7 +11,7 @@ class MapClient {
     public const TILE_SIZE_STD as Number = 256;
     // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
-    // Well above the slowest measured cold fetch (~1s) - a hung tile otherwise blocks every later tile and the aircraft poll.
+    // Well above the slowest measured cold fetch (~1s) - past this a tile is reported failed so RadarView can retry it.
     private const TILE_TIMEOUT_MS = 3000;
 
     private var _apiKey as String?;
@@ -34,7 +34,7 @@ class MapClient {
 
     private var _current as [Number, Number, Number, Number]?;
     private var _queue as Array<[Number, Number, Number, Number]> = [];
-    // True from _dispatch until _onReceive fires, and stays true across an abandon - makeImageRequest has no :context param, so a late real response can't be correlated and must be assumed still able to land.
+    // Stays true across an abandon until _onReceive fires - makeImageRequest has no :context, so a late response must be assumed still able to land.
     private var _awaitingReceive as Boolean = false;
     // Shared request channel to the paired phone; keyed by owner (not a count) so each owner's pauseFor()/resumeFor() pair is independently idempotent.
     private var _pausedBy as Dictionary<Symbol, Boolean> = {};
@@ -47,7 +47,7 @@ class MapClient {
         _pausedBy[owner] = true;
     }
 
-    // Never dispatches directly here (still the off-limits nested-Communications shape) - a one-shot Timer wakes it sooner instead.
+    // Dispatches via a one-shot Timer, not directly - kept as a precaution against dispatching inside a caller's Communications callback.
     public function resumeFor(owner as Symbol) as Void {
         if (_pausedBy.hasKey(owner)) {
             _pausedBy.remove(owner);
@@ -121,7 +121,7 @@ class MapClient {
         _dispatch(z, x, y, tileSize);
     }
 
-    // Also abandons an in-flight tile that's no longer needed - otherwise isBusy() stays true up to TILE_TIMEOUT_MS after a zoom change for a tile nothing needs.
+    // Also abandons an in-flight tile nothing needs anymore, so its failure isn't retried and the queue moves on once its response lands.
     public function pruneQueue(
         neededKeys as Dictionary<String, Boolean>
     ) as Void {
@@ -171,7 +171,7 @@ class MapClient {
         );
     }
 
-    // Reports a failure for the current tile and frees isBusy()/dedupe state, but deliberately leaves _awaitingReceive set - see that field's own comment for why.
+    // Frees the dedupe state but leaves _awaitingReceive set, so isBusy() stays true until the real response lands.
     private function _abandonCurrent() as Void {
         var req = _current;
         _current = null;
@@ -228,7 +228,7 @@ class MapClient {
         data as MapBitmap?
     ) as Void {
         _awaitingReceive = false;
-        // If _current is already null, this request was abandoned (timeout/prune) and its failure already reported - discard the late response rather than misattribute it.
+        // Already abandoned and reported - discarded rather than misattributed to whatever is current now.
         var req = _current;
         _current = null;
         var cb = _callback;

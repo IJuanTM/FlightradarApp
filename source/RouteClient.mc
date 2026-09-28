@@ -5,10 +5,11 @@ import Toybox.Lang;
 class RouteClient {
     private const BASE_URL = "https://vrs-standing-data.adsb.lol/routes/";
 
+    // requestId travels with the response - a late reply to a timed-out request must be told apart from its retry.
     typedef RouteCallback as
         (Method
             (
-                hex as String,
+                requestId as Number,
                 dep as String?,
                 arr as String?,
                 ok as Boolean
@@ -18,12 +19,12 @@ class RouteClient {
     public function initialize() {}
 
     public function fetchRoute(
-        hex as String,
+        requestId as Number,
         callsign as String,
         callback as RouteCallback
     ) as Void {
         if (callsign.length() < 3) {
-            callback.invoke(hex, null, null, true);
+            callback.invoke(requestId, null, null, true);
             return;
         }
         Communications.makeWebRequest(
@@ -32,7 +33,7 @@ class RouteClient {
             {
                 :method => Communications.HTTP_REQUEST_METHOD_GET,
                 :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
-                :context => [hex, callback] as [String, RouteCallback],
+                :context => [requestId, callback] as [Number, RouteCallback],
             },
             method(:_onReceive)
         );
@@ -41,17 +42,17 @@ class RouteClient {
     public function _onReceive(
         responseCode as Number,
         data as Dictionary or String or Null,
-        context as [String, RouteCallback]
+        context as [Number, RouteCallback]
     ) as Void {
-        var hex = context[0];
+        var requestId = context[0];
         var cb = context[1];
         // A 404 (unknown/uncrowdsourced callsign) is a normal outcome, not a failure - same as no route.
         if (responseCode == 404) {
-            cb.invoke(hex, null, null, true);
+            cb.invoke(requestId, null, null, true);
             return;
         }
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            cb.invoke(hex, null, null, false);
+            cb.invoke(requestId, null, null, false);
             return;
         }
         var airports = (data as Dictionary)["_airports"];
@@ -59,11 +60,11 @@ class RouteClient {
             !(airports instanceof Lang.Array) or
             (airports as Array).size() < 2
         ) {
-            cb.invoke(hex, null, null, true);
+            cb.invoke(requestId, null, null, true);
             return;
         }
         var list = airports as Array;
-        cb.invoke(hex, _icaoOf(list[0]), _icaoOf(list[1]), true);
+        cb.invoke(requestId, _icaoOf(list[0]), _icaoOf(list[1]), true);
     }
 
     private function _icaoOf(entry as Object?) as String? {

@@ -14,7 +14,14 @@ module Projection {
     ) as Array<Float> {
         var metersPerDegLon =
             METERS_PER_DEG_LAT * Math.cos(Math.toRadians(centerLat));
-        var dxM = (lon - centerLon) * metersPerDegLon;
+        var dLon = lon - centerLon;
+        // Shortest way round, so points just across the antimeridian stay near instead of 360 degrees away.
+        if (dLon > 180.0) {
+            dLon -= 360.0;
+        } else if (dLon < -180.0) {
+            dLon += 360.0;
+        }
+        var dxM = dLon * metersPerDegLon;
         var dyM = (lat - centerLat) * METERS_PER_DEG_LAT;
         return [dxM / 1000.0, dyM / 1000.0];
     }

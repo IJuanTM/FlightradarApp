@@ -161,26 +161,26 @@ class OpenSkyClient {
         }
 
         var pathRaw = (data as Dictionary)["path"];
+        if (!(pathRaw instanceof Lang.Array)) {
+            _failPendingTrack();
+            return;
+        }
         var points = [] as Array<[Float, Float, Number, Boolean]>;
-        if (pathRaw instanceof Lang.Array) {
-            for (var i = 0; i < pathRaw.size(); i++) {
-                var wp = pathRaw[i];
-                if (wp instanceof Lang.Array && wp.size() >= 6) {
-                    var lat = JsonUtil.toFloatOrNull(wp[1]);
-                    var lon = JsonUtil.toFloatOrNull(wp[2]);
-                    var alt = JsonUtil.toFloatOrNull(wp[3]);
-                    var onGround = wp[5];
-                    if (lat != null && lon != null) {
-                        points.add([
-                            lat as Float,
-                            lon as Float,
-                            // OpenSky reports meters, adsb.fi (and this whole app) works in feet.
-                            alt != null
-                                ? ((alt as Float) * 3.28084).toNumber()
-                                : 0,
-                            onGround instanceof Lang.Boolean && onGround,
-                        ]);
-                    }
+        for (var i = 0; i < pathRaw.size(); i++) {
+            var wp = pathRaw[i];
+            if (wp instanceof Lang.Array && wp.size() >= 6) {
+                var lat = JsonUtil.toFloatOrNull(wp[1]);
+                var lon = JsonUtil.toFloatOrNull(wp[2]);
+                var alt = JsonUtil.toFloatOrNull(wp[3]);
+                var onGround = wp[5];
+                if (lat != null && lon != null) {
+                    points.add([
+                        lat as Float,
+                        lon as Float,
+                        // OpenSky reports meters, adsb.fi (and this whole app) works in feet.
+                        alt != null ? ((alt as Float) * 3.28084).toNumber() : 0,
+                        onGround instanceof Lang.Boolean && onGround,
+                    ]);
                 }
             }
         }
@@ -192,7 +192,6 @@ class OpenSkyClient {
         _resolveTrack([] as Array<[Float, Float, Number, Boolean]>, false);
     }
 
-    // Delivers to the active request's own callback before promoting any queued request, so a response is never attributed to the wrong hex/callback.
     private function _resolveTrack(
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
