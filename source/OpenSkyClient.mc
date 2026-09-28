@@ -2,8 +2,7 @@ import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.System;
 
-// Fetched on-demand for the selected aircraft's historical track only, never polled continuously.
-// Route lookup lives in RouteClient instead (free, no-auth, callsign-keyed - see its own header comment).
+// Selected aircraft's historical track only, fetched on demand, never polled.
 class OpenSkyClient {
     private const TOKEN_URL =
         "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
@@ -11,8 +10,7 @@ class OpenSkyClient {
     private const TRACKS_URL = "https://opensky-network.org/api/tracks/all";
     private const TOKEN_SAFETY_MARGIN_MS = 60000;
 
-    // hex identifies which aircraft this request was for - callers must not rely on their own mutable
-    // state to correlate a response, since a retried/late response can otherwise get misattributed.
+    // hex travels with the response - a retried or late response correlated via caller state could be misattributed.
     typedef TrackCallback as
         (Method
             (
@@ -112,8 +110,8 @@ class OpenSkyClient {
 
         var dict = data as Dictionary;
         var token = dict["access_token"];
-        var expiresIn = dict["expires_in"];
-        if (!(token instanceof Lang.String) or !JsonUtil.isNumeric(expiresIn)) {
+        var expiresIn = JsonUtil.toNumberOrNull(dict["expires_in"]);
+        if (!(token instanceof Lang.String) or expiresIn == null) {
             _failPendingTrack();
             return;
         }
@@ -121,12 +119,10 @@ class OpenSkyClient {
         _accessToken = token;
         _tokenExpiresAtMs =
             System.getTimer() +
-            expiresIn.toNumber() * 1000 -
+            (expiresIn as Number) * 1000 -
             TOKEN_SAFETY_MARGIN_MS;
 
-        if (_slot.activePayload() != null) {
-            _fetchTrackWithToken(token);
-        }
+        _fetchTrackWithToken(token);
     }
 
     private function _fetchTrackWithToken(token as String) as Void {
@@ -134,8 +130,7 @@ class OpenSkyClient {
         if (hex == null) {
             return;
         }
-        // icao24/time travel via the params dict (auto-encoded), not hand-concatenated into the URL,
-        // so a malformed hex from the feed can't inject extra query parameters.
+        // Params dict, not URL concatenation - auto-encoding stops a malformed hex from injecting query params.
         Communications.makeWebRequest(
             TRACKS_URL,
             { "icao24" => hex, "time" => 0 },
@@ -171,17 +166,17 @@ class OpenSkyClient {
             for (var i = 0; i < pathRaw.size(); i++) {
                 var wp = pathRaw[i];
                 if (wp instanceof Lang.Array && wp.size() >= 6) {
-                    var lat = wp[1];
-                    var lon = wp[2];
-                    var alt = wp[3];
+                    var lat = JsonUtil.toFloatOrNull(wp[1]);
+                    var lon = JsonUtil.toFloatOrNull(wp[2]);
+                    var alt = JsonUtil.toFloatOrNull(wp[3]);
                     var onGround = wp[5];
                     if (lat != null && lon != null) {
                         points.add([
-                            lat.toFloat(),
-                            lon.toFloat(),
+                            lat as Float,
+                            lon as Float,
                             // OpenSky reports meters, adsb.fi (and this whole app) works in feet.
                             alt != null
-                                ? (alt.toFloat() * 3.28084).toNumber()
+                                ? ((alt as Float) * 3.28084).toNumber()
                                 : 0,
                             onGround instanceof Lang.Boolean && onGround,
                         ]);

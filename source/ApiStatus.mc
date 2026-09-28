@@ -1,7 +1,6 @@
 import Toybox.Lang;
 
-// Runtime-only last-known state per network source, for the Settings status screen - not persisted,
-// not used for any behavior, purely a read-out. Each RadarView result handler reports into this.
+// Runtime-only read-out for the status menu - not persisted, and nothing behaves differently based on it.
 module ApiStatus {
     enum {
         NEVER_TRIED,
@@ -25,7 +24,7 @@ module ApiStatus {
     var airportInfo = new Source(Rez.Strings.StatusAirportInfo);
     var track = new Source(Rez.Strings.StatusTrack);
 
-    // Looped over by MenuBuilder.buildStatusMenu - add a new source here and it shows up for free.
+    // Adding a source here is all the status menu needs.
     var SOURCES as Array<Source> = [
         feed,
         map,

@@ -1,8 +1,7 @@
 import Toybox.Lang;
 
 module JsonUtil {
-    // Excludes only the types with no .toNumber()/.toFloat() (Dictionary/Array/Boolean) - String is
-    // kept, it has both. Shared by every client that has to trust a decoded JSON value before coercing it.
+    // String passes - it has toNumber()/toFloat() too, so callers must still handle a null conversion.
     function isNumeric(v) as Boolean {
         return (
             v != null and
@@ -12,5 +11,13 @@ module JsonUtil {
                 v instanceof Lang.Boolean
             )
         );
+    }
+
+    function toFloatOrNull(v) as Float? {
+        return isNumeric(v) ? v.toFloat() : null;
+    }
+
+    function toNumberOrNull(v) as Number? {
+        return isNumeric(v) ? v.toNumber() : null;
     }
 }

@@ -44,8 +44,7 @@ module Projection {
         return [Math.round(p[0]).toNumber(), Math.round(p[1]).toNumber()];
     }
 
-    // Same as toScreen but stays in Float - two points each rounded independently can still land
-    // inconsistently; callers needing several points to line up exactly should round once, at the end.
+    // Unrounded, so callers lining up several points can round once at the end rather than each independently.
     function toScreenF(
         centerLat as Float,
         centerLon as Float,
@@ -107,9 +106,6 @@ module Projection {
         ).toFloat();
     }
 
-    const EULERS_NUMBER = 2.718281828459045;
-
-    // Standard slippy-map tile index containing (lat, lon) at a given integer zoom.
     function latLonToTile(
         lat as Float,
         lon as Float,
@@ -123,10 +119,10 @@ module Projection {
                 Math.ln(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) /
                 2.0) *
             n;
-        return [x.toNumber(), y.toNumber()];
+        return [Math.floor(x).toNumber(), Math.floor(y).toNumber()];
     }
 
-    // Inverse of latLonToTile - the lat/lon of a tile's top-left corner.
+    // Top-left corner of the tile.
     function tileToLatLon(
         x as Number,
         y as Number,
@@ -136,10 +132,7 @@ module Projection {
         var lonDeg = (x.toFloat() / n) * 360.0 - 180.0;
         var latRad =
             Math.atan(
-                Math.pow(
-                    EULERS_NUMBER,
-                    Math.PI * (1.0 - (2.0 * y.toFloat()) / n)
-                )
+                Math.pow(Math.E, Math.PI * (1.0 - (2.0 * y.toFloat()) / n))
             ) *
                 2.0 -
             Math.PI / 2.0;

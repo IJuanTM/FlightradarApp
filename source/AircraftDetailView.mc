@@ -4,7 +4,6 @@ import Toybox.Math;
 import Toybox.System;
 import Toybox.WatchUi;
 
-// Custom full-screen view, not a system Menu2 - RadarView builds the row data and passes its own ring/panel geometry.
 class AircraftDetailView extends WatchUi.View {
     private var _headerText as String;
     private var _headerColor as Number;
@@ -27,16 +26,12 @@ class AircraftDetailView extends WatchUi.View {
 
     // Adaptive: stretches toward MAX for few rows, clamps to MIN and scrolls for many. Between-group gap only.
     private var _rowHeight as Number = 20;
-    // Precomputed per-row Y offset from a 0-based origin, built once in onLayout.
+    // Per-row Y offset from a 0-based origin.
     private var _rowY as Array<Number> = [];
     private var _totalContentHeight as Number = 0;
     private var _contentTop as Number = 0;
     private var _visibleHeight as Number = 1;
-    private var _closeChevronY as Number = 0;
 
-    // Measured once in onLayout from the monospace font - same _charW pattern as ../TerminalWatchface.
-    private var _charW as Number = 8;
-    private var _charH as Number = 14;
     private var _minRowHeight as Number = 20;
     private var _maxRowHeight as Number = 28;
     private var _contentPadding as Number = 6;
@@ -48,7 +43,6 @@ class AircraftDetailView extends WatchUi.View {
     private const COLOR_BOUNDARY_ALPHA = DrawUtil.COLOR_BOUNDARY_ALPHA;
     private const COLOR_WHITE = 0xffffff;
 
-    // Each row draws as one centered inline line, same style as the compact panel's segmented line.
     private var _labelValueGapPx as Number = 4;
     private var _fieldGapPx as Number = 16;
 
@@ -57,18 +51,19 @@ class AircraftDetailView extends WatchUi.View {
     private const INPUT_SUPPRESS_WINDOW_MS = 300;
     private var _inputSuppressedUntilMs as Number = 0;
 
-    // Single-line text height, promoted from onLayout's local so _layoutRows can reuse it.
     private var _lineH as Number = 14;
     // Lines each row renders as - 1 normally, or more for a word-wrapped/field-split row (see _layoutRows).
     private var _rowLineCount as Array<Number> = [];
     // True where a 2-cell row didn't fit the ring's chord and got drawn as two stacked 1-cell lines instead.
     private var _rowSplit as Array<Boolean> = [];
+    // One _measureRow result per drawn line of a grid row (two for a split row), empty for the wrapped route rows.
+    private var _rowMeasures as
+        Array<Array<[Number, Array<Number>, Array<Number>]> > = [];
     private var _depWrapLines as Array<Array<DrawUtil.ValueRun> > = [];
     private var _arrWrapLines as Array<Array<DrawUtil.ValueRun> > = [];
     // Deferred to onUpdate since wrapping needs a Dc for text measurement, which setDepartureText/setArrivalText don't have.
     private var _depWrapDirty as Boolean = true;
     private var _arrWrapDirty as Boolean = true;
-    // Matches RadarView._edgeMargin - same gap the ring itself keeps from the screen edge.
     private var _ringMarginPx as Number = 10;
 
     public function initialize(
@@ -109,14 +104,14 @@ class AircraftDetailView extends WatchUi.View {
             Graphics.FontDefinition;
 
         var charSize = DrawUtil.measureChar(dc, _fontTiny);
-        _charW = charSize[0];
-        _charH = charSize[1];
-        _minRowHeight = _charH + 6;
-        _maxRowHeight = _charH + 14;
-        _contentPadding = _charH / 2;
-        _intraGroupGapPaddingPx = _charW / 4;
-        _labelValueGapPx = _charW;
-        _fieldGapPx = _charW * 2;
+        var charW = charSize[0];
+        var charH = charSize[1];
+        _minRowHeight = charH + 6;
+        _maxRowHeight = charH + 14;
+        _contentPadding = charH / 2;
+        _intraGroupGapPaddingPx = charW / 4;
+        _labelValueGapPx = charW;
+        _fieldGapPx = charW * 2;
 
         _screenWidthPx = dc.getWidth();
         _bottomY = dc.getHeight() - _bottomPanelH;
@@ -142,75 +137,95 @@ class AircraftDetailView extends WatchUi.View {
     private function _layoutRows(dc as Dc) as Void {
         var count = _rows.size();
         var intraGap = _lineH + _intraGroupGapPaddingPx;
-        var estimatedTop = _estimatedContentTop(count, intraGap);
+        var estimatedUsed = _singleLineContentHeight(count, intraGap);
+        var estimatedTop = _centeredContentTop(estimatedUsed);
+        // Scrolling can bring any row to the band's narrowest point, so every row has to fit there.
+        var bandMaxW =
+            estimatedUsed > _visibleHeight
+                ? _minChordWidth(_topY, _bottomY)
+                : null;
         _rowY = [];
         _rowLineCount = [];
         _rowSplit = [];
+        _rowMeasures = [];
         var y = 0;
         for (var i = 0; i < count; i++) {
             if (i > 0) {
-                y +=
-                    i < _groupStarts.size() && _groupStarts[i]
-                        ? _rowHeight
-                        : intraGap;
+                y += _gapBefore(i, intraGap);
             }
             _rowY.add(y);
 
             var lineCount = 1;
             var split = false;
-            var maxW = _chordMaxWidth(estimatedTop + y);
+            var measures = [] as Array<[Number, Array<Number>, Array<Number>]>;
+            var rowTop = estimatedTop + y;
+            var maxW =
+                bandMaxW != null
+                    ? bandMaxW as Number
+                    : _minChordWidth(rowTop, rowTop + _lineH * 2);
+            var row = _rows[i];
             if (i == _depRowIndex) {
                 _depWrapLines = _wrapRouteRow(dc, i, maxW);
                 lineCount = _depWrapLines.size() > 1 ? _depWrapLines.size() : 1;
             } else if (i == _arrRowIndex) {
                 _arrWrapLines = _wrapRouteRow(dc, i, maxW);
                 lineCount = _arrWrapLines.size() > 1 ? _arrWrapLines.size() : 1;
-            } else if (
-                _rows[i].size() == 2 &&
-                (_measureRow(dc, _rows[i])[0] as Number) > maxW
-            ) {
-                split = true;
-                lineCount = 2;
+            } else {
+                var measured = _measureRow(dc, row);
+                if (row.size() == 2 && measured[0] > maxW) {
+                    split = true;
+                    lineCount = 2;
+                    measures.add(_measureRow(dc, [row[0]]));
+                    measures.add(_measureRow(dc, [row[1]]));
+                } else {
+                    measures.add(measured);
+                }
             }
             _rowLineCount.add(lineCount);
             _rowSplit.add(split);
+            _rowMeasures.add(measures);
             y += (lineCount - 1) * _lineH;
         }
 
-        // Real content height, not count*rowHeight - excludes the trailing gap after the last row.
-        var used = count > 0 ? y + _lineH : 0;
-        _totalContentHeight = used;
-        var contentTop0 = _topY + _contentPadding;
-        _contentTop =
-            used < _visibleHeight
-                ? contentTop0 + (_visibleHeight - used) / 2
-                : contentTop0;
+        _totalContentHeight = count > 0 ? y + _lineH : 0;
+        _contentTop = _centeredContentTop(_totalContentHeight);
     }
 
-    // Content top assuming every row is a single line - off by at most a line or two once wrap/split
-    // decisions are actually made, close enough to look up each row's available width against.
-    private function _estimatedContentTop(
+    private function _gapBefore(i as Number, intraGap as Number) as Number {
+        return i < _groupStarts.size() && _groupStarts[i]
+            ? _rowHeight
+            : intraGap;
+    }
+
+    // Every row as a single line, excluding the trailing gap after the last one.
+    private function _singleLineContentHeight(
         count as Number,
         intraGap as Number
     ) as Number {
-        var contentTop0 = _topY + _contentPadding;
         if (count == 0) {
-            return contentTop0;
+            return 0;
         }
         var y = 0;
         for (var i = 1; i < count; i++) {
-            y +=
-                i < _groupStarts.size() && _groupStarts[i]
-                    ? _rowHeight
-                    : intraGap;
+            y += _gapBefore(i, intraGap);
         }
-        var used = y + _lineH;
+        return y + _lineH;
+    }
+
+    private function _centeredContentTop(used as Number) as Number {
+        var contentTop0 = _topY + _contentPadding;
         return used < _visibleHeight
             ? contentTop0 + (_visibleHeight - used) / 2
             : contentTop0;
     }
 
-    // Available width at row y, clamped by the boundary ring's chord so row text keeps clear of it.
+    // The chord narrows monotonically away from the ring's center, so the narrowest over [y0, y1] is at an end.
+    private function _minChordWidth(y0 as Number, y1 as Number) as Number {
+        var a = _chordMaxWidth(y0);
+        var b = _chordMaxWidth(y1);
+        return a < b ? a : b;
+    }
+
     // Outside the ring's vertical span there's nothing to clamp against, so width is unconstrained.
     private function _chordMaxWidth(y as Number) as Number {
         var dy = (y - _ringCy).abs();
@@ -264,6 +279,11 @@ class AircraftDetailView extends WatchUi.View {
 
     public function scroll(dyPx as Number) as Void {
         _scrollPx += dyPx;
+        _clampScroll();
+        WatchUi.requestUpdate();
+    }
+
+    private function _clampScroll() as Void {
         var maxScroll = _totalContentHeight - _visibleHeight;
         if (maxScroll < 0) {
             maxScroll = 0;
@@ -273,7 +293,6 @@ class AircraftDetailView extends WatchUi.View {
         } else if (_scrollPx > maxScroll) {
             _scrollPx = maxScroll;
         }
-        WatchUi.requestUpdate();
     }
 
     // The whole band below the ring is the close affordance - nothing else draws there, so it's all tappable.
@@ -295,8 +314,7 @@ class AircraftDetailView extends WatchUi.View {
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
         dc.fillRectangle(0, 0, w, _topY);
-        // Starts one row below _bottomY - leaves that pixel unerased so the separator sits on it, not bare black.
-        // Mirrors the top band, which stops one row short of _topY for the same reason.
+        // Both bands stop one row short of their separator, so it's drawn over the unerased ring, not bare black.
         dc.fillRectangle(0, _bottomY + 1, w, h - _bottomY - 1);
 
         _drawRingSeparator(dc, _topY);
@@ -313,6 +331,8 @@ class AircraftDetailView extends WatchUi.View {
 
         _ensureRowLayout(dc);
 
+        // Keeps a partly scrolled-out row off both separators and the close band.
+        dc.setClip(0, _topY + 1, w, _bottomY - _topY - 1);
         for (var i = 0; i < _rows.size(); i++) {
             var y = _contentTop + (_rowY[i] as Number) - _scrollPx;
             var lineCount = _rowLineCount[i] as Number;
@@ -328,12 +348,19 @@ class AircraftDetailView extends WatchUi.View {
             } else if (i == _arrRowIndex) {
                 _drawWrappedRow(dc, cx, y, _arrWrapLines);
             } else if (_rowSplit[i]) {
-                _drawGridRow(dc, cx, y, [_rows[i][0]]);
-                _drawGridRow(dc, cx, y + _lineH, [_rows[i][1]]);
+                _drawGridRow(dc, cx, y, [_rows[i][0]], _rowMeasures[i][0]);
+                _drawGridRow(
+                    dc,
+                    cx,
+                    y + _lineH,
+                    [_rows[i][1]],
+                    _rowMeasures[i][1]
+                );
             } else {
-                _drawGridRow(dc, cx, y, _rows[i]);
+                _drawGridRow(dc, cx, y, _rows[i], _rowMeasures[i][0]);
             }
         }
+        dc.clearClip();
 
         _drawCloseAffordance(dc, cx, h);
     }
@@ -345,6 +372,7 @@ class AircraftDetailView extends WatchUi.View {
         _layoutRows(dc);
         _depWrapDirty = false;
         _arrWrapDirty = false;
+        _clampScroll();
     }
 
     private function _wrapRouteRow(
@@ -363,8 +391,7 @@ class AircraftDetailView extends WatchUi.View {
         return DrawUtil.wrapSegments(dc, _fontTiny, runs, maxWidthPx);
     }
 
-    // [totalWidth, labelWidths, valueWidths] - callers that also draw the row reuse the per-cell
-    // widths instead of re-measuring the same text.
+    // [totalWidth, labelWidths, valueWidths]
     private function _measureRow(
         dc as Dc,
         row as Array<[String, Array<DrawUtil.ValueRun>]>
@@ -407,7 +434,6 @@ class AircraftDetailView extends WatchUi.View {
         }
     }
 
-    // Width clamped to the boundary ring's chord at that height, so it touches the ring on both ends.
     private function _drawRingSeparator(dc as Dc, y as Number) as Void {
         var dy = (y - _ringCy).abs();
         if (dy >= _ringRadiusPx) {
@@ -419,25 +445,28 @@ class AircraftDetailView extends WatchUi.View {
         dc.drawLine(_ringCx - halfW, y, _ringCx + halfW, y);
     }
 
-    // Just the down chevron, centered in the band below _bottomY - no text label, reads as an affordance not body text.
     private function _drawCloseAffordance(
         dc as Dc,
         cx as Number,
         h as Number
     ) as Void {
-        _closeChevronY = _bottomY + (h - _bottomY) / 2;
         dc.setColor(COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        _drawChevronDown(dc, cx, _closeChevronY, CHEVRON_SIZE);
+        DrawUtil.drawChevron(
+            dc,
+            cx,
+            _bottomY + (h - _bottomY) / 2,
+            CHEVRON_SIZE,
+            false
+        );
     }
 
-    // Draws 1-2 "Label value" fields as one centered inline line, mirroring _drawSegmentedLine.
     private function _drawGridRow(
         dc as Dc,
         cx as Number,
         y as Number,
-        row as Array<[String, Array<DrawUtil.ValueRun>]>
+        row as Array<[String, Array<DrawUtil.ValueRun>]>,
+        measured as [Number, Array<Number>, Array<Number>]
     ) as Void {
-        var measured = _measureRow(dc, row);
         var labelWidths = measured[1] as Array<Number>;
         var valueWidths = measured[2] as Array<Number>;
         var x = cx - Math.round((measured[0] as Number) / 2.0).toNumber();
@@ -462,16 +491,6 @@ class AircraftDetailView extends WatchUi.View {
             x += (valueWidths[i] as Number) + _fieldGapPx;
         }
     }
-
-    private function _drawChevronDown(
-        dc as Dc,
-        x as Number,
-        y as Number,
-        s as Number
-    ) as Void {
-        dc.setColor(COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        DrawUtil.drawChevron(dc, x, y, s, false);
-    }
 }
 
 class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
@@ -479,9 +498,7 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
     private var _radarView as RadarView;
     private var _dragStartY as Number?;
     private var _dragLastY as Number?;
-    // Jitter from an imprecise tap, not real scroll intent - matches RadarView's own pan threshold.
     private var _dragCommitted as Boolean = false;
-    private const DRAG_THRESHOLD_PX = 32;
     private const SCROLL_STEP_PX = 40;
 
     public function initialize(
@@ -548,7 +565,9 @@ class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
                 return true;
             }
             if (!_dragCommitted) {
-                if ((coords[1] - (start as Number)).abs() < DRAG_THRESHOLD_PX) {
+                if (
+                    (coords[1] - (start as Number)).abs() < $.DRAG_THRESHOLD_PX
+                ) {
                     _dragLastY = coords[1];
                     return true;
                 }

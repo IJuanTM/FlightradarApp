@@ -1,8 +1,6 @@
 import Toybox.Lang;
 
-// This app's fonts only bake in ASCII glyphs - fold common Latin accented letters to their plain-ASCII
-// base (e.g. "ń"->"n", "ë"->"e") instead of just dropping them, since a missing letter reads worse than
-// a close approximation. Anything not covered by LATIN_FOLD (non-Latin scripts) still gets dropped.
+// The fonts are ASCII-only - accented Latin folds to its base letter, since a close letter reads better than a dropped one.
 module TextUtil {
     function foldDiacritics(s as String) as String {
         var chars = s.toCharArray();
@@ -18,7 +16,6 @@ module TextUtil {
         return out;
     }
 
-    // Latin-1 Supplement + common Latin Extended-A accented letters -> plain ASCII base letter(s).
     const LATIN_FOLD as Dictionary<Char, String> = {
         'À' => "A",
         'Á' => "A",

@@ -10,7 +10,7 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 
 - Live ADS-B aircraft positions plotted in real time on a radar-style circular display, centered on your GPS position
 - **4 zoom levels** (5 / 10 / 25 / 50 km) with an adaptive poll interval, closer zoom polls faster, wider zoom polls slower
-- **84 aircraft silhouette icons** (from the tar1090 icon set), matched by exact aircraft type where possible and rotated to true heading
+- **83 aircraft silhouette icons** (from the tar1090 icon set), matched by exact aircraft type where possible and rotated to true heading
 - Color-coded by category at a glance: light aircraft, heavy jets, high-speed/military types, and helicopters each get their own color
 - **Tap to select** any aircraft for a live historical flight track, a compact detail panel, and climb/descend chevrons
 - **Swipe up** on a selected aircraft for a full-screen detail view: registration, type, category, altitude, vertical rate, ground/indicated/true airspeed, Mach, heading, squawk, autopilot-selected altitude/heading, wind, outside/total air temperature, and departure/arrival airports
@@ -66,27 +66,20 @@ Swipe up on the compact panel (or tap it) for everything the compact panel leave
 
 ## Settings
 
-Settings are grouped into four submenus, reached via the on-device menu (Enter/Menu button).
-
-### Aircraft Labels
-
-| Setting     | Description                                  |
-| ----------- | -------------------------------------------- |
-| Show Labels | Master toggle for all aircraft labels        |
-| Callsign    | Show the flight callsign under each aircraft |
-| Speed       | Show ground speed                            |
-| Altitude    | Show altitude (or `GND` while on the ground) |
+Reached via the on-device menu (Enter/Menu button).
 
 ### Display
 
-| Setting             | Description                                                     |
-| ------------------- | --------------------------------------------------------------- |
-| Range Rings         | Distance rings and compass ticks                                |
-| Grid Lines          | Lat/lon grid overlay                                            |
-| Button Hints        | Corner glyphs showing what Up / Down / Menu / Esc do            |
-| Metric Units        | km/h, meters, m/min instead of kt/ft/fpm                        |
-| Battery Saver       | Triples the poll interval at every zoom level                   |
-| Show Background Map | Dark OSM raster map behind the radar display _(off by default)_ |
+| Setting                   | Description                                                            |
+| ------------------------- | ---------------------------------------------------------------------- |
+| Radar → Range Rings       | Distance rings and compass ticks                                       |
+| Radar → Grid Lines        | Lat/lon grid overlay                                                   |
+| Map → Background Map      | OSM raster map behind the radar display _(off by default)_             |
+| Map → Map Style           | MapTiler style for the background map                                  |
+| Map → Map Dark Mode       | Use the style's dark variant                                           |
+| Airports → Airports       | Nearby airport markers                                                 |
+| Airports → Small Airports | Also show airfields without an IATA code (airstrips, gliding sites)    |
+| Button Hints              | Edge glyphs showing what Up / Down / Menu / Esc do                     |
 
 ### Filters
 
@@ -99,19 +92,32 @@ Settings are grouped into four submenus, reached via the on-device menu (Enter/M
 
 ### Aircraft
 
-| Setting               | Description                                                     |
-| --------------------- | --------------------------------------------------------------- |
-| Show Track            | Draw the selected aircraft's historical flight path             |
-| Climb/Descend Arrows  | Vertical-rate chevrons above/below climbing/descending aircraft |
-| Dim Grounded Aircraft | Dim aircraft currently on the ground                            |
-| Dim Stale Aircraft    | Dim aircraft whose position hasn't updated recently             |
-| Single Color Mode     | Draw every aircraft in the default color, ignoring category     |
+| Setting                          | Description                                                     |
+| -------------------------------- | --------------------------------------------------------------- |
+| Overlays → Show Track            | Draw the selected aircraft's historical flight path             |
+| Overlays → Climb/Descend Arrows  | Vertical-rate chevrons above/below climbing/descending aircraft |
+| Coloring → Dim Grounded Aircraft | Dim aircraft currently on the ground                            |
+| Coloring → Dim Stale Aircraft    | Dim aircraft whose position hasn't updated recently             |
+| Coloring → Single Color Mode     | Draw every aircraft in the default color, ignoring category     |
+| Labels → Show Labels             | Master toggle for all aircraft labels                           |
+| Labels → Fields                  | Callsign, speed and altitude, each toggled individually         |
+
+### General
+
+| Setting       | Description                                   |
+| ------------- | --------------------------------------------- |
+| Metric Units  | km/h, meters, m/min instead of kt/ft/fpm      |
+| Battery Saver | Triples the poll interval at every zoom level |
+
+### API Status
+
+Read-only: the last known ok/failed state of each network source.
 
 ---
 
 ## Aircraft Icons & Colors
 
-84 aircraft silhouettes drawn from the tar1090 icon set, matched to the aircraft's exact reported type (e.g. Boeing 738, Airbus A320, F-16) where possible, falling back to a broad ADS-B category shape otherwise. Icons rotate to the aircraft's true heading, except balloons and the fixed-tower obstacle icon, which have no meaningful heading.
+83 aircraft silhouettes drawn from the tar1090 icon set, matched to the aircraft's exact reported type (e.g. Boeing 738, Airbus A320, F-16) where possible, falling back to a broad ADS-B category shape otherwise. Icons rotate to the aircraft's true heading, except balloons and the fixed-tower obstacle icon, which have no meaningful heading.
 
 | Color   | Meaning                                 |
 | ------- | --------------------------------------- |
@@ -135,8 +141,9 @@ Settings are grouped into four submenus, reached via the on-device menu (Enter/M
 | VRS standing data (`adsb.lol`)                 | Scheduled departure/arrival route for the selected aircraft's callsign                                                    |
 | [airport-data.com](https://airport-data.com)   | City/country/IATA lookup for the resolved departure/arrival airports                                                      |
 | [MapTiler](https://www.maptiler.com)           | Dark OSM raster background map tiles, fetched on demand as you pan/zoom _(off by default)_                                |
+| [OpenAIP](https://www.openaip.net)             | Nearby airport markers, fetched as you pan/zoom                                                                           |
 
-All lookups are free and require no account (MapTiler requires a free API key, bundled at build time). Route and airport lookups only fire when the full detail view is opened, never during regular polling.
+All sources are free. OpenSky (OAuth client credentials), MapTiler and OpenAIP (API keys) need a free account; their credentials go in the gitignored `resources/jsonData/credentials.json` under `OpenSky` (`clientId`, `clientSecret`), `MapTiler` (`apiKey`) and `OpenAIP` (`apiKey`), and are bundled at build time. Route and airport-info lookups only fire when the full detail view is opened, never during regular polling.
 
 ---
 

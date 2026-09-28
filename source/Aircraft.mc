@@ -9,8 +9,7 @@ class Aircraft {
     public var onGround as Boolean;
     public var gs as Float?;
     public var track as Float?;
-    // Nose direction for icon rotation - prefers true/mag heading (AHRS-derived, still valid at zero
-    // groundspeed) over track (direction of travel, omitted by the feed entirely when stationary).
+    // Heading, not track, drives icon rotation - it stays valid at zero groundspeed, where the feed omits track.
     public var heading as Float?;
     public var category as String?;
     public var registration as String?;
@@ -57,14 +56,15 @@ class Aircraft {
         } else {
             onGround = false;
             // No barometric reading at all - fall back to GPS/geometric altitude rather than showing nothing.
-            altBaro = _toNumberOrNull(dict["alt_geom"]);
+            altBaro = JsonUtil.toNumberOrNull(dict["alt_geom"]);
         }
 
-        gs = _toFloatOrNull(dict["gs"]);
-        track = _toFloatOrNull(dict["track"]);
-        var trueHeading = dict["true_heading"];
-        var hdgSrc = trueHeading != null ? trueHeading : dict["mag_heading"];
-        var hdgVal = hdgSrc != null ? _toFloatOrNull(hdgSrc) : null;
+        gs = JsonUtil.toFloatOrNull(dict["gs"]);
+        track = JsonUtil.toFloatOrNull(dict["track"]);
+        var hdgVal = JsonUtil.toFloatOrNull(dict["true_heading"]);
+        if (hdgVal == null) {
+            hdgVal = JsonUtil.toFloatOrNull(dict["mag_heading"]);
+        }
         heading = hdgVal != null ? hdgVal : track;
 
         var cat = dict["category"];
@@ -74,43 +74,45 @@ class Aircraft {
         typeCode = _toTrimmedStringOrNull(dict["t"]);
         typeDesc = _toTrimmedStringOrNull(dict["desc"]);
 
-        var flagsNum = _toNumberOrNull(dict["dbFlags"]);
+        var flagsNum = JsonUtil.toNumberOrNull(dict["dbFlags"]);
         military = flagsNum != null && (flagsNum & 1) != 0;
 
-        var vr = dict["baro_rate"];
-        vertRate = _toFloatOrNull(vr != null ? vr : dict["geom_rate"]);
+        vertRate = JsonUtil.toFloatOrNull(dict["baro_rate"]);
+        if (vertRate == null) {
+            vertRate = JsonUtil.toFloatOrNull(dict["geom_rate"]);
+        }
 
         squawk = _toTrimmedStringOrNull(dict["squawk"]);
 
-        tas = _toFloatOrNull(dict["tas"]);
+        tas = JsonUtil.toFloatOrNull(dict["tas"]);
 
         emergency = _toTrimmedStringOrNull(dict["emergency"]);
 
         var mcp = dict["nav_altitude_mcp"];
-        navAltitude = _toNumberOrNull(
+        navAltitude = JsonUtil.toNumberOrNull(
             mcp != null ? mcp : dict["nav_altitude_fms"]
         );
-        navHeading = _toFloatOrNull(dict["nav_heading"]);
+        navHeading = JsonUtil.toFloatOrNull(dict["nav_heading"]);
 
         var seenPos = dict["seen_pos"];
-        positionAgeSec = _toFloatOrNull(
+        positionAgeSec = JsonUtil.toFloatOrNull(
             seenPos != null ? seenPos : dict["seen"]
         );
 
         var ownOp = _toTrimmedStringOrNull(dict["ownOp"]);
         operatorName =
             ownOp != null ? TextUtil.foldDiacritics(ownOp as String) : null;
-        ias = _toNumberOrNull(dict["ias"]);
-        mach = _toFloatOrNull(dict["mach"]);
+        ias = JsonUtil.toNumberOrNull(dict["ias"]);
+        mach = JsonUtil.toFloatOrNull(dict["mach"]);
         spi = _toBoolFlag(dict["spi"]);
         alertFlag = _toBoolFlag(dict["alert"]);
-        windDir = _toNumberOrNull(dict["wd"]);
-        windSpeed = _toNumberOrNull(dict["ws"]);
-        outsideAirTemp = _toNumberOrNull(dict["oat"]);
-        totalAirTemp = _toNumberOrNull(dict["tat"]);
+        windDir = JsonUtil.toNumberOrNull(dict["wd"]);
+        windSpeed = JsonUtil.toNumberOrNull(dict["ws"]);
+        outsideAirTemp = JsonUtil.toNumberOrNull(dict["oat"]);
+        totalAirTemp = JsonUtil.toNumberOrNull(dict["tat"]);
     }
 
-    // DO-260B C1/C2 = surface vehicles, never an airborne class, distinct from a plane that's merely onGround.
+    // DO-260B set C (C0-C2) is surface emitters, never an airborne class - distinct from a plane that's merely onGround.
     public function isGroundVehicle() as Boolean {
         return (
             category != null &&
@@ -144,10 +146,7 @@ class Aircraft {
     }
 
     private function _toFloat(v, def as Float) as Float {
-        if (!JsonUtil.isNumeric(v)) {
-            return def;
-        }
-        var f = v.toFloat();
+        var f = JsonUtil.toFloatOrNull(v);
         return f != null ? f : def;
     }
 
@@ -156,14 +155,6 @@ class Aircraft {
             return v as Boolean;
         }
         return JsonUtil.isNumeric(v) && v.toNumber() != 0;
-    }
-
-    private function _toFloatOrNull(v) as Float? {
-        return JsonUtil.isNumeric(v) ? v.toFloat() : null;
-    }
-
-    private function _toNumberOrNull(v) as Number? {
-        return JsonUtil.isNumeric(v) ? v.toNumber() : null;
     }
 
     private function _toTrimmedStringOrNull(v) as String? {

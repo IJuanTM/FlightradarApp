@@ -81,7 +81,6 @@
     <bitmap id="AircraftU2" filename="aircraft_u2.png" automaticPalette="false" />
     <bitmap id="AircraftUav" filename="aircraft_uav.png" automaticPalette="false" />
     <bitmap id="AircraftUnknown" filename="aircraft_unknown.png" automaticPalette="false" />
-    <bitmap id="AircraftV22Fast" filename="aircraft_v22_fast.png" automaticPalette="false" />
     <bitmap id="AircraftV22Slow" filename="aircraft_v22_slow.png" automaticPalette="false" />
     <bitmap id="AircraftVerhees" filename="aircraft_verhees.png" automaticPalette="false" />
     <bitmap id="AircraftWb57" filename="aircraft_wb57.png" automaticPalette="false" />

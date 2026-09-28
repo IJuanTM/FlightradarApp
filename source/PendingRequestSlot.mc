@@ -1,7 +1,6 @@
 import Toybox.Lang;
 
-// Shared by AdsbFiClient/OpenSkyClient - each wants only one physical request in flight, and no :context/generation id exists to correlate a second one safely.
-// Payload/callback are untyped (Object?/Method?, not generic - Monkey C has no generic classes); each caller casts back to its own shape, documented at its own _slot field.
+// One request in flight per client (no :context id to correlate a second); payload/callback are untyped since Monkey C has no generics.
 class PendingRequestSlot {
     private var _activePayload as Object?;
     private var _activeCallback as Method?;
@@ -18,10 +17,7 @@ class PendingRequestSlot {
         return _activeCallback;
     }
 
-    // True return means dispatch now; false means it was queued behind an already-active request.
-    // A third call while one is already queued overwrites the queued slot (depth 1, not a real
-    // queue) - safe only because both callers always pass the same bound callback, so the newest
-    // payload is simply the freshest desired request, never a caller left permanently unanswered.
+    // False means queued, depth 1 - a newer call overwrites it, safe since each caller always passes the same bound callback.
     public function start(payload as Object, callback as Method) as Boolean {
         if (_activeCallback != null) {
             _queuedPayload = payload;

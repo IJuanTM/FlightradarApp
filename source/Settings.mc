@@ -3,8 +3,13 @@ import Toybox.Lang;
 import Toybox.WatchUi;
 
 module Settings {
-    // 100km removed again - the platform's own networking layer still rejects big enough responses.
-    const ZOOM_LEVELS_KM as Array<Float> = [5.0, 10.0, 25.0, 50.0];
+    // [radiusKm, pollMs, gridStepKm] - polls slow down at wide zoom, where responses near the platform's size ceiling.
+    const ZOOM_LEVELS as Array<[Float, Number, Float]> = [
+        [5.0, 1000, 1.0],
+        [10.0, 1000, 5.0],
+        [25.0, 2000, 10.0],
+        [50.0, 3000, 25.0],
+    ];
 
     class LabelField {
         public var id as String;
@@ -45,8 +50,7 @@ module Settings {
         }
     }
 
-    // id is the literal MapTiler style-id path segment - see MapClient for how it becomes a tile URL.
-    // Alphabetical by display name - no other grouping is more obviously "correct" for a named picker.
+    // id is the literal MapTiler style-id path segment; listed alphabetically by display name.
     var MAP_STYLE_OPTIONS as Array<MapStyleOption> = [
         new MapStyleOption("backdrop", Rez.Strings.MapStyleBackdrop, "-v4"),
         new MapStyleOption("base", Rez.Strings.MapStyleBase, "-v4"),
@@ -75,84 +79,93 @@ module Settings {
 
     var zoomIndex as Number = 0;
 
-    // Radar-screen chrome toggles.
     var showRangeRings as Boolean = true;
     var showGridLines as Boolean = false;
     var showButtonHints as Boolean = true;
 
-    // Map toggles.
     // Opt-in - a background map is the biggest network/battery cost in the app, default off.
     var showBackgroundMap as Boolean = false;
-    // MapTiler style id (see MAP_STYLE_OPTIONS) and whether to request its "-dark" variant.
     var mapStyle as String = "dataviz";
     var mapDarkMode as Boolean = true;
 
-    // Airport overlay toggles - independent of the background map, drawn on the radar either way.
     var showAirports as Boolean = true;
-    // Opt-out - airports without an IATA code (gliding sites, small airstrips, etc) are the majority
-    // of what OpenAIP returns and clutter the view fast, unlike the well-known ones with an IATA code.
+    // Non-IATA airstrips are most of what OpenAIP returns - the first thing to hide when the view gets cluttered.
     var showSmallAirports as Boolean = true;
 
-    // Filters - what traffic appears at all.
-    // Opt-in - ground vehicles hidden by default, unlike hideGroundedPlanes below.
     var showGroundVehicles as Boolean = false;
     var hideGroundedPlanes as Boolean = false;
-    // Opt-out - towers/masts/obstacles default hidden, unlike the other two filters above.
     var hideObstacles as Boolean = true;
-    // Opt-in - military aircraft shown (just tinted) by default, same pattern as showGroundVehicles.
     var hideMilitary as Boolean = false;
 
-    // Aircraft overlays - both opt-out, default on.
     var showSelectedTrail as Boolean = true;
     var showVertRateChevron as Boolean = true;
 
-    // Aircraft coloring.
     var dimGroundedAircraft as Boolean = true;
     var dimStaleAircraft as Boolean = true;
     var singleColorMode as Boolean = false;
 
-    // Aircraft label fields.
     var labelsEnabled as Boolean = true;
     var _labelFieldEnabled as Dictionary<String, Boolean> = {};
 
-    // General/app-wide behavior.
-    // Opt-out - metric is opt-in instead, aviation convention (ft/kt) is the sensible default.
     var useMetricUnits as Boolean = false;
     var batterySaverMode as Boolean = false;
 
+    // Each field's initializer is its default - load() only overrides it with a stored value.
     function load() as Void {
         var storedZoom = Storage.getValue("zoomIndex");
-        zoomIndex = storedZoom != null ? storedZoom as Number : 0;
-        if (zoomIndex < 0 or zoomIndex >= ZOOM_LEVELS_KM.size()) {
-            zoomIndex = 0;
+        if (
+            storedZoom instanceof Lang.Number and
+            storedZoom >= 0 and
+            storedZoom < ZOOM_LEVELS.size()
+        ) {
+            zoomIndex = storedZoom;
         }
 
-        showRangeRings = _loadBool("showRangeRings", true);
-        showGridLines = _loadBool("showGridLines", false);
-        showButtonHints = _loadBool("showButtonHints", true);
+        showRangeRings = _loadBool("showRangeRings", showRangeRings);
+        showGridLines = _loadBool("showGridLines", showGridLines);
+        showButtonHints = _loadBool("showButtonHints", showButtonHints);
 
-        showBackgroundMap = _loadBool("showBackgroundMap", false);
-        mapStyle = _loadString("mapStyle", "dataviz");
-        mapDarkMode = _loadBool("mapDarkMode", true);
-        showAirports = _loadBool("showAirports", true);
-        showSmallAirports = _loadBool("showSmallAirports", true);
+        showBackgroundMap = _loadBool("showBackgroundMap", showBackgroundMap);
+        var storedStyle = Storage.getValue("mapStyle");
+        // A style later dropped from the picker would otherwise build a tile URL MapTiler doesn't serve.
+        if (
+            storedStyle instanceof Lang.String and
+            mapStyleOption(storedStyle) != null
+        ) {
+            mapStyle = storedStyle;
+        }
+        mapDarkMode = _loadBool("mapDarkMode", mapDarkMode);
+        showAirports = _loadBool("showAirports", showAirports);
+        showSmallAirports = _loadBool("showSmallAirports", showSmallAirports);
 
-        showGroundVehicles = _loadBool("showGroundVehicles", false);
-        hideGroundedPlanes = _loadBool("hideGroundedPlanes", false);
-        hideObstacles = _loadBool("hideObstacles", true);
-        hideMilitary = _loadBool("hideMilitary", false);
+        showGroundVehicles = _loadBool(
+            "showGroundVehicles",
+            showGroundVehicles
+        );
+        hideGroundedPlanes = _loadBool(
+            "hideGroundedPlanes",
+            hideGroundedPlanes
+        );
+        hideObstacles = _loadBool("hideObstacles", hideObstacles);
+        hideMilitary = _loadBool("hideMilitary", hideMilitary);
 
-        showSelectedTrail = _loadBool("showSelectedTrail", true);
-        showVertRateChevron = _loadBool("showVertRateChevron", true);
+        showSelectedTrail = _loadBool("showSelectedTrail", showSelectedTrail);
+        showVertRateChevron = _loadBool(
+            "showVertRateChevron",
+            showVertRateChevron
+        );
 
-        dimGroundedAircraft = _loadBool("dimGroundedAircraft", true);
-        dimStaleAircraft = _loadBool("dimStaleAircraft", true);
-        singleColorMode = _loadBool("singleColorMode", false);
+        dimGroundedAircraft = _loadBool(
+            "dimGroundedAircraft",
+            dimGroundedAircraft
+        );
+        dimStaleAircraft = _loadBool("dimStaleAircraft", dimStaleAircraft);
+        singleColorMode = _loadBool("singleColorMode", singleColorMode);
 
-        labelsEnabled = _loadBool("labelsEnabled", true);
+        labelsEnabled = _loadBool("labelsEnabled", labelsEnabled);
 
-        useMetricUnits = _loadBool("useMetricUnits", false);
-        batterySaverMode = _loadBool("batterySaverMode", false);
+        useMetricUnits = _loadBool("useMetricUnits", useMetricUnits);
+        batterySaverMode = _loadBool("batterySaverMode", batterySaverMode);
 
         for (var i = 0; i < LABEL_FIELDS.size(); i++) {
             var field = LABEL_FIELDS[i];
@@ -168,13 +181,16 @@ module Settings {
         return v == null ? defaultVal : v as Boolean;
     }
 
-    function _loadString(key as String, defaultVal as String) as String {
-        var v = Storage.getValue(key);
-        return v == null ? defaultVal : v as String;
+    function zoomRadiusKm() as Float {
+        return ZOOM_LEVELS[zoomIndex][0];
     }
 
-    function zoomRadiusKm() as Float {
-        return ZOOM_LEVELS_KM[zoomIndex];
+    function zoomPollMs() as Number {
+        return ZOOM_LEVELS[zoomIndex][1];
+    }
+
+    function zoomGridStepKm() as Float {
+        return ZOOM_LEVELS[zoomIndex][2];
     }
 
     function zoomIn() as Void {
@@ -185,110 +201,81 @@ module Settings {
     }
 
     function zoomOut() as Void {
-        if (zoomIndex < ZOOM_LEVELS_KM.size() - 1) {
+        if (zoomIndex < ZOOM_LEVELS.size() - 1) {
             zoomIndex += 1;
             Storage.setValue("zoomIndex", zoomIndex);
         }
     }
 
-    function setShowRangeRings(v as Boolean) as Void {
-        showRangeRings = v;
-        Storage.setValue("showRangeRings", v);
-    }
-
-    function setShowGridLines(v as Boolean) as Void {
-        showGridLines = v;
-        Storage.setValue("showGridLines", v);
-    }
-
-    function setShowButtonHints(v as Boolean) as Void {
-        showButtonHints = v;
-        Storage.setValue("showButtonHints", v);
-    }
-
-    function setShowBackgroundMap(v as Boolean) as Void {
-        showBackgroundMap = v;
-        Storage.setValue("showBackgroundMap", v);
+    // id is the menu item id, which is also the setting's own name.
+    function setToggle(id as Symbol, v as Boolean) as Void {
+        var key;
+        if (id == :showRangeRings) {
+            showRangeRings = v;
+            key = "showRangeRings";
+        } else if (id == :showGridLines) {
+            showGridLines = v;
+            key = "showGridLines";
+        } else if (id == :showButtonHints) {
+            showButtonHints = v;
+            key = "showButtonHints";
+        } else if (id == :showBackgroundMap) {
+            showBackgroundMap = v;
+            key = "showBackgroundMap";
+        } else if (id == :mapDarkMode) {
+            mapDarkMode = v;
+            key = "mapDarkMode";
+        } else if (id == :showAirports) {
+            showAirports = v;
+            key = "showAirports";
+        } else if (id == :showSmallAirports) {
+            showSmallAirports = v;
+            key = "showSmallAirports";
+        } else if (id == :showGroundVehicles) {
+            showGroundVehicles = v;
+            key = "showGroundVehicles";
+        } else if (id == :hideGroundedPlanes) {
+            hideGroundedPlanes = v;
+            key = "hideGroundedPlanes";
+        } else if (id == :hideObstacles) {
+            hideObstacles = v;
+            key = "hideObstacles";
+        } else if (id == :hideMilitary) {
+            hideMilitary = v;
+            key = "hideMilitary";
+        } else if (id == :showSelectedTrail) {
+            showSelectedTrail = v;
+            key = "showSelectedTrail";
+        } else if (id == :showVertRateChevron) {
+            showVertRateChevron = v;
+            key = "showVertRateChevron";
+        } else if (id == :dimGroundedAircraft) {
+            dimGroundedAircraft = v;
+            key = "dimGroundedAircraft";
+        } else if (id == :dimStaleAircraft) {
+            dimStaleAircraft = v;
+            key = "dimStaleAircraft";
+        } else if (id == :singleColorMode) {
+            singleColorMode = v;
+            key = "singleColorMode";
+        } else if (id == :labelsEnabled) {
+            labelsEnabled = v;
+            key = "labelsEnabled";
+        } else if (id == :useMetricUnits) {
+            useMetricUnits = v;
+            key = "useMetricUnits";
+        } else if (id == :batterySaverMode) {
+            batterySaverMode = v;
+            key = "batterySaverMode";
+        } else {
+            return;
+        }
+        Storage.setValue(key, v);
     }
 
     function setMapStyle(v as String) as Void {
         mapStyle = v;
         Storage.setValue("mapStyle", v);
-    }
-
-    function setMapDarkMode(v as Boolean) as Void {
-        mapDarkMode = v;
-        Storage.setValue("mapDarkMode", v);
-    }
-
-    function setShowAirports(v as Boolean) as Void {
-        showAirports = v;
-        Storage.setValue("showAirports", v);
-    }
-
-    function setShowSmallAirports(v as Boolean) as Void {
-        showSmallAirports = v;
-        Storage.setValue("showSmallAirports", v);
-    }
-
-    function setShowGroundVehicles(v as Boolean) as Void {
-        showGroundVehicles = v;
-        Storage.setValue("showGroundVehicles", v);
-    }
-
-    function setHideGroundedPlanes(v as Boolean) as Void {
-        hideGroundedPlanes = v;
-        Storage.setValue("hideGroundedPlanes", v);
-    }
-
-    function setHideObstacles(v as Boolean) as Void {
-        hideObstacles = v;
-        Storage.setValue("hideObstacles", v);
-    }
-
-    function setHideMilitary(v as Boolean) as Void {
-        hideMilitary = v;
-        Storage.setValue("hideMilitary", v);
-    }
-
-    function setShowSelectedTrail(v as Boolean) as Void {
-        showSelectedTrail = v;
-        Storage.setValue("showSelectedTrail", v);
-    }
-
-    function setShowVertRateChevron(v as Boolean) as Void {
-        showVertRateChevron = v;
-        Storage.setValue("showVertRateChevron", v);
-    }
-
-    function setDimGroundedAircraft(v as Boolean) as Void {
-        dimGroundedAircraft = v;
-        Storage.setValue("dimGroundedAircraft", v);
-    }
-
-    function setDimStaleAircraft(v as Boolean) as Void {
-        dimStaleAircraft = v;
-        Storage.setValue("dimStaleAircraft", v);
-    }
-
-    function setSingleColorMode(v as Boolean) as Void {
-        singleColorMode = v;
-        Storage.setValue("singleColorMode", v);
-    }
-
-    function setLabelsEnabled(v as Boolean) as Void {
-        labelsEnabled = v;
-        Storage.setValue("labelsEnabled", v);
-    }
-
-    function setUseMetricUnits(v as Boolean) as Void {
-        useMetricUnits = v;
-        Storage.setValue("useMetricUnits", v);
-    }
-
-    function setBatterySaverMode(v as Boolean) as Void {
-        batterySaverMode = v;
-        Storage.setValue("batterySaverMode", v);
     }
 
     function isLabelFieldEnabled(id as String) as Boolean {

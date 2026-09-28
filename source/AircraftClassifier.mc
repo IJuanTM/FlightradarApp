@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-// Aircraft -> icon shape/size classification. Color stays in RadarView, tied to Settings/palette.
+// Color stays in RadarView, tied to Settings/palette.
 module AircraftClassifier {
     // Half-diagonal (content px, scale 1.0) of each shape's rendered art bbox.
     const ICON_HALF_DIAGONAL as Dictionary<String, Float> = {
@@ -84,7 +84,6 @@ module AircraftClassifier {
         "u2" => 56.6,
         "uav" => 48.4,
         "unknown" => 46.0,
-        "v22_fast" => 50.5,
         "v22_slow" => 50.8,
         "verhees" => 53.1,
         "wb57" => 48.6,
@@ -172,14 +171,12 @@ module AircraftClassifier {
         "u2" => [54.0, 36.0] as [Float, Float],
         "uav" => [48.0, 30.0] as [Float, Float],
         "unknown" => [39.0, 38.0] as [Float, Float],
-        "v22_fast" => [48.0, 34.0] as [Float, Float],
         "v22_slow" => [48.0, 35.0] as [Float, Float],
         "verhees" => [48.0, 39.0] as [Float, Float],
         "wb57" => [48.0, 31.0] as [Float, Float],
     };
 
-    // Safety net for missing category - MTOW 75,000-300,000lbs tier. Includes every typeCode
-    // TYPE_TO_ICON maps to the same shape as a code already listed here, not just the base variant.
+    // Safety net for missing category - MTOW 75,000-300,000lbs tier.
     const LARGE_TYPE_CODES =
         [
             "A318",
@@ -194,19 +191,28 @@ module AircraftClassifier {
             "A333",
             "A338",
             "A339",
+            "B731",
+            "B732",
+            "B733",
+            "B734",
+            "B735",
+            "B736",
             "B737",
             "B738",
             "B739",
             "B37M",
             "B38M",
             "B39M",
+            "B3XM",
+            "P8",
+            "E737",
             "B752",
             "B753",
             "C130",
+            "C30J",
         ] as Array<String>;
 
-    // Safety net for missing category - MTOW >300,000lbs tier (incl. military transports). Includes
-    // every typeCode TYPE_TO_ICON maps to the same shape as a code already listed here.
+    // Safety net for missing category - MTOW >300,000lbs tier (incl. military transports).
     const SUPER_HEAVY_TYPE_CODES =
         [
             "B762",
@@ -233,6 +239,12 @@ module AircraftClassifier {
             "A343",
             "A345",
             "A346",
+            "A306",
+            "A359",
+            "A35K",
+            "A3ST",
+            "A337",
+            "A400",
             "A388",
             "DC10",
             "MD11",
@@ -241,9 +253,11 @@ module AircraftClassifier {
             "C5M",
             "C17",
             "K35R",
+            "K35E",
+            "B701",
+            "B703",
         ] as Array<String>;
 
-    // ICAO type designator -> icon shape key, checked before category.
     const TYPE_TO_ICON as Dictionary<String, String> = {
         "SHIP" => "blimp",
         "BALL" => "balloon",
@@ -510,9 +524,7 @@ module AircraftClassifier {
         "Q25" => "uav",
         "HRON" => "uav",
         "A400" => "a400",
-        "V22F" => "v22_fast",
         "V22" => "v22_slow",
-        "B609F" => "v22_fast",
         "B609" => "v22_slow",
         "H64" => "apache",
         "H60" => "blackhawk",
@@ -626,7 +638,6 @@ module AircraftClassifier {
         "TWR" => "ground_tower",
     };
 
-    // Category -> icon shape key, fallback tier when typeCode misses TYPE_TO_ICON.
     const CATEGORY_TO_ICON as Dictionary<String, String> = {
         "A1" => "cessna",
         "A2" => "jet_swept",
@@ -657,8 +668,7 @@ module AircraftClassifier {
             ["AT7", "twin_large"],
         ] as Array<[String, String]>;
 
-    // Shapes with no meaningful "nose heading" to point: a free balloon has no directional control,
-    // and ground_tower is a fixed obstacle (C3-C5 - towers/masts) that never moves at all.
+    // No meaningful nose heading: a free balloon has no directional control and a tower (C3-C5) never moves.
     const NON_ROTATING_SHAPES = ["balloon", "ground_tower"] as Array<String>;
 
     function shapeRotates(shape as String) as Boolean {
@@ -699,8 +709,7 @@ module AircraftClassifier {
         return matchesType(ac.typeCode, LARGE_TYPE_CODES) ? "A3" : "A1";
     }
 
-    // typeCode exact match, then prefix supplement, then category, else "unknown".
-    function _shapeKeyForCategory(ac as Aircraft, cat as String) as String {
+    function shapeKeyForCategory(ac as Aircraft, cat as String) as String {
         var t = ac.typeCode;
         if (t != null) {
             var exact = TYPE_TO_ICON[t as String];
@@ -719,7 +728,7 @@ module AircraftClassifier {
     }
 
     // Rotorcraft (A7) has no size signal in the category, so that shape stays fixed.
-    function _sizeScaleForCategory(cat as String) as Float {
+    function sizeScaleForCategory(cat as String) as Float {
         if (cat.equals("A1")) {
             return 0.96;
         }
@@ -738,7 +747,7 @@ module AircraftClassifier {
         return 1.04;
     }
 
-    // Shared by RadarView._classify() - scale is the caller's baseScale * sizeScale already combined.
+    // scale is baseScale * sizeScale already combined.
     function iconHalfExtentForShape(shape as String, scale as Float) as Number {
         var diag = ICON_HALF_DIAGONAL[shape];
         return ((diag != null ? diag as Float : 30.0) * scale).toNumber();

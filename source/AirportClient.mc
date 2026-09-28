@@ -1,7 +1,7 @@
 import Toybox.Communications;
 import Toybox.Lang;
 
-// Fetched on demand for departure/arrival ICAO codes, never polled. No auth, stateless, no in-flight guard needed.
+// Fetched on demand for departure/arrival ICAO codes, never polled - no in-flight guard needed.
 class AirportClient {
     private const BASE_URL = "https://airport-data.com/api/ap_info.json";
 
@@ -9,7 +9,7 @@ class AirportClient {
 
     public function initialize() {}
 
-    // Callback travels via :context, not an instance field - stays stateless across concurrent fetches.
+    // Callback travels via :context, not an instance field, so concurrent fetches can't cross.
     public function fetchInfo(
         icao as String,
         callback as InfoCallback
@@ -66,12 +66,12 @@ class AirportClient {
 
     // Some entries phrase location as "<municipality>, near <city>" - the city after "near" is more recognizable.
     private function _cleanLocation(location as String) as String {
-        var idx = location.find("near ");
+        var idx = location.find(", near ");
         if (idx == null) {
             return location;
         }
         return (
-            location.substring((idx as Number) + 5, location.length()) as String
+            location.substring((idx as Number) + 7, location.length()) as String
         );
     }
 }

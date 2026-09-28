@@ -1,7 +1,7 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 
-// Shared by OpenSkyClient/MapClient - each loads a different named section of the same gitignored Credentials.json resource.
+// Each client loads its own named section of the one gitignored credentials.json resource.
 module CredentialsUtil {
     // Null if the resource, section, or any requested field is missing/wrong-typed.
     function loadStrings(

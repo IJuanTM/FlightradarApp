@@ -2,11 +2,8 @@ import Toybox.Graphics;
 import Toybox.Lang;
 import Toybox.Math;
 
-// Stateless drawing-geometry helpers shared between RadarView and AircraftDetailView.
 module DrawUtil {
-    // One same-colored run of text, with an optional code-drawn glyph (this app's fonts have no "°" glyph
-    // or warning triangle) inserted after `text` and before `suffix` - e.g. ["270", COLOR_HDG, :degree, ""]
-    // or ["1200 ", color, :warning, ""]. glyph is null for a plain run.
+    // [text, color, glyph, suffix] - glyph is a code-drawn :degree/:warning mark the fonts lack, or null.
     typedef ValueRun as [String, Number, Symbol?, String];
 
     // Right biased larger - digits carry more right-side bearing than letters carry left-side.
@@ -18,7 +15,6 @@ module DrawUtil {
 
     const WARNING_MARK_R = 4;
 
-    // Half-length of the chord of a circle of the given radius at a given perpendicular offset from center.
     function chordHalfExtent(radiusPx as Number, offsetPx as Number) as Number {
         return Math.sqrt(
             (radiusPx * radiusPx - offsetPx * offsetPx).toFloat()
@@ -35,7 +31,6 @@ module DrawUtil {
     const ALPHA_35 = 0x59;
     const ALPHA_50 = 0x80;
     const ALPHA_55 = 0x8c;
-    const ALPHA_75 = 0xc0;
     const ALPHA_95 = 0xf2;
 
     // Boundary ring color, shared so RadarView's compact ring and AircraftDetailView's full-screen ring match.
@@ -77,13 +72,14 @@ module DrawUtil {
         return beforeW + glyphW + afterW;
     }
 
+    // Returns the same width runWidth() would, from the measurements drawing already needed.
     function drawRun(
         dc as Dc,
         x as Number,
         y as Number,
         font,
         run as ValueRun
-    ) as Void {
+    ) as Number {
         var before = run[0] as String;
         var color = run[1] as Number;
         var glyph = run[2] as Symbol?;
@@ -91,11 +87,12 @@ module DrawUtil {
 
         dc.setColor(color, Graphics.COLOR_TRANSPARENT);
         dc.drawText(x, y, font, before, Graphics.TEXT_JUSTIFY_LEFT);
-        if (glyph == null) {
-            return;
-        }
         var beforeW = dc.getTextDimensions(before, font)[0];
+        if (glyph == null) {
+            return beforeW;
+        }
 
+        var afterX;
         if (glyph == :degree) {
             var circleCx = x + beforeW + DEGREE_MARK_GAP_LEFT + DEGREE_MARK_R;
             dc.drawCircle(
@@ -103,35 +100,26 @@ module DrawUtil {
                 y + DEGREE_MARK_R + DEGREE_MARK_Y_OFFSET,
                 DEGREE_MARK_R
             );
-            if (after.length() > 0) {
-                dc.drawText(
-                    circleCx + DEGREE_MARK_R + DEGREE_MARK_GAP_RIGHT,
-                    y,
-                    font,
-                    after,
-                    Graphics.TEXT_JUSTIFY_LEFT
-                );
+            if (after.length() == 0) {
+                return circleCx + DEGREE_MARK_R - x;
             }
-            return;
-        }
-
-        var iconCx = x + beforeW + WARNING_MARK_R;
-        drawWarningIcon(
-            dc,
-            iconCx,
-            y + dc.getTextDimensions("0", font)[1] / 2,
-            WARNING_MARK_R,
-            color
-        );
-        if (after.length() > 0) {
-            dc.drawText(
-                iconCx + WARNING_MARK_R,
-                y,
-                font,
-                after,
-                Graphics.TEXT_JUSTIFY_LEFT
+            afterX = circleCx + DEGREE_MARK_R + DEGREE_MARK_GAP_RIGHT;
+        } else {
+            var iconCx = x + beforeW + WARNING_MARK_R;
+            drawWarningIcon(
+                dc,
+                iconCx,
+                y + dc.getTextDimensions("0", font)[1] / 2,
+                WARNING_MARK_R,
+                color
             );
+            afterX = iconCx + WARNING_MARK_R;
+            if (after.length() == 0) {
+                return afterX - x;
+            }
         }
+        dc.drawText(afterX, y, font, after, Graphics.TEXT_JUSTIFY_LEFT);
+        return afterX - x + dc.getTextDimensions(after, font)[0];
     }
 
     // Runs drawn contiguously - a dim-split value like "KJFK" + dim " (no info)" is just two runs.
@@ -151,8 +139,7 @@ module DrawUtil {
         runs as Array<ValueRun>
     ) as Void {
         for (var i = 0; i < runs.size(); i++) {
-            drawRun(dc, x, y, font, runs[i]);
-            x += runWidth(dc, font, runs[i]);
+            x += drawRun(dc, x, y, font, runs[i]);
         }
     }
 
@@ -225,8 +212,7 @@ module DrawUtil {
         return lines;
     }
 
-    // Filled triangle with a black cutout exclamation mark - canvas is always black, so no color sampling needed.
-    // Leaves dc's color set to `color` on return, not black, so callers don't need their own reset.
+    // The cutout is plain black (the canvas always is); dc is left set to `color` so callers needn't reset it.
     function drawWarningIcon(
         dc as Dc,
         cx as Number,

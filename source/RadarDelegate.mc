@@ -24,7 +24,7 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
         } else if (key == WatchUi.KEY_ENTER or key == WatchUi.KEY_MENU) {
             WatchUi.pushView(
                 MenuBuilder.buildMainMenu(),
-                new MainMenuDelegate(),
+                new SettingsMenuDelegate(),
                 WatchUi.SLIDE_UP
             );
             return true;
@@ -33,8 +33,7 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
         return false;
     }
 
-    // Suppressed right after a committed drag and while one is active - a real gesture can leave a stray tap.
-    // Also suppressed briefly after the full-detail view closes - see RadarView.suppressInputBriefly.
+    // Suppressed during and right after a committed drag - a real gesture can leave a stray tap.
     public function onTap(clickEvent as WatchUi.ClickEvent) as Boolean {
         var coords = clickEvent.getCoordinates();
 

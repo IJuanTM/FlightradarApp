@@ -11,10 +11,8 @@ class MapClient {
     public const TILE_SIZE_STD as Number = 256;
     // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
-    // Generous margin above the slowest cold fetch actually measured (~1s) - a hung tile would otherwise permanently block every other tile and the aircraft poll behind it.
+    // Well above the slowest measured cold fetch (~1s) - a hung tile otherwise blocks every later tile and the aircraft poll.
     private const TILE_TIMEOUT_MS = 3000;
-    // SDK docs: Timer's minimum interval defaults to 50ms - same floor AdsbFiClient's own throttle uses.
-    private const MIN_WAKE_DELAY_MS = 50;
 
     private var _apiKey as String?;
     private var _currentStartMs as Number?;
@@ -62,7 +60,7 @@ class MapClient {
             _wakeTimer = new Timer.Timer();
             (_wakeTimer as Timer.Timer).start(
                 method(:_onWake),
-                MIN_WAKE_DELAY_MS,
+                $.MIN_TIMER_INTERVAL_MS,
                 false
             );
         }
@@ -73,7 +71,7 @@ class MapClient {
         _dispatchNextIfIdle();
     }
 
-    // Call once per timer tick: reports a hung tile as failed (not cancelled - cancelAllRequests() crashed on-device) and dispatches the next queued tile if idle.
+    // Timer ticks only - a hung tile is reported failed rather than cancelled, since cancelAllRequests() crashed on-device.
     public function tick() as Void {
         var startedAt = _currentStartMs;
         if (
@@ -201,6 +199,9 @@ class MapClient {
         _awaitingReceive = true;
         var opt = Settings.mapStyleOption(Settings.mapStyle);
         var suffix = opt != null ? opt.urlSuffix : "-v4";
+        // x stays unwrapped for drawing past the antimeridian - only the served tile index wraps.
+        var tilesPerRow = 1 << z;
+        var wrappedX = ((x % tilesPerRow) + tilesPerRow) % tilesPerRow;
         var url =
             URL_PREFIX +
             Settings.mapStyle +
@@ -211,7 +212,7 @@ class MapClient {
             "/" +
             z.toString() +
             "/" +
-            x.toString() +
+            wrappedX.toString() +
             "/" +
             y.toString() +
             (tileSize == TILE_SIZE_HI ? "@2x" : "") +
@@ -252,8 +253,7 @@ class MapClient {
         ) {
             return;
         }
-        // A tile can land in the queue via requestTile's enqueue-while-busy branch before the key
-        // was ever loaded (e.g. paused at startup, before any dispatch has run) - check here too.
+        // A tile queued while paused can reach here before any dispatch has loaded the key.
         if (!_ensureApiKeyLoaded()) {
             return;
         }

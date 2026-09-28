@@ -1,16 +1,14 @@
 import Toybox.Communications;
 import Toybox.Lang;
 
-// Airports within a radius (OpenAIP Core API, key required) - unlike RouteClient/AirportClient, not
-// keyed by a known code.
+// OpenAIP Core API - requires an API key.
 class NearbyAirportsClient {
     private const BASE_URL = "https://api.core.openaip.net/api/airports";
     // Trims the response - full airport objects include runways/frequencies/etc, unused here.
     private const FIELDS = "name,icaoCode,iataCode,geometry";
     private const RESULT_LIMIT = 30;
 
-    // [icao, label, isSmall, lat, lon] - icao is the stable identity/dictionary key, label is what's
-    // actually drawn (IATA when present), isSmall marks airports without an IATA code (see _parseItem).
+    // [icao, label, isSmall, lat, lon] - icao is the identity key, label is drawn (IATA when present), isSmall = no IATA code.
     typedef NearbyAirport as [String, String, Boolean, Float, Float];
 
     typedef NearbyAirportsCallback as
@@ -42,7 +40,6 @@ class NearbyAirportsClient {
 
         var payload = _slot.activePayload() as Array;
 
-        // No :responseType - trusts the platform to auto-detect from the response's Content-Type.
         var options = {
             :method => Communications.HTTP_REQUEST_METHOD_GET,
             :headers => { "x-openaip-api-key" => _apiKey },
@@ -122,14 +119,14 @@ class NearbyAirportsClient {
         if (!(coords instanceof Lang.Array) or (coords as Array).size() < 2) {
             return null;
         }
-        var lon = (coords as Array)[0];
-        var lat = (coords as Array)[1];
-        if (!JsonUtil.isNumeric(lat) or !JsonUtil.isNumeric(lon)) {
+        var lon = JsonUtil.toFloatOrNull((coords as Array)[0]);
+        var lat = JsonUtil.toFloatOrNull((coords as Array)[1]);
+        if (lat == null or lon == null) {
             return null;
         }
 
         return (
-            [icao as String, label, !hasIata, lat.toFloat(), lon.toFloat()] as
+            [icao as String, label, !hasIata, lat as Float, lon as Float] as
             NearbyAirport
         );
     }

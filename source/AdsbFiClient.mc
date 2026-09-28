@@ -21,9 +21,6 @@ class AdsbFiClient {
     // adsb.fi documents a 1 req/sec limit - a bit of margin above that.
     private const MIN_REQUEST_INTERVAL_MS = 1050;
 
-    // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
-    private const MIN_TIMER_INTERVAL_MS = 50;
-
     // Payload shape is [lat, lon, radiusKm] - see PendingRequestSlot for the active/queued contract.
     private var _slot as PendingRequestSlot = new PendingRequestSlot();
     private var _lastRequestStartMs as Number?;
@@ -59,7 +56,7 @@ class AdsbFiClient {
         _throttleTimer = new Timer.Timer();
         (_throttleTimer as Timer.Timer).start(
             method(:_onThrottleElapsed),
-            delay < MIN_TIMER_INTERVAL_MS ? MIN_TIMER_INTERVAL_MS : delay,
+            delay < $.MIN_TIMER_INTERVAL_MS ? $.MIN_TIMER_INTERVAL_MS : delay,
             false
         );
     }
@@ -77,8 +74,7 @@ class AdsbFiClient {
             radiusNm = 1.0;
         }
 
-        // No :responseType - trusts the platform to auto-detect from the response's Content-Type,
-        // same defensive default every other web request in this app uses.
+        // No :responseType - a forced type turns a text/plain 429 into an opaque -400 instead of its real code.
         Communications.makeWebRequest(
             BASE_URL +
                 "/" +
@@ -116,7 +112,10 @@ class AdsbFiClient {
         var arr = acRaw as Array;
         var result = [] as Array<Aircraft>;
         for (var i = 0; i < arr.size(); i++) {
-            result.add(new Aircraft(arr[i] as Dictionary));
+            var entry = arr[i];
+            if (entry instanceof Lang.Dictionary) {
+                result.add(new Aircraft(entry));
+            }
         }
         _resolveFetch(result, true, false, responseCode);
     }

@@ -16,13 +16,15 @@ project. If you need a non-GPL alternative, see "Other sources" below.
 
 ## What's in this package
 
-- `icons_svg/` — 92 standalone SVG files, one per unique aircraft silhouette (top-down view).
-- `icao_type_designator_to_icon.csv` — 381 rows, ICAO type designator (e.g. `A320`, `B738`,
-  `H60`, `C130`) → icon file + a size-scaling factor.
-- `icao_type_description_to_icon.csv` — 24-row fallback table keyed by the ICAO type
+- `../svg/` - the 83 SVG silhouettes this app ships (top-down view), a subset of tar1090's 92.
+  The CSVs below are the full upstream tables, so they also reference icons not shipped here
+  (e.g. `single_turbo`, `twin_small`, `v22_fast`).
+- `icao_type_designator_to_icon.csv` - 380 rows (plus header), ICAO type designator (e.g. `A320`,
+  `B738`, `H60`, `C130`) -> icon file + a size-scaling factor.
+- `icao_type_description_to_icon.csv` - 23-row fallback table keyed by the ICAO type
   *description* code (wing/engine-count/engine-type, e.g. `L2J` = landplane, 2 engines, jet).
   Used when the specific type designator isn't in the first table.
-- `adsb_category_to_icon.csv` — 15-row fallback table keyed by the ADS-B broadcast emitter
+- `adsb_category_to_icon.csv` - 14-row fallback table keyed by the ADS-B broadcast emitter
   category (e.g. `A5` = heavy, `A7` = rotorcraft, `B2` = balloon). Used as the last resort
   when neither of the above matches.
 - `icon_manifest.json` — dimensions per icon, for programmatic use.
