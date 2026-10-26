@@ -144,21 +144,12 @@ module DrawUtil {
     }
 
     function _wordsInRun(s as String) as Array<String> {
-        var chars = s.toCharArray();
+        var parts = s.split(" ", null);
         var words = [] as Array<String>;
-        var start = -1;
-        for (var i = 0; i < chars.size(); i++) {
-            if (chars[i] == ' ') {
-                if (start >= 0) {
-                    words.add(s.substring(start, i) as String);
-                    start = -1;
-                }
-            } else if (start < 0) {
-                start = i;
+        for (var i = 0; i < parts.size(); i++) {
+            if (parts[i].length() > 0) {
+                words.add(parts[i]);
             }
-        }
-        if (start >= 0) {
-            words.add(s.substring(start, chars.size()) as String);
         }
         return words;
     }

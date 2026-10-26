@@ -245,9 +245,7 @@ class AircraftDetailView extends WatchUi.View {
 
     // The chord narrows monotonically away from the ring's center, so the narrowest over [y0, y1] is at an end.
     private function _minChordWidth(y0 as Number, y1 as Number) as Number {
-        var a = _chordMaxWidth(y0);
-        var b = _chordMaxWidth(y1);
-        return a < b ? a : b;
+        return Math.min(_chordMaxWidth(y0), _chordMaxWidth(y1)) as Number;
     }
 
     // Outside the ring's vertical span there's nothing to clamp against, so width is unconstrained.

@@ -9,7 +9,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const APP_VERSION = "0.17.2";
+const APP_VERSION = "0.17.3";
 // Movement below this is tap jitter, not a drag - shared by the radar pan and the detail-view scroll.
 const DRAG_THRESHOLD_PX = 32;
 // SDK docs: Timer's minimum interval defaults to 50ms and depends on the host system.
@@ -55,7 +55,7 @@ class TileVisibilityComparator {
         _screenH = screenH;
     }
 
-    public function compare(a as Object, b as Object) as Number {
+    public function compare(a as Object?, b as Object?) as Number {
         var ta = a as [Number, Number, Number, Number];
         var tb = b as [Number, Number, Number, Number];
         var aIsCenter = ta[1] == _centerTx and ta[2] == _centerTy;
@@ -94,25 +94,19 @@ class TileVisibilityComparator {
             _radiusKm
         );
         return (
-            _clampPositive(
-                _min(bottomRight[0], _screenW.toFloat()) - _max(topLeft[0], 0.0)
-            ) *
-            _clampPositive(
-                _min(bottomRight[1], _screenH.toFloat()) - _max(topLeft[1], 0.0)
-            )
+            (
+                Math.max(
+                    Math.min(bottomRight[0], _screenW.toFloat()) -
+                        Math.max(topLeft[0], 0.0),
+                    0.0
+                ) *
+                    Math.max(
+                        Math.min(bottomRight[1], _screenH.toFloat()) -
+                            Math.max(topLeft[1], 0.0),
+                        0.0
+                    )
+            ) as Float
         );
-    }
-
-    private function _min(a as Float, b as Float) as Float {
-        return a < b ? a : b;
-    }
-
-    private function _max(a as Float, b as Float) as Float {
-        return a > b ? a : b;
-    }
-
-    private function _clampPositive(v as Float) as Float {
-        return v > 0.0 ? v : 0.0;
     }
 }
 
@@ -3861,7 +3855,7 @@ class RadarView extends WatchUi.View {
         if (badgeParts.size() > 0) {
             idSegs.add(
                 DrawUtil.plainRun(
-                    _join(badgeParts, " "),
+                    " ".join(badgeParts),
                     ac.isEmergency() ? COLOR_EMERGENCY : COLOR_WARN
                 )
             );
@@ -4120,7 +4114,7 @@ class RadarView extends WatchUi.View {
             rows.add([
                 _cell(
                     "Status",
-                    _join(statusParts, " "),
+                    " ".join(statusParts),
                     emergency ? COLOR_EMERGENCY : COLOR_WARN
                 ),
             ]);
@@ -4208,14 +4202,6 @@ class RadarView extends WatchUi.View {
                 Array<Boolean>,
             ]
         );
-    }
-
-    private function _join(parts as Array<String>, sep as String) as String {
-        var out = "";
-        for (var i = 0; i < parts.size(); i++) {
-            out += i == 0 ? parts[i] : sep + parts[i];
-        }
-        return out;
     }
 
     private function _formatKm(km as Float) as String {
