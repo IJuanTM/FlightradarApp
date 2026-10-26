@@ -9,16 +9,18 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 ## Features
 
 - Live ADS-B aircraft positions plotted in real time on a radar-style circular display, centered on your GPS position
+- Smooth motion between polls: each aircraft is dead-reckoned from its last reported speed and track
 - **4 zoom levels** (5 / 10 / 25 / 50 km) with an adaptive poll interval, closer zoom polls faster, wider zoom polls slower
 - **83 aircraft silhouette icons** (from the tar1090 icon set), matched by exact aircraft type where possible and rotated to true heading
 - Color-coded by category at a glance: light aircraft, heavy jets, high-speed/military types, and helicopters each get their own color
 - **Tap to select** any aircraft for a live historical flight track, a compact detail panel, and climb/descend chevrons
-- **Swipe up** on a selected aircraft for a full-screen detail view: registration, type, category, altitude, vertical rate, ground/indicated/true airspeed, Mach, heading, squawk, autopilot-selected altitude/heading, wind, outside/total air temperature, and departure/arrival airports
-- Emergency squawk (7500 / 7600 / 7700) warning badge, drawn ahead of everything else
+- **Swipe up** on a selected aircraft for a full-screen detail view: registration, type, category, operator, altitude, vertical rate, ground/indicated/true airspeed, Mach, heading, squawk, IDENT/ALERT status, autopilot-selected altitude/heading, wind, outside/total air temperature, and departure/arrival airports
+- Emergency warning badge (7500 / 7600 / 7700 squawk or the feed's own emergency flag), drawn ahead of everything else
+- Nearby airport markers labeled with their IATA code (ICAO for small airfields)
 - Optional OSM background map (MapTiler raster tiles, selectable style, dark variant by default), fetched incrementally per-tile and cached _(off by default, the biggest network/battery cost in the app)_
 - Range rings, compass ticks, and a lat/lon grid overlay, all independently toggleable
 - Ground-vehicle and fixed-obstacle (towers, masts, tethered balloons) filtering, grounded/stale-position dimming, military filtering
-- Battery Saver mode (widens the poll interval) and Single Color Mode (uniform aircraft color, no category coding)
+- Battery Saver mode (triples the poll interval, halves the redraw rate, turns off smooth motion) and Single Color Mode (uniform aircraft color, no category coding)
 - Metric/imperial unit toggle throughout
 - Pan by dragging, recenter/deselect/exit via a single button
 
@@ -30,10 +32,11 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 
 ![Radar view](image_1.png)
 
-- **Top**: fetch status (`Live` / `Fetching...` / `No Signal` / `Too Busy`) and your current coordinates
-- Optional OSM background map behind everything, tiles load in as you pan/zoom with a "Loading..." placeholder for tiles not yet cached
+- **Top**: fetch status (`Waiting for GPS...` / `Live` / `Fetching...` / `No Signal <code>` / `Too Busy`) and your current coordinates
+- Optional OSM background map behind everything, tiles load in as you pan/zoom with a "Loading..." placeholder for tiles not yet cached; on a zoom change the previous tiles stay visible, scaled, until the new ones arrive
+- Nearby airports are azure dots with their IATA code; small airfields without one are smaller, dimmer and labeled by ICAO code
 - Range rings sit at round-number distances; the outer boundary ring is labeled with the current zoom radius
-- Your position is a green triangle; an edge arrow points toward it instead if you've panned it out of view
+- Your position is a cyan ring; an edge arrow points toward it instead if you've panned it out of view
 - Aircraft are drawn as rotated silhouette icons tinted by category, with an optional callsign/speed/altitude label
 - A selected aircraft gets a green reticle above it, its historical track drawn behind it, and a compact detail panel along the bottom
 - Corner glyphs hint what Up / Down / Menu / Esc do at a glance (toggleable)
@@ -42,7 +45,7 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 
 ![Full detail view](image_2.png)
 
-Swipe up on the compact panel (or tap it) for everything the compact panel leaves out: registration, hex code, type, category, altitude, vertical rate, ground/indicated/true airspeed, Mach, heading, squawk, autopilot-selected altitude/heading, wind, outside/total air temperature, and departure/arrival airports resolved from the flight's callsign.
+Swipe up on the compact panel (or tap it) for everything the compact panel leaves out: registration, hex code, type, category, operator, altitude, vertical rate, ground/indicated/true airspeed, Mach, heading, squawk, IDENT/ALERT status, autopilot-selected altitude/heading, wind, outside/total air temperature, and departure/arrival airports resolved from the flight's callsign.
 
 ---
 
@@ -60,6 +63,7 @@ Swipe up on the compact panel (or tap it) for everything the compact panel leave
 | Drag                                  | Pan the map                                                         |
 | Swipe up _(aircraft selected)_        | Open full detail                                                    |
 | Swipe down / Esc _(full detail open)_ | Close                                                               |
+| Tap the bottom band _(full detail open)_ | Close                                                             |
 | Drag / Up / Down _(full detail open)_ | Scroll                                                              |
 
 ---
@@ -107,11 +111,11 @@ Reached via the on-device menu (Enter/Menu button).
 | Setting       | Description                                   |
 | ------------- | --------------------------------------------- |
 | Metric Units  | km/h, meters, m/min instead of kt/ft/fpm      |
-| Battery Saver | Triples the poll interval at every zoom level |
+| Battery Saver | Triples the poll interval at every zoom level, halves the redraw rate and turns off smooth motion |
 
 ### API Status
 
-Read-only: the last known ok/failed state of each network source.
+Read-only: the last known ok/failed state of each network source (aircraft feed, background map, nearby airports, route lookup, airport info, track history). A failed aircraft feed also shows its error code.
 
 ---
 
@@ -127,8 +131,9 @@ Read-only: the last known ok/failed state of each network source.
 | Purple  | High-speed aircraft                     |
 | Orange  | Helicopter                              |
 | Magenta | Military _(any type)_                   |
+| Rose    | Ground vehicles and fixed obstacles     |
 | Green   | Currently selected                      |
-| Red     | Emergency squawk _(7500 / 7600 / 7700)_ |
+| Red     | Emergency _(7500 / 7600 / 7700 or flagged by the feed)_ |
 
 ---
 
