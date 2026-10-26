@@ -1,7 +1,7 @@
 import Toybox.Lang;
 
 // The fonts are ASCII-only - accented Latin folds to its base letter, since a close letter reads better than a dropped one.
-module TextUtil {
+module TextUtils {
     function foldDiacritics(s as String) as String {
         var chars = s.toCharArray();
         var out = "";

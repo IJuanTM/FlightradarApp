@@ -51,9 +51,9 @@ class AirportClient {
 
         cb.invoke(
             icao,
-            TextUtil.foldDiacritics(_cleanLocation(location as String)) +
+            TextUtils.foldDiacritics(_cleanLocation(location as String)) +
                 ", " +
-                TextUtil.foldDiacritics(country as String) +
+                TextUtils.foldDiacritics(country as String) +
                 " (" +
                 (iata instanceof Lang.String && (iata as String).length() > 0
                     ? icao + "/" + (iata as String)

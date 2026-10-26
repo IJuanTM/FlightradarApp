@@ -5,7 +5,7 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-class MapClient {
+class MapTileClient {
     private const URL_PREFIX = "https://api.maptiler.com/maps/";
     // Must equal the real fetched bitmap size - draw-scale math divides by it.
     public const TILE_SIZE_STD as Number = 256;
@@ -87,6 +87,12 @@ class MapClient {
     // True while a tile is in flight or its abandoned response could still land - other callers on the shared channel must wait rather than start a competing real request.
     public function isBusy() as Boolean {
         return _current != null or _awaitingReceive;
+    }
+
+    // Paused before the busy check - otherwise the queue can advance to a fresh tile in the gap and starve the caller.
+    public function pauseAndCheckBusy(owner as Symbol) as Boolean {
+        pauseFor(owner);
+        return isBusy();
     }
 
     public function requestTile(
@@ -269,7 +275,7 @@ class MapClient {
         if (_apiKey != null) {
             return true;
         }
-        var values = CredentialsUtil.loadStrings("MapTiler", ["apiKey"]);
+        var values = Credentials.loadStrings("MapTiler", ["apiKey"]);
         if (values == null) {
             return false;
         }

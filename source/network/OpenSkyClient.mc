@@ -86,7 +86,7 @@ class OpenSkyClient {
             return true;
         }
 
-        var values = CredentialsUtil.loadStrings("OpenSky", [
+        var values = Credentials.loadStrings("OpenSky", [
             "clientId",
             "clientSecret",
         ]);
@@ -110,7 +110,7 @@ class OpenSkyClient {
 
         var dict = data as Dictionary;
         var token = dict["access_token"];
-        var expiresIn = JsonUtil.toNumberOrNull(dict["expires_in"]);
+        var expiresIn = JsonUtils.toNumberOrNull(dict["expires_in"]);
         if (!(token instanceof Lang.String) or expiresIn == null) {
             _failPendingTrack();
             return;
@@ -169,9 +169,9 @@ class OpenSkyClient {
         for (var i = 0; i < pathRaw.size(); i++) {
             var wp = pathRaw[i];
             if (wp instanceof Lang.Array && wp.size() >= 6) {
-                var lat = JsonUtil.toFloatOrNull(wp[1]);
-                var lon = JsonUtil.toFloatOrNull(wp[2]);
-                var alt = JsonUtil.toFloatOrNull(wp[3]);
+                var lat = JsonUtils.toFloatOrNull(wp[1]);
+                var lon = JsonUtils.toFloatOrNull(wp[2]);
+                var alt = JsonUtils.toFloatOrNull(wp[3]);
                 var onGround = wp[5];
                 if (lat != null && lon != null) {
                     points.add([

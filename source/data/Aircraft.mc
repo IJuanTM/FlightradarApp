@@ -50,17 +50,17 @@ class Aircraft {
         if (ab instanceof Lang.String) {
             onGround = true;
             altBaro = 0;
-        } else if (JsonUtil.isNumeric(ab)) {
+        } else if (JsonUtils.isNumeric(ab)) {
             onGround = false;
             altBaro = ab.toNumber();
         } else {
             onGround = false;
             // No barometric reading at all - fall back to GPS/geometric altitude rather than showing nothing.
-            altBaro = JsonUtil.toNumberOrNull(dict["alt_geom"]);
+            altBaro = JsonUtils.toNumberOrNull(dict["alt_geom"]);
         }
 
-        gs = JsonUtil.toFloatOrNull(dict["gs"]);
-        track = JsonUtil.toFloatOrNull(dict["track"]);
+        gs = JsonUtils.toFloatOrNull(dict["gs"]);
+        track = JsonUtils.toFloatOrNull(dict["track"]);
         var hdgVal = _floatOr(dict["true_heading"], dict["mag_heading"]);
         heading = hdgVal != null ? hdgVal : track;
 
@@ -71,36 +71,36 @@ class Aircraft {
         typeCode = _toTrimmedStringOrNull(dict["t"]);
         typeDesc = _toTrimmedStringOrNull(dict["desc"]);
 
-        var flagsNum = JsonUtil.toNumberOrNull(dict["dbFlags"]);
+        var flagsNum = JsonUtils.toNumberOrNull(dict["dbFlags"]);
         military = flagsNum != null && (flagsNum & 1) != 0;
 
         vertRate = _floatOr(dict["baro_rate"], dict["geom_rate"]);
 
         squawk = _toTrimmedStringOrNull(dict["squawk"]);
 
-        tas = JsonUtil.toFloatOrNull(dict["tas"]);
+        tas = JsonUtils.toFloatOrNull(dict["tas"]);
 
         emergency = _toTrimmedStringOrNull(dict["emergency"]);
 
-        navAltitude = JsonUtil.toNumberOrNull(dict["nav_altitude_mcp"]);
+        navAltitude = JsonUtils.toNumberOrNull(dict["nav_altitude_mcp"]);
         if (navAltitude == null) {
-            navAltitude = JsonUtil.toNumberOrNull(dict["nav_altitude_fms"]);
+            navAltitude = JsonUtils.toNumberOrNull(dict["nav_altitude_fms"]);
         }
-        navHeading = JsonUtil.toFloatOrNull(dict["nav_heading"]);
+        navHeading = JsonUtils.toFloatOrNull(dict["nav_heading"]);
 
         positionAgeSec = _floatOr(dict["seen_pos"], dict["seen"]);
 
         var ownOp = _toTrimmedStringOrNull(dict["ownOp"]);
         operatorName =
-            ownOp != null ? TextUtil.foldDiacritics(ownOp as String) : null;
-        ias = JsonUtil.toNumberOrNull(dict["ias"]);
-        mach = JsonUtil.toFloatOrNull(dict["mach"]);
+            ownOp != null ? TextUtils.foldDiacritics(ownOp as String) : null;
+        ias = JsonUtils.toNumberOrNull(dict["ias"]);
+        mach = JsonUtils.toFloatOrNull(dict["mach"]);
         spi = _toBoolFlag(dict["spi"]);
         alertFlag = _toBoolFlag(dict["alert"]);
-        windDir = JsonUtil.toNumberOrNull(dict["wd"]);
-        windSpeed = JsonUtil.toNumberOrNull(dict["ws"]);
-        outsideAirTemp = JsonUtil.toNumberOrNull(dict["oat"]);
-        totalAirTemp = JsonUtil.toNumberOrNull(dict["tat"]);
+        windDir = JsonUtils.toNumberOrNull(dict["wd"]);
+        windSpeed = JsonUtils.toNumberOrNull(dict["ws"]);
+        outsideAirTemp = JsonUtils.toNumberOrNull(dict["oat"]);
+        totalAirTemp = JsonUtils.toNumberOrNull(dict["tat"]);
     }
 
     // DO-260B set C (C0-C2) is surface emitters, never an airborne class - distinct from a plane that's merely onGround.
@@ -137,7 +137,7 @@ class Aircraft {
     }
 
     private function _toFloat(v, def as Float) as Float {
-        var f = JsonUtil.toFloatOrNull(v);
+        var f = JsonUtils.toFloatOrNull(v);
         return f != null ? f : def;
     }
 
@@ -145,13 +145,13 @@ class Aircraft {
         if (v instanceof Lang.Boolean) {
             return v as Boolean;
         }
-        var n = JsonUtil.toNumberOrNull(v);
+        var n = JsonUtils.toNumberOrNull(v);
         return n != null && n != 0;
     }
 
     private function _floatOr(primary, fallback) as Float? {
-        var f = JsonUtil.toFloatOrNull(primary);
-        return f != null ? f : JsonUtil.toFloatOrNull(fallback);
+        var f = JsonUtils.toFloatOrNull(primary);
+        return f != null ? f : JsonUtils.toFloatOrNull(fallback);
     }
 
     private function _toTrimmedStringOrNull(v) as String? {

@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-module JsonUtil {
+module JsonUtils {
     // String passes - it has toNumber()/toFloat() too, so callers must still handle a null conversion.
     function isNumeric(v) as Boolean {
         return (

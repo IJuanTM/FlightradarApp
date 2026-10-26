@@ -61,7 +61,7 @@ class NearbyAirportsClient {
         if (_apiKey != null) {
             return true;
         }
-        var values = CredentialsUtil.loadStrings("OpenAIP", ["apiKey"]);
+        var values = Credentials.loadStrings("OpenAIP", ["apiKey"]);
         if (values == null) {
             return false;
         }
@@ -117,8 +117,8 @@ class NearbyAirportsClient {
         if (!(coords instanceof Lang.Array) or (coords as Array).size() < 2) {
             return null;
         }
-        var lon = JsonUtil.toFloatOrNull((coords as Array)[0]);
-        var lat = JsonUtil.toFloatOrNull((coords as Array)[1]);
+        var lon = JsonUtils.toFloatOrNull((coords as Array)[0]);
+        var lat = JsonUtils.toFloatOrNull((coords as Array)[1]);
         if (lat == null or lon == null) {
             return null;
         }

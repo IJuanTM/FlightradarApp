@@ -7,7 +7,7 @@ import Toybox.WatchUi;
 class AircraftDetailView extends WatchUi.View {
     private var _headerText as String;
     private var _headerColor as Number;
-    private var _rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >;
+    private var _rows as Array<Array<[String, Array<DrawUtils.ValueRun>]> >;
     private var _depRowIndex as Number;
     private var _arrRowIndex as Number;
     // True at row i if row i starts a new visual group - those get a bigger gap than rows within the same group.
@@ -37,12 +37,6 @@ class AircraftDetailView extends WatchUi.View {
     private var _contentPadding as Number = 6;
     // Gap between rows in the same group - text height plus a small pad, always tighter than _rowHeight.
     private var _intraGroupGapPaddingPx as Number = 2;
-    private const COLOR_ROW_LABEL = 0x999999;
-
-    private const COLOR_RING = DrawUtil.COLOR_RING;
-    private const COLOR_BOUNDARY_ALPHA = DrawUtil.COLOR_BOUNDARY_ALPHA;
-    private const COLOR_WHITE = 0xffffff;
-
     private var _labelValueGapPx as Number = 4;
     private var _fieldGapPx as Number = 16;
 
@@ -61,8 +55,8 @@ class AircraftDetailView extends WatchUi.View {
     // One _measureRow result per drawn line of a grid row (two for a split row), empty for the wrapped route rows.
     private var _rowMeasures as
         Array<Array<[Number, Array<Number>, Array<Number>]> > = [];
-    private var _depWrapLines as Array<Array<DrawUtil.ValueRun> > = [];
-    private var _arrWrapLines as Array<Array<DrawUtil.ValueRun> > = [];
+    private var _depWrapLines as Array<Array<DrawUtils.ValueRun> > = [];
+    private var _arrWrapLines as Array<Array<DrawUtils.ValueRun> > = [];
     // Deferred to onUpdate since wrapping needs a Dc for text measurement, which setDepartureText/setArrivalText don't have.
     private var _depWrapDirty as Boolean = true;
     private var _arrWrapDirty as Boolean = true;
@@ -72,7 +66,7 @@ class AircraftDetailView extends WatchUi.View {
     public function initialize(
         headerText as String,
         headerColor as Number,
-        rows as Array<Array<[String, Array<DrawUtil.ValueRun>]> >,
+        rows as Array<Array<[String, Array<DrawUtils.ValueRun>]> >,
         depRowIndex as Number,
         arrRowIndex as Number,
         groupStarts as Array<Boolean>,
@@ -108,7 +102,7 @@ class AircraftDetailView extends WatchUi.View {
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
 
-        var charSize = DrawUtil.measureChar(dc, _fontTiny);
+        var charSize = DrawUtils.measureChar(dc, _fontTiny);
         var charW = charSize[0];
         var charH = charSize[1];
         _minRowHeight = charH + 6;
@@ -255,7 +249,7 @@ class AircraftDetailView extends WatchUi.View {
             return _screenWidthPx;
         }
         return (
-            DrawUtil.chordHalfExtent(_ringRadiusPx, dy) * 2 - _ringMarginPx * 2
+            DrawUtils.chordHalfExtent(_ringRadiusPx, dy) * 2 - _ringMarginPx * 2
         );
     }
 
@@ -274,14 +268,14 @@ class AircraftDetailView extends WatchUi.View {
 
     // Departure/arrival update independently - each is its own async lookup, resolving at different times.
     public function setDepartureText(
-        segments as Array<DrawUtil.ValueRun>
+        segments as Array<DrawUtils.ValueRun>
     ) as Void {
         _setRowSegments(_depRowIndex, segments);
         WatchUi.requestUpdate();
     }
 
     public function setArrivalText(
-        segments as Array<DrawUtil.ValueRun>
+        segments as Array<DrawUtils.ValueRun>
     ) as Void {
         _setRowSegments(_arrRowIndex, segments);
         WatchUi.requestUpdate();
@@ -289,7 +283,7 @@ class AircraftDetailView extends WatchUi.View {
 
     private function _setRowSegments(
         rowIndex as Number,
-        segments as Array<DrawUtil.ValueRun>
+        segments as Array<DrawUtils.ValueRun>
     ) as Void {
         if (rowIndex < 0 || rowIndex >= _rows.size()) {
             return;
@@ -336,7 +330,7 @@ class AircraftDetailView extends WatchUi.View {
         var cx = w / 2;
 
         // Same boundary ring the radar draws - covered by the black bands below, visible only in the content band.
-        dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
+        dc.setStroke(DrawUtils.withAlpha(Palette.RING, Palette.BOUNDARY_ALPHA));
         dc.drawCircle(_ringCx, _ringCy, _ringRadiusPx);
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
@@ -404,22 +398,22 @@ class AircraftDetailView extends WatchUi.View {
         dc as Dc,
         rowIndex as Number,
         maxWidthPx as Number
-    ) as Array<Array<DrawUtil.ValueRun> > {
+    ) as Array<Array<DrawUtils.ValueRun> > {
         var cell = _rows[rowIndex][0];
         var runs =
-            [DrawUtil.plainRun(cell[0] as String, COLOR_ROW_LABEL)] as
-            Array<DrawUtil.ValueRun>;
-        var valueRuns = cell[1] as Array<DrawUtil.ValueRun>;
+            [DrawUtils.plainRun(cell[0] as String, Palette.ROW_LABEL)] as
+            Array<DrawUtils.ValueRun>;
+        var valueRuns = cell[1] as Array<DrawUtils.ValueRun>;
         for (var i = 0; i < valueRuns.size(); i++) {
             runs.add(valueRuns[i]);
         }
-        return DrawUtil.wrapSegments(dc, _fontTiny, runs, maxWidthPx);
+        return DrawUtils.wrapSegments(dc, _fontTiny, runs, maxWidthPx);
     }
 
     // [totalWidth, labelWidths, valueWidths]
     private function _measureRow(
         dc as Dc,
-        row as Array<[String, Array<DrawUtil.ValueRun>]>
+        row as Array<[String, Array<DrawUtils.ValueRun>]>
     ) as [Number, Array<Number>, Array<Number>] {
         var labelWidths = [] as Array<Number>;
         var valueWidths = [] as Array<Number>;
@@ -427,10 +421,10 @@ class AircraftDetailView extends WatchUi.View {
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
             var labelW = dc.getTextDimensions(cell[0] as String, _fontTiny)[0];
-            var valueW = DrawUtil.segmentsWidth(
+            var valueW = DrawUtils.segmentsWidth(
                 dc,
                 _fontTiny,
-                cell[1] as Array<DrawUtil.ValueRun>
+                cell[1] as Array<DrawUtils.ValueRun>
             );
             labelWidths.add(labelW);
             valueWidths.add(valueW);
@@ -446,16 +440,16 @@ class AircraftDetailView extends WatchUi.View {
         dc as Dc,
         cx as Number,
         y as Number,
-        lines as Array<Array<DrawUtil.ValueRun> >
+        lines as Array<Array<DrawUtils.ValueRun> >
     ) as Void {
         for (var i = 0; i < lines.size(); i++) {
             var line = lines[i];
             var x =
                 cx -
                 Math.round(
-                    DrawUtil.segmentsWidth(dc, _fontTiny, line) / 2.0
+                    DrawUtils.segmentsWidth(dc, _fontTiny, line) / 2.0
                 ).toNumber();
-            DrawUtil.drawSegments(dc, x, y + i * _lineH, _fontTiny, line);
+            DrawUtils.drawSegments(dc, x, y + i * _lineH, _fontTiny, line);
         }
     }
 
@@ -464,9 +458,9 @@ class AircraftDetailView extends WatchUi.View {
         if (dy >= _ringRadiusPx) {
             return;
         }
-        var halfW = DrawUtil.chordHalfExtent(_ringRadiusPx, dy);
-        // COLOR_BOUNDARY_ALPHA, not a dimmer tone - reads as a continuation of the boundary ring itself.
-        dc.setStroke(DrawUtil.withAlpha(COLOR_RING, COLOR_BOUNDARY_ALPHA));
+        var halfW = DrawUtils.chordHalfExtent(_ringRadiusPx, dy);
+        // Palette.BOUNDARY_ALPHA, not a dimmer tone - reads as a continuation of the boundary ring itself.
+        dc.setStroke(DrawUtils.withAlpha(Palette.RING, Palette.BOUNDARY_ALPHA));
         dc.drawLine(_ringCx - halfW, y, _ringCx + halfW, y);
     }
 
@@ -475,8 +469,8 @@ class AircraftDetailView extends WatchUi.View {
         cx as Number,
         h as Number
     ) as Void {
-        dc.setColor(COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        DrawUtil.drawChevron(
+        dc.setColor(Palette.WHITE, Graphics.COLOR_TRANSPARENT);
+        DrawUtils.drawChevron(
             dc,
             cx,
             _bottomY + (h - _bottomY) / 2,
@@ -489,7 +483,7 @@ class AircraftDetailView extends WatchUi.View {
         dc as Dc,
         cx as Number,
         y as Number,
-        row as Array<[String, Array<DrawUtil.ValueRun>]>,
+        row as Array<[String, Array<DrawUtils.ValueRun>]>,
         measured as [Number, Array<Number>, Array<Number>]
     ) as Void {
         var labelWidths = measured[1] as Array<Number>;
@@ -497,7 +491,7 @@ class AircraftDetailView extends WatchUi.View {
         var x = cx - Math.round((measured[0] as Number) / 2.0).toNumber();
         for (var i = 0; i < row.size(); i++) {
             var cell = row[i];
-            dc.setColor(COLOR_ROW_LABEL, Graphics.COLOR_TRANSPARENT);
+            dc.setColor(Palette.ROW_LABEL, Graphics.COLOR_TRANSPARENT);
             dc.drawText(
                 x,
                 y,
@@ -506,104 +500,14 @@ class AircraftDetailView extends WatchUi.View {
                 Graphics.TEXT_JUSTIFY_LEFT
             );
             x += (labelWidths[i] as Number) + _labelValueGapPx;
-            DrawUtil.drawSegments(
+            DrawUtils.drawSegments(
                 dc,
                 x,
                 y,
                 _fontTiny,
-                cell[1] as Array<DrawUtil.ValueRun>
+                cell[1] as Array<DrawUtils.ValueRun>
             );
             x += (valueWidths[i] as Number) + _fieldGapPx;
         }
-    }
-}
-
-class AircraftDetailDelegate extends WatchUi.BehaviorDelegate {
-    private var _view as AircraftDetailView;
-    private var _dragStartY as Number?;
-    private var _dragLastY as Number?;
-    private var _dragCommitted as Boolean = false;
-    private const SCROLL_STEP_PX = 40;
-
-    public function initialize(view as AircraftDetailView) {
-        BehaviorDelegate.initialize();
-        _view = view;
-    }
-
-    public function onKey(keyEvent as WatchUi.KeyEvent) as Boolean {
-        var key = keyEvent.getKey();
-        if (key == WatchUi.KEY_UP) {
-            _view.scroll(-SCROLL_STEP_PX);
-            return true;
-        } else if (key == WatchUi.KEY_DOWN) {
-            _view.scroll(SCROLL_STEP_PX);
-            return true;
-        } else if (key == WatchUi.KEY_ESC) {
-            _close();
-            return true;
-        }
-        return false;
-    }
-
-    public function onTap(clickEvent as WatchUi.ClickEvent) as Boolean {
-        if (_view.isInputSuppressed()) {
-            return true;
-        }
-        if (_view.isCloseBandHit(clickEvent.getCoordinates()[1])) {
-            _close();
-            return true;
-        }
-        return false;
-    }
-
-    public function onSwipe(swipeEvent as WatchUi.SwipeEvent) as Boolean {
-        if (_view.isInputSuppressed()) {
-            return true;
-        }
-        if (swipeEvent.getDirection() == WatchUi.SWIPE_DOWN) {
-            _close();
-            return true;
-        }
-        return false;
-    }
-
-    public function onDrag(dragEvent as WatchUi.DragEvent) as Boolean {
-        if (_view.isInputSuppressed()) {
-            return true;
-        }
-        var coords = dragEvent.getCoordinates();
-        var type = dragEvent.getType();
-
-        if (type == WatchUi.DRAG_TYPE_START) {
-            _dragStartY = coords[1];
-            _dragLastY = coords[1];
-            _dragCommitted = false;
-        } else if (type == WatchUi.DRAG_TYPE_CONTINUE) {
-            var start = _dragStartY;
-            var last = _dragLastY;
-            if (start == null or last == null) {
-                return true;
-            }
-            if (!_dragCommitted) {
-                if (
-                    (coords[1] - (start as Number)).abs() < $.DRAG_THRESHOLD_PX
-                ) {
-                    _dragLastY = coords[1];
-                    return true;
-                }
-                _dragCommitted = true;
-            }
-            _view.scroll((last as Number) - coords[1]);
-            _dragLastY = coords[1];
-        } else if (type == WatchUi.DRAG_TYPE_STOP) {
-            _dragStartY = null;
-            _dragLastY = null;
-            _dragCommitted = false;
-        }
-        return true;
-    }
-
-    private function _close() as Void {
-        WatchUi.popView(WatchUi.SLIDE_DOWN);
     }
 }

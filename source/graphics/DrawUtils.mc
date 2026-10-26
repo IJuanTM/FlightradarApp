@@ -2,7 +2,7 @@ import Toybox.Graphics;
 import Toybox.Lang;
 import Toybox.Math;
 
-module DrawUtil {
+module DrawUtils {
     // [text, color, glyph, suffix] - glyph is a code-drawn :degree/:warning mark the fonts lack, or null.
     typedef ValueRun as [String, Number, Symbol?, String];
 
@@ -25,17 +25,25 @@ module DrawUtil {
         return (alpha << 24) | (color & 0xffffff);
     }
 
-    // The only opacities used anywhere in this app.
-    const ALPHA_15 = 0x26;
-    const ALPHA_25 = 0x40;
-    const ALPHA_35 = 0x59;
-    const ALPHA_50 = 0x80;
-    const ALPHA_55 = 0x8c;
-    const ALPHA_95 = 0xf2;
+    // Scales RGB toward black - matches alpha-blending over the black radar, not over a map tile.
+    function dimColor(color as Number, factor as Float) as Number {
+        return (
+            ((((color >> 16) & 0xff) * factor).toNumber() << 16) |
+            ((((color >> 8) & 0xff) * factor).toNumber() << 8) |
+            ((color & 0xff) * factor).toNumber()
+        );
+    }
 
-    // Boundary ring color, shared so RadarView's compact ring and AircraftDetailView's full-screen ring match.
-    const COLOR_RING = 0xaaaaaa;
-    const COLOR_BOUNDARY_ALPHA = ALPHA_50;
+    function insideCircle(
+        pos as Array<Number>,
+        cx as Number,
+        cy as Number,
+        radiusPx as Number
+    ) as Boolean {
+        var dx = pos[0] - cx;
+        var dy = pos[1] - cy;
+        return dx * dx + dy * dy <= radiusPx * radiusPx;
+    }
 
     // [charW, charH] for a monospace font - one character's width is every character's width.
     function measureChar(dc as Dc, font) as [Number, Number] {

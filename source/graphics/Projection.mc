@@ -129,6 +129,16 @@ module Projection {
         return [Math.floor(x).toNumber(), Math.floor(y).toNumber()];
     }
 
+    function kmToDegLat(km as Float) as Float {
+        return km / (METERS_PER_DEG_LAT / 1000.0);
+    }
+
+    // Longitude degrees shrink in real distance away from the equator (cos(lat)) - unlike latitude.
+    function kmToDegLon(km as Float, atLat as Float) as Float {
+        var metersPerDeg = METERS_PER_DEG_LAT * Math.cos(Math.toRadians(atLat));
+        return (km * 1000.0) / metersPerDeg;
+    }
+
     // Top-left corner of the tile.
     function tileToLatLon(
         x as Number,
