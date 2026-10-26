@@ -35,7 +35,7 @@ module DrawUtils {
     }
 
     function insideCircle(
-        pos as Array<Number>,
+        pos as [Number, Number],
         cx as Number,
         cy as Number,
         radiusPx as Number

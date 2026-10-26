@@ -235,25 +235,20 @@ class BackgroundMap {
                 : client.TILE_SIZE_STD;
 
         var centerTile = Projection.latLonToTile(focusLat, focusLon, tileZ);
+        var proj = new ScreenProjection(
+            focusLat,
+            focusLon,
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
         var neededKeys = ({}) as Dictionary<String, Boolean>;
         var neededList = [] as Array<[Number, Number, Number, Number]>;
         for (var tx = minTileX; tx <= maxTileX; tx++) {
             for (var ty = minTileY; ty <= maxTileY; ty++) {
                 // The tile range is a square, but the display is round - its corner tiles can lie wholly outside it.
-                if (
-                    !_tileTouchesCircle(
-                        tx,
-                        ty,
-                        tileZ,
-                        focusLat,
-                        focusLon,
-                        cx,
-                        cy,
-                        radiusPx,
-                        radiusKm,
-                        mapHalfPx
-                    )
-                ) {
+                if (!_tileTouchesCircle(tx, ty, tileZ, proj, mapHalfPx)) {
                     continue;
                 }
                 neededKeys[client.tileKeyFor(tileZ, tx, ty, tileSize)] = true;
@@ -265,12 +260,7 @@ class BackgroundMap {
                 centerTile[0],
                 centerTile[1],
                 tileZ,
-                focusLat,
-                focusLon,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm,
+                proj,
                 screenW,
                 screenH
             )
@@ -325,35 +315,17 @@ class BackgroundMap {
         tx as Number,
         ty as Number,
         tileZ as Number,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
+        proj as ScreenProjection,
         circleR as Float
     ) as Boolean {
+        var cx = proj.cx;
+        var cy = proj.cy;
         var topLeftLatLon = Projection.tileToLatLon(tx, ty, tileZ);
         var bottomRightLatLon = Projection.tileToLatLon(tx + 1, ty + 1, tileZ);
-        var topLeft = Projection.toScreenF(
-            focusLat,
-            focusLon,
-            topLeftLatLon[0],
-            topLeftLatLon[1],
-            cx,
-            cy,
-            radiusPx,
-            radiusKm
-        );
-        var bottomRight = Projection.toScreenF(
-            focusLat,
-            focusLon,
+        var topLeft = proj.toScreenF(topLeftLatLon[0], topLeftLatLon[1]);
+        var bottomRight = proj.toScreenF(
             bottomRightLatLon[0],
-            bottomRightLatLon[1],
-            cx,
-            cy,
-            radiusPx,
-            radiusKm
+            bottomRightLatLon[1]
         );
         var nearestX =
             cx < topLeft[0]
@@ -530,40 +502,14 @@ class BackgroundMap {
     }
 
     // Redrawn every frame, unthrottled - only the fetch itself is debounced.
-    public function draw(
-        dc as Dc,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
-        focusLat as Float,
-        focusLon as Float
-    ) as Void {
+    public function draw(dc as Dc, proj as ScreenProjection) as Void {
         for (var i = 0; i < _staleTiles.size(); i++) {
-            _drawTile(
-                dc,
-                _staleTiles[i],
-                cx,
-                cy,
-                radiusPx,
-                radiusKm,
-                focusLat,
-                focusLon
-            );
+            _drawTile(dc, _staleTiles[i], proj);
         }
 
         var keys = _tiles.keys();
         for (var i = 0; i < keys.size(); i++) {
-            _drawTile(
-                dc,
-                _tiles[keys[i] as String],
-                cx,
-                cy,
-                radiusPx,
-                radiusKm,
-                focusLat,
-                focusLon
-            );
+            _drawTile(dc, _tiles[keys[i] as String], proj);
         }
 
         dc.setColor(Palette.GRID_LABEL, Graphics.COLOR_TRANSPARENT);
@@ -591,25 +537,13 @@ class BackgroundMap {
             ) {
                 continue;
             }
-            var pendingTopLeft = Projection.toScreenF(
-                focusLat,
-                focusLon,
+            var pendingTopLeft = proj.toScreenF(
                 pendingTopLeftLatLon[0],
-                pendingTopLeftLatLon[1],
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
+                pendingTopLeftLatLon[1]
             );
-            var pendingBottomRight = Projection.toScreenF(
-                focusLat,
-                focusLon,
+            var pendingBottomRight = proj.toScreenF(
                 pendingBottomRightLatLon[0],
-                pendingBottomRightLatLon[1],
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
+                pendingBottomRightLatLon[1]
             );
             var midX = (pendingTopLeft[0] + pendingBottomRight[0]) / 2.0;
             var midY = (pendingTopLeft[1] + pendingBottomRight[1]) / 2.0;
@@ -627,36 +561,16 @@ class BackgroundMap {
     private function _drawTile(
         dc as Dc,
         tile as MapTile,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
-        focusLat as Float,
-        focusLon as Float
+        proj as ScreenProjection
     ) as Void {
         var bitmap = tile[0] as Graphics.BitmapType;
         var tileSize = tile[4] as Number;
         var topLeftLatLon = tile[5] as [Float, Float];
         var bottomRightLatLon = tile[6] as [Float, Float];
-        var topLeft = Projection.toScreenF(
-            focusLat,
-            focusLon,
-            topLeftLatLon[0],
-            topLeftLatLon[1],
-            cx,
-            cy,
-            radiusPx,
-            radiusKm
-        );
-        var bottomRight = Projection.toScreenF(
-            focusLat,
-            focusLon,
+        var topLeft = proj.toScreenF(topLeftLatLon[0], topLeftLatLon[1]);
+        var bottomRight = proj.toScreenF(
             bottomRightLatLon[0],
-            bottomRightLatLon[1],
-            cx,
-            cy,
-            radiusPx,
-            radiusKm
+            bottomRightLatLon[1]
         );
         // Whole-pixel rounding avoids a per-tile AA seam at the shared edge, even though both tiles compute it float-identical.
         var left = Math.round(topLeft[0]);

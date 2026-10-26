@@ -26,49 +26,6 @@ module Projection {
         return [dxM / 1000.0, dyM / 1000.0];
     }
 
-    // Screen +y is down, so dyKm is negated here.
-    function toScreen(
-        centerLat as Float,
-        centerLon as Float,
-        lat as Float,
-        lon as Float,
-        screenCx as Number,
-        screenCy as Number,
-        radiusPx as Number,
-        radiusKm as Float
-    ) as Array<Number> {
-        var p = toScreenF(
-            centerLat,
-            centerLon,
-            lat,
-            lon,
-            screenCx,
-            screenCy,
-            radiusPx,
-            radiusKm
-        );
-        // Rounded, not truncated - .toNumber() truncates toward zero, biasing every point inward.
-        return [Math.round(p[0]).toNumber(), Math.round(p[1]).toNumber()];
-    }
-
-    // Unrounded, so callers lining up several points can round once at the end rather than each independently.
-    function toScreenF(
-        centerLat as Float,
-        centerLon as Float,
-        lat as Float,
-        lon as Float,
-        screenCx as Number,
-        screenCy as Number,
-        radiusPx as Number,
-        radiusKm as Float
-    ) as [Float, Float] {
-        var d = deltaKm(centerLat, centerLon, lat, lon);
-        var pxPerKm = radiusPx / radiusKm;
-        var x = screenCx + d[0] * pxPerKm;
-        var y = screenCy - d[1] * pxPerKm;
-        return [x, y];
-    }
-
     function distanceKm(
         centerLat as Float,
         centerLon as Float,
@@ -79,7 +36,7 @@ module Projection {
         return Math.sqrt(d[0] * d[0] + d[1] * d[1]);
     }
 
-    // Inverse of toScreen - how far the focus point must shift for on-screen content to move by (dxPx, dyPx).
+    // Inverse of ScreenProjection.toScreen - how far the focus point must shift for on-screen content to move by (dxPx, dyPx).
     function screenDeltaToLatLon(
         dxPx as Number,
         dyPx as Number,

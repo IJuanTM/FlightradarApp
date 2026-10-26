@@ -1,6 +1,7 @@
 import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.System;
+import Toybox.Time;
 
 // Selected aircraft's historical track only, fetched on demand, never polled.
 class OpenSkyClient {
@@ -9,6 +10,10 @@ class OpenSkyClient {
     // "/tracks/all", not "/tracks" - OpenSky's own prose REST doc is stale on this.
     private const TRACKS_URL = "https://opensky-network.org/api/tracks/all";
     private const TOKEN_SAFETY_MARGIN_MS = 60000;
+    // OpenSky spaces in-flight waypoints up to 15 min apart, so a shorter cutoff would drop a live cruise track.
+    private const STALE_TRACK_SEC = 1200;
+    // A ground stop longer than this is a turnaround, so the live track's points before it are the previous flight.
+    private const TURNAROUND_GAP_SEC = 1200;
 
     // hex travels with the response - a retried or late response correlated via caller state could be misattributed.
     typedef TrackCallback as
@@ -166,21 +171,40 @@ class OpenSkyClient {
             return;
         }
         var points = [] as Array<[Float, Float, Number, Boolean]>;
+        var endTime = JsonUtils.toNumberOrNull((data as Dictionary)["endTime"]);
+        if (
+            endTime != null &&
+            Time.now().value() - (endTime as Number) > STALE_TRACK_SEC
+        ) {
+            _resolveTrack(points, true);
+            return;
+        }
+        var prevGroundTime = null as Number?;
         for (var i = 0; i < pathRaw.size(); i++) {
             var wp = pathRaw[i];
             if (wp instanceof Lang.Array && wp.size() >= 6) {
+                var time = JsonUtils.toNumberOrNull(wp[0]);
                 var lat = JsonUtils.toFloatOrNull(wp[1]);
                 var lon = JsonUtils.toFloatOrNull(wp[2]);
                 var alt = JsonUtils.toFloatOrNull(wp[3]);
-                var onGround = wp[5];
+                var onGround = wp[5] instanceof Lang.Boolean && wp[5];
                 if (lat != null && lon != null) {
+                    if (
+                        prevGroundTime != null &&
+                        time != null &&
+                        (time as Number) - (prevGroundTime as Number) >
+                            TURNAROUND_GAP_SEC
+                    ) {
+                        points = [] as Array<[Float, Float, Number, Boolean]>;
+                    }
                     points.add([
                         lat as Float,
                         lon as Float,
                         // OpenSky reports meters, adsb.fi (and this whole app) works in feet.
                         alt != null ? ((alt as Float) * 3.28084).toNumber() : 0,
-                        onGround instanceof Lang.Boolean && onGround,
+                        onGround,
                     ]);
+                    prevGroundTime = onGround ? time : null;
                 }
             }
         }

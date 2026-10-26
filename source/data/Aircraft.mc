@@ -1,6 +1,14 @@
 import Toybox.Lang;
+import Toybox.Math;
 
 class Aircraft {
+    private const KNOTS_TO_MPS = 0.514444;
+    // Caps projected motion, so a stalled feed's planes stop instead of flying off on a guess.
+    private const MAX_EXTRAPOLATE_MS = 15000;
+    private const BLEND_MS = 1000;
+    // A bigger miss than this is a real change (a turn, a bad fix), shown as a jump rather than a long slide.
+    private const BLEND_MAX_KM = 1.0;
+
     public var hex as String;
     public var flight as String?;
     public var lat as Float;
@@ -9,7 +17,6 @@ class Aircraft {
     public var onGround as Boolean;
     public var gs as Float?;
     public var track as Float?;
-    // Heading, not track, drives icon rotation - it stays valid at zero groundspeed, where the feed omits track.
     public var heading as Float?;
     public var category as String?;
     public var registration as String?;
@@ -35,6 +42,19 @@ class Aircraft {
     public var outsideAirTemp as Number?;
     public var totalAirTemp as Number?;
 
+    // Dead-reckoned position for drawing, moved by advance() - lat/lon stay the feed's reported fix.
+    public var drawLat as Float;
+    public var drawLon as Float;
+    public var speedMps as Float = 0.0;
+    // System.getTimer() time the reported fix was actually taken, i.e. receipt minus positionAgeSec.
+    private var _fixAtMs as Number = 0;
+    private var _latPerMs as Float = 0.0;
+    private var _lonPerMs as Float = 0.0;
+    // Offset back to the previous poll's prediction, faded out over BLEND_MS so a correction slides instead of jumping.
+    private var _blendLat as Float = 0.0;
+    private var _blendLon as Float = 0.0;
+    private var _blendStartMs as Number = 0;
+
     public function initialize(dict as Dictionary) {
         var hexVal = dict["hex"];
         hex = hexVal instanceof Lang.String ? hexVal : "";
@@ -45,6 +65,8 @@ class Aircraft {
 
         lat = _toFloat(dict["lat"], 0.0);
         lon = _toFloat(dict["lon"], 0.0);
+        drawLat = lat;
+        drawLon = lon;
 
         var ab = dict["alt_baro"];
         if (ab instanceof Lang.String) {
@@ -101,6 +123,60 @@ class Aircraft {
         windSpeed = JsonUtils.toNumberOrNull(dict["ws"]);
         outsideAirTemp = JsonUtils.toNumberOrNull(dict["oat"]);
         totalAirTemp = JsonUtils.toNumberOrNull(dict["tat"]);
+    }
+
+    // previous is this hex's object from the last poll, whose current draw position the new one slides away from.
+    public function startDeadReckoning(
+        nowMs as Number,
+        previous as Aircraft?
+    ) as Void {
+        var age = positionAgeSec;
+        var ageMs = age != null ? (age * 1000.0).toNumber() : 0;
+        _fixAtMs = nowMs - ageMs;
+        var g = gs;
+        var t = track;
+        if (g != null && t != null && ageMs <= MAX_EXTRAPOLATE_MS) {
+            speedMps = g * KNOTS_TO_MPS;
+            var rad = Math.toRadians(t);
+            var metersPerMs = speedMps / 1000.0;
+            _latPerMs =
+                (metersPerMs * Math.cos(rad)) / Projection.METERS_PER_DEG_LAT;
+            _lonPerMs =
+                (metersPerMs * Math.sin(rad)) /
+                (Projection.METERS_PER_DEG_LAT * Math.cos(Math.toRadians(lat)));
+        }
+        advance(nowMs);
+        if (previous != null) {
+            previous.advance(nowMs);
+            if (
+                Projection.distanceKm(
+                    drawLat,
+                    drawLon,
+                    previous.drawLat,
+                    previous.drawLon
+                ) <= BLEND_MAX_KM
+            ) {
+                _blendLat = previous.drawLat - drawLat;
+                _blendLon = previous.drawLon - drawLon;
+                _blendStartMs = nowMs;
+                advance(nowMs);
+            }
+        }
+    }
+
+    public function advance(nowMs as Number) as Void {
+        var dt = nowMs - _fixAtMs;
+        if (dt > MAX_EXTRAPOLATE_MS) {
+            dt = MAX_EXTRAPOLATE_MS;
+        }
+        drawLat = lat + _latPerMs * dt;
+        drawLon = lon + _lonPerMs * dt;
+        var blendLeftMs = BLEND_MS - (nowMs - _blendStartMs);
+        if (blendLeftMs > 0) {
+            var k = blendLeftMs.toFloat() / BLEND_MS;
+            drawLat += _blendLat * k;
+            drawLon += _blendLon * k;
+        }
     }
 
     // DO-260B set C (C0-C2) is surface emitters, never an airborne class - distinct from a plane that's merely onGround.

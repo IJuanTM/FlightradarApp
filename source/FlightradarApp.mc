@@ -21,24 +21,16 @@ class FlightradarApp extends Application.AppBase {
     // enableLocationEvents defaults to GPS-only positioning unless :configuration is set explicitly.
     public function onStart(state as Dictionary?) as Void {
         var options = { :acquisitionType => Position.LOCATION_CONTINUOUS };
-        if (Position has :hasConfigurationSupport) {
-            if (
-                Position has :CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1_L5 &&
-                Position.hasConfigurationSupport(
-                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1_L5
-                )
-            ) {
-                options[:configuration] =
-                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1_L5;
-            } else if (
-                Position has :CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1 &&
-                Position.hasConfigurationSupport(
-                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1
-                )
-            ) {
-                options[:configuration] =
-                    Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1;
-            }
+        // L1 only - multi-band L5 buys accuracy far below one radar pixel, at a real battery cost.
+        if (
+            Position has :hasConfigurationSupport &&
+            Position has :CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1 &&
+            Position.hasConfigurationSupport(
+                Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1
+            )
+        ) {
+            options[:configuration] =
+                Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1;
         }
         Position.enableLocationEvents(options, method(:onPosition));
     }

@@ -96,15 +96,7 @@ class NearbyAirports {
         }
     }
 
-    public function draw(
-        dc as Dc,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float
-    ) as Void {
+    public function draw(dc as Dc, proj as ScreenProjection) as Void {
         var showSmall = Settings.showSmallAirports;
         var smallColor = DrawUtils.dimColor(Palette.AIRPORT, SMALL_DIM_FACTOR);
         for (var i = 0; i < _airports.size(); i++) {
@@ -113,17 +105,8 @@ class NearbyAirports {
             if (!showSmall && isSmall) {
                 continue;
             }
-            var pos = Projection.toScreen(
-                focusLat,
-                focusLon,
-                airport[3] as Float,
-                airport[4] as Float,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
-            );
-            if (!DrawUtils.insideCircle(pos, cx, cy, radiusPx)) {
+            var pos = proj.toScreen(airport[3] as Float, airport[4] as Float);
+            if (!DrawUtils.insideCircle(pos, proj.cx, proj.cy, proj.radiusPx)) {
                 continue;
             }
             var markerR = isSmall ? MARKER_R_SMALL : MARKER_R;

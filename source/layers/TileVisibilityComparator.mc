@@ -6,12 +6,7 @@ class TileVisibilityComparator {
     private var _centerTx as Number;
     private var _centerTy as Number;
     private var _tileZ as Number;
-    private var _focusLat as Float;
-    private var _focusLon as Float;
-    private var _cx as Number;
-    private var _cy as Number;
-    private var _radiusPx as Number;
-    private var _radiusKm as Float;
+    private var _proj as ScreenProjection;
     private var _screenW as Number;
     private var _screenH as Number;
 
@@ -19,24 +14,14 @@ class TileVisibilityComparator {
         centerTx as Number,
         centerTy as Number,
         tileZ as Number,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
+        proj as ScreenProjection,
         screenW as Number,
         screenH as Number
     ) {
         _centerTx = centerTx;
         _centerTy = centerTy;
         _tileZ = tileZ;
-        _focusLat = focusLat;
-        _focusLon = focusLon;
-        _cx = cx;
-        _cy = cy;
-        _radiusPx = radiusPx;
-        _radiusKm = radiusKm;
+        _proj = proj;
         _screenW = screenW;
         _screenH = screenH;
     }
@@ -59,25 +44,10 @@ class TileVisibilityComparator {
     private function _visibleArea(tx as Number, ty as Number) as Float {
         var topLeftLatLon = Projection.tileToLatLon(tx, ty, _tileZ);
         var bottomRightLatLon = Projection.tileToLatLon(tx + 1, ty + 1, _tileZ);
-        var topLeft = Projection.toScreenF(
-            _focusLat,
-            _focusLon,
-            topLeftLatLon[0],
-            topLeftLatLon[1],
-            _cx,
-            _cy,
-            _radiusPx,
-            _radiusKm
-        );
-        var bottomRight = Projection.toScreenF(
-            _focusLat,
-            _focusLon,
+        var topLeft = _proj.toScreenF(topLeftLatLon[0], topLeftLatLon[1]);
+        var bottomRight = _proj.toScreenF(
             bottomRightLatLon[0],
-            bottomRightLatLon[1],
-            _cx,
-            _cy,
-            _radiusPx,
-            _radiusKm
+            bottomRightLatLon[1]
         );
         return (
             (

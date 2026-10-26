@@ -7,6 +7,7 @@ import Toybox.Position;
 import Toybox.System;
 import Toybox.Time;
 import Toybox.Timer;
+import Toybox.Weather;
 import Toybox.WatchUi;
 
 class RadarView extends WatchUi.View {
@@ -28,14 +29,18 @@ class RadarView extends WatchUi.View {
     private const STORAGE_KEY_LAT = "lastKnownLat";
     private const STORAGE_KEY_LON = "lastKnownLon";
     private const STORAGE_KEY_TS = "lastKnownTs";
-    // Past this, a stored fix is more likely hours stale than near the user - better to wait for a real fix.
-    private const MAX_STORED_POSITION_AGE_SEC = 900;
+    // Generous on purpose - a wrong-area radar until GPS lands beats a blank "No GPS" screen for minutes.
+    private const MAX_SEED_AGE_SEC = 86400;
+    // Weather's position is its observation station, often tens of km off, so a real fix this recent beats a newer one.
+    private const STORED_FIX_PREFERRED_SEC = 3600;
 
     private var _userLat as Float?;
     private var _userLon as Float?;
     private var _hasFix as Boolean = false;
     // [lat, lon, epochSec] of the last real GPS fix - kept apart from _userLat/Lon, which fallback seeds also overwrite.
     private var _liveFix as [Float, Float, Number]?;
+    // Position in the top panel's 4-decimal units - a GPS update finer than that changes no pixel, so it skips the redraw.
+    private var _redrawPosKey as [Number, Number]?;
 
     private var _aircraft as Array<Aircraft> = [];
     private var _aircraftByHex as Dictionary<String, Aircraft> = {};
@@ -100,6 +105,9 @@ class RadarView extends WatchUi.View {
     private var _displayOff as Boolean = false;
     private var _tickPausedForDisplay as Boolean = false;
     private var _detailTickPausedForDisplay as Boolean = false;
+    private var _lastFrameMs as Number = 0;
+    // Fastest drawn aircraft's on-screen speed, from the last frame - 0 means nothing moves visibly, so no extra frames.
+    private var _animPxPerMs as Float = 0.0;
 
     private var _zoomChangedAtMs as Number?;
     // Not lower - _onTick's own cadence (TICK_MS) is the real floor on how fast this can fire.
@@ -184,19 +192,40 @@ class RadarView extends WatchUi.View {
             }
         }
 
-        // currentLocation goes stale/null about an hour after anything last used GPS - fall back to this app's persisted real fix.
+        // currentLocation goes stale/null an hour after GPS was last used - fall back to weather's (phone-sourced) position or the stored fix.
+        var seedLat = null as Float?;
+        var seedLon = null as Float?;
+        var seedTs = null as Number?;
+        var conditions = Weather.getCurrentConditions();
+        if (conditions != null) {
+            var weatherLoc = conditions.observationLocationPosition;
+            var weatherTime = conditions.observationTime;
+            if (weatherLoc != null && weatherTime != null) {
+                var deg = weatherLoc.toDegrees();
+                seedLat = deg[0].toFloat();
+                seedLon = deg[1].toFloat();
+                seedTs = weatherTime.value();
+            }
+        }
         var storedLat = Storage.getValue(STORAGE_KEY_LAT);
         var storedLon = Storage.getValue(STORAGE_KEY_LON);
         var storedTs = Storage.getValue(STORAGE_KEY_TS);
         if (
-            storedLat != null and
-            storedLon != null and
-            storedTs != null and
-            Time.now().value() - (storedTs as Number) <=
-                MAX_STORED_POSITION_AGE_SEC
+            storedLat != null &&
+            storedLon != null &&
+            storedTs != null &&
+            (seedTs == null ||
+                (storedTs as Number) > seedTs ||
+                Time.now().value() - (storedTs as Number) <=
+                    STORED_FIX_PREFERRED_SEC)
         ) {
-            _userLat = storedLat as Float;
-            _userLon = storedLon as Float;
+            seedLat = storedLat as Float;
+            seedLon = storedLon as Float;
+            seedTs = storedTs as Number;
+        }
+        if (seedTs != null && Time.now().value() - seedTs <= MAX_SEED_AGE_SEC) {
+            _userLat = seedLat;
+            _userLon = seedLon;
             _hasFix = true;
         }
     }
@@ -307,6 +336,11 @@ class RadarView extends WatchUi.View {
             }
         }
 
+        // Paced to about one pixel of travel for the fastest aircraft per frame, so no frame is drawn that changes nothing.
+        if (_animPxPerMs > 0.0 && now - _lastFrameMs >= 1.0 / _animPxPerMs) {
+            WatchUi.requestUpdate();
+        }
+
         // Also run here, since nothing else rechecks the debounce; _lastScreenHeight > 1 skips the pre-first-draw default.
         if (
             Settings.showBackgroundMap &&
@@ -316,7 +350,7 @@ class RadarView extends WatchUi.View {
             _lastScreenHeight > 1 &&
             !isDragActive()
         ) {
-            var focus = _focusPoint();
+            var focus = _focusPoint(false);
             var screenSize = _lastScreenHeight;
             if (
                 _map.maybeFetch(
@@ -339,23 +373,42 @@ class RadarView extends WatchUi.View {
         var pos = info.position;
         if (pos == null) {
             // A fix already established can be lost again (e.g. indoors) - don't keep rendering on stale coordinates.
-            _hasFix = false;
-            WatchUi.requestUpdate();
+            // Only a live one, though: the empty events before the first real fix must not drop the startup seed.
+            if (_hasFix && _liveFix != null) {
+                _hasFix = false;
+                WatchUi.requestUpdate();
+            }
             return;
         }
 
         var deg = pos.toDegrees();
-        _userLat = deg[0].toFloat();
-        _userLon = deg[1].toFloat();
-        _liveFix = [_userLat as Float, _userLon as Float, Time.now().value()];
-
-        var firstFix = !_hasFix;
+        var lat = deg[0].toFloat();
+        var lon = deg[1].toFloat();
+        // A seed can be km off, so the first live fix refetches at once instead of waiting for the poll.
+        var firstFix = !_hasFix || _liveFix == null;
+        _userLat = lat;
+        _userLon = lon;
+        _liveFix = [lat, lon, Time.now().value()];
         _hasFix = true;
         if (firstFix) {
             _fetchFeed();
         }
 
-        WatchUi.requestUpdate();
+        var posKey =
+            [
+                Math.round(lat * 10000.0).toNumber(),
+                Math.round(lon * 10000.0).toNumber(),
+            ] as [Number, Number];
+        var lastKey = _redrawPosKey;
+        if (
+            firstFix ||
+            lastKey == null ||
+            lastKey[0] != posKey[0] ||
+            lastKey[1] != posKey[1]
+        ) {
+            _redrawPosKey = posKey;
+            WatchUi.requestUpdate();
+        }
     }
 
     public function zoomIn() as Void {
@@ -430,7 +483,7 @@ class RadarView extends WatchUi.View {
                 _dragLastCoords = [x, y];
                 return;
             }
-            _manualFocus = _focusPoint();
+            _manualFocus = _focusPoint(true);
             _dragCommitted = true;
         }
 
@@ -548,7 +601,7 @@ class RadarView extends WatchUi.View {
     // Freezes the camera at its current position first, so tapping empty space doesn't also recenter to self.
     public function deselectAircraftKeepView() as Void {
         if (_selection.hex != null) {
-            _manualFocus = _focusPoint();
+            _manualFocus = _focusPoint(true);
         }
         deselectAircraft();
     }
@@ -666,7 +719,7 @@ class RadarView extends WatchUi.View {
             return;
         }
         _feedRefetchPending = false;
-        var focus = _focusPoint();
+        var focus = _focusPoint(false);
         _feedInFlight = true;
         _feedStartMs = System.getTimer();
         _feedClient.fetch(
@@ -699,12 +752,15 @@ class RadarView extends WatchUi.View {
             _viewHasFreshData = true;
 
             var byHex = ({}) as Dictionary<String, Aircraft>;
+            var now = System.getTimer();
             for (var i = 0; i < aircraft.size(); i++) {
-                byHex[aircraft[i].hex] = aircraft[i];
+                var ac = aircraft[i];
+                ac.startDeadReckoning(now, _aircraftByHex[ac.hex]);
+                byHex[ac.hex] = ac;
             }
             _aircraft = aircraft;
             _aircraftByHex = byHex;
-            _icons.clearClassifyCache();
+            _icons.pruneClassifyCache(byHex);
             _detailLinesCacheHex = null;
             _labelLinesCache = {};
 
@@ -747,6 +803,7 @@ class RadarView extends WatchUi.View {
         var topPanelH = _topPanelHeightFor(topLines);
 
         if (!_hasFix or _userLat == null or _userLon == null) {
+            _animPxPerMs = 0.0;
             dc.setColor(Palette.WHITE, Graphics.COLOR_TRANSPARENT);
             dc.drawText(
                 cx,
@@ -758,9 +815,23 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var focus = _focusPoint();
+        var now = System.getTimer();
+        _lastFrameMs = now;
+        for (var i = 0; i < _aircraft.size(); i++) {
+            _aircraft[i].advance(now);
+        }
+
+        var focus = _focusPoint(true);
         var focusLat = focus[0];
         var focusLon = focus[1];
+        var proj = new ScreenProjection(
+            focusLat,
+            focusLon,
+            cx,
+            cy,
+            radiusPx,
+            radiusKm
+        );
 
         var selected = _selection.aircraft;
         var detailLines =
@@ -773,9 +844,11 @@ class RadarView extends WatchUi.View {
             _map.syncStyle();
             // Fetches never fire mid-drag anyway, so skip the trig work every drag frame.
             if (!isDragActive()) {
+                // The reported focus, not the animated one - a followed aircraft gliding every frame never settles the fetch debounce.
+                var fetchFocus = _focusPoint(false);
                 _map.maybeFetch(
-                    focusLat,
-                    focusLon,
+                    fetchFocus[0],
+                    fetchFocus[1],
                     radiusPx,
                     radiusKm,
                     cx,
@@ -784,42 +857,22 @@ class RadarView extends WatchUi.View {
                     h
                 );
             }
-            _map.draw(dc, cx, cy, radiusPx, radiusKm, focusLat, focusLon);
+            _map.draw(dc, proj);
         } else {
             _map.release();
         }
 
         if (Settings.showGridLines) {
-            _drawLatLonGrid(
-                dc,
-                focusLat,
-                focusLon,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm,
-                topPanelH,
-                h - bottomPanelH
-            );
+            _drawLatLonGrid(dc, proj, topPanelH, h - bottomPanelH);
         }
         _drawChrome(dc, cx, cy, radiusPx, radiusKm, topPanelH);
         // Drawn before aircraft, not after - the user's own marker should never sit on top of a craft icon.
-        _drawUserMarker(
-            dc,
-            focusLat,
-            focusLon,
-            cx,
-            cy,
-            radiusPx,
-            radiusKm,
-            topPanelH,
-            h - bottomPanelH
-        );
+        _drawUserMarker(dc, proj, topPanelH, h - bottomPanelH);
         if (Settings.showAirports) {
             _airports.maybeFetch(focusLat, focusLon, radiusKm);
-            _airports.draw(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
+            _airports.draw(dc, proj);
         }
-        _drawAircraft(dc, focusLat, focusLon, cx, cy, radiusPx, radiusKm);
+        _drawAircraft(dc, proj);
 
         if (selected != null) {
             _drawDetailPanel(dc, cx, cy, h, radiusPx, detailLines);
@@ -832,7 +885,8 @@ class RadarView extends WatchUi.View {
         }
     }
 
-    private function _focusPoint() as [Float, Float] {
+    // drawn: the selected aircraft's dead-reckoned position (what's on screen) instead of its last reported fix.
+    private function _focusPoint(drawn as Boolean) as [Float, Float] {
         var manual = _manualFocus;
         if (manual != null) {
             return manual as [Float, Float];
@@ -840,7 +894,8 @@ class RadarView extends WatchUi.View {
         if (_selection.hex != null) {
             var selected = _selection.aircraft;
             if (selected != null) {
-                return [(selected as Aircraft).lat, (selected as Aircraft).lon];
+                var ac = selected as Aircraft;
+                return drawn ? [ac.drawLat, ac.drawLon] : [ac.lat, ac.lon];
             }
             // A missed poll (tolerated up to Selection's MAX_MISSES) holds the last position instead of recentering on the user.
             var lastPos = _selection.lastPos;
@@ -1064,7 +1119,7 @@ class RadarView extends WatchUi.View {
                 Formatters.lat(_userLat as Float, true) +
                     " " +
                     Formatters.lon(_userLon as Float, true),
-                Palette.TEXT,
+                _liveFix != null ? Palette.TEXT : Palette.GRID_LABEL,
             ]);
         }
         return lines;
@@ -1139,15 +1194,16 @@ class RadarView extends WatchUi.View {
 
     private function _drawLatLonGrid(
         dc as Dc,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
+        proj as ScreenProjection,
         topPanelH as Number,
         bottomLimitY as Number
     ) as Void {
+        var focusLat = proj.focusLat;
+        var focusLon = proj.focusLon;
+        var cx = proj.cx;
+        var cy = proj.cy;
+        var radiusPx = proj.radiusPx;
+        var radiusKm = proj.radiusKm;
         var stepKm = Settings.zoomGridStepKm();
         var latStep = Projection.kmToDegLat(stepKm);
         var lonStep = Projection.kmToDegLon(stepKm, focusLat);
@@ -1156,16 +1212,7 @@ class RadarView extends WatchUi.View {
         var latBase = Math.floor(focusLat / latStep) * latStep;
         for (var i = -steps; i <= steps; i++) {
             var lat = latBase + i * latStep;
-            var pt = Projection.toScreen(
-                focusLat,
-                focusLon,
-                lat,
-                focusLon,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
-            );
+            var pt = proj.toScreen(lat, focusLon);
             var dy = (pt[1] - cy).abs();
             if (dy >= radiusPx) {
                 continue;
@@ -1187,16 +1234,7 @@ class RadarView extends WatchUi.View {
         var lonBase = Math.floor(focusLon / lonStep) * lonStep;
         for (var i = -steps; i <= steps; i++) {
             var lon = lonBase + i * lonStep;
-            var pt = Projection.toScreen(
-                focusLat,
-                focusLon,
-                focusLat,
-                lon,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
-            );
+            var pt = proj.toScreen(focusLat, lon);
             var dx = (pt[0] - cx).abs();
             if (dx >= radiusPx) {
                 continue;
@@ -1248,27 +1286,14 @@ class RadarView extends WatchUi.View {
     // Falls back to the edge arrow whenever off-radar or inside a panel band, so the dot never renders on top of a panel.
     private function _drawUserMarker(
         dc as Dc,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
+        proj as ScreenProjection,
         topPanelH as Number,
         bottomLimitY as Number
     ) as Void {
-        var lat = _userLat as Float;
-        var lon = _userLon as Float;
-        var pos = Projection.toScreen(
-            focusLat,
-            focusLon,
-            lat,
-            lon,
-            cx,
-            cy,
-            radiusPx,
-            radiusKm
-        );
+        var cx = proj.cx;
+        var cy = proj.cy;
+        var radiusPx = proj.radiusPx;
+        var pos = proj.toScreen(_userLat as Float, _userLon as Float);
         var dx = (pos[0] - cx).toFloat();
         var dy = (pos[1] - cy).toFloat();
         var pxDist = Math.sqrt(dx * dx + dy * dy);
@@ -1380,15 +1405,7 @@ class RadarView extends WatchUi.View {
         return Settings.hideGroundedPlanes || _lastFeedTooMuchData;
     }
 
-    private function _drawAircraft(
-        dc as Dc,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float
-    ) as Void {
+    private function _drawAircraft(dc as Dc, proj as ScreenProjection) as Void {
         _lastDrawnPositions = [];
         _reservedRects = [];
         var showGroundVehicles = _effectiveShowGroundVehicles();
@@ -1399,38 +1416,21 @@ class RadarView extends WatchUi.View {
             selected != null &&
             Settings.showSelectedTrail &&
             Projection.distanceKm(
-                focusLat,
-                focusLon,
-                (selected as Aircraft).lat,
-                (selected as Aircraft).lon
-            ) <= radiusKm
+                proj.focusLat,
+                proj.focusLon,
+                (selected as Aircraft).drawLat,
+                (selected as Aircraft).drawLon
+            ) <= proj.radiusKm
         ) {
-            _drawSelectedTrail(
-                dc,
-                focusLat,
-                focusLon,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm,
-                _icons.colorFor(selected as Aircraft)
-            );
+            _drawSelectedTrail(dc, proj, selected as Aircraft);
         }
 
         var selectedIndex = -1;
+        var maxSpeedMps = 0.0;
         for (var i = 0; i < _aircraft.size(); i++) {
             var ac = _aircraft[i];
-            var pos = Projection.toScreen(
-                focusLat,
-                focusLon,
-                ac.lat,
-                ac.lon,
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
-            );
-            if (!DrawUtils.insideCircle(pos, cx, cy, radiusPx)) {
+            var pos = proj.toScreen(ac.drawLat, ac.drawLon);
+            if (!DrawUtils.insideCircle(pos, proj.cx, proj.cy, proj.radiusPx)) {
                 continue;
             }
 
@@ -1457,6 +1457,9 @@ class RadarView extends WatchUi.View {
                 selectedIndex = _lastDrawnPositions.size();
             }
             _lastDrawnPositions.add([ac.hex, pos[0], pos[1]]);
+            if (ac.speedMps > maxSpeedMps) {
+                maxSpeedMps = ac.speedMps;
+            }
 
             var chevronCenter = Settings.showVertRateChevron
                 ? _icons.chevronCenter(pos[0], pos[1], ac)
@@ -1498,6 +1501,10 @@ class RadarView extends WatchUi.View {
                 );
             }
         }
+
+        _animPxPerMs = Settings.batterySaverMode
+            ? 0.0
+            : (maxSpeedMps * proj.radiusPx) / (proj.radiusKm * 1000000.0);
 
         // A separate pass, after every icon - otherwise a later label could paint over an earlier icon.
         if (Settings.labelsEnabled) {
@@ -1615,36 +1622,29 @@ class RadarView extends WatchUi.View {
 
     private function _drawSelectedTrail(
         dc as Dc,
-        focusLat as Float,
-        focusLon as Float,
-        cx as Number,
-        cy as Number,
-        radiusPx as Number,
-        radiusKm as Float,
-        trailColor as Number
+        proj as ScreenProjection,
+        ac as Aircraft
     ) as Void {
-        if (_selection.track.size() < 2) {
+        var track = _selection.track;
+        if (track.size() < 2) {
             return;
         }
+        var trailColor = _icons.colorFor(ac);
 
-        var prevScreen = null as Array<Number>?;
+        var prevScreen = null as [Number, Number]?;
         var prevPt = null as [Float, Float, Number, Boolean]?;
         // Carried across dashed segments so closely spaced taxi points still alternate instead of each drawing as one dash.
         var dashPhase = 0.0;
-        for (var i = 0; i < _selection.track.size(); i++) {
-            var pt = _selection.track[i];
-            var screen = Projection.toScreen(
-                focusLat,
-                focusLon,
-                pt[0],
-                pt[1],
-                cx,
-                cy,
-                radiusPx,
-                radiusKm
-            );
+        // One point past the track: the icon's dead-reckoned position, which runs ahead of the last reported fix.
+        for (var i = 0; i <= track.size(); i++) {
+            var pt =
+                i < track.size()
+                    ? track[i]
+                    : [ac.drawLat, ac.drawLon, 0, ac.onGround] as
+                      [Float, Float, Number, Boolean];
+            var screen = proj.toScreen(pt[0], pt[1]);
             if (prevScreen != null && prevPt != null) {
-                var p0 = prevScreen as Array<Number>;
+                var p0 = prevScreen as [Number, Number];
                 var p1 = prevPt as [Float, Float, Number, Boolean];
                 if ((p1[3] as Boolean) || (pt[3] as Boolean)) {
                     dc.setStroke(

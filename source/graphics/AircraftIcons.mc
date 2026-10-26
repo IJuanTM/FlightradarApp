@@ -32,9 +32,9 @@ class AircraftIcons {
     private const CHEVRON_ANGLE_DESCEND_DEG = 135.0;
     private const CHEVRON_RECT_HALF = 4;
 
-    // hex -> [category, shapeKey, sizeScale, iconHalfExtent], cleared whenever aircraft data changes.
-    private var _classifyCache as
-        Dictionary<String, [String, String, Float, Number]> = {};
+    // hex -> [category, shapeKey, sizeScale, iconHalfExtent, sourceCategory, sourceTypeCode].
+    typedef ClassifyEntry as [String, String, Float, Number, String?, String?];
+    private var _classifyCache as Dictionary<String, ClassifyEntry> = {};
     // Loaded lazily via _bitmapForShape - loading every shape up front made app open noticeably slow.
     private var _bitmapCache as Dictionary<String, Graphics.BitmapType> = {};
 
@@ -127,17 +127,33 @@ class AircraftIcons {
 
     public function initialize() {}
 
-    // Category/shape/scale can only change when the underlying aircraft data does, not every redraw.
-    public function clearClassifyCache() as Void {
-        _classifyCache = {};
+    // Classification depends only on category and type code, so an entry survives polls until either changes.
+    public function pruneClassifyCache(
+        byHex as Dictionary<String, Aircraft>
+    ) as Void {
+        var keys = _classifyCache.keys();
+        for (var i = 0; i < keys.size(); i++) {
+            var hex = keys[i] as String;
+            var ac = byHex[hex];
+            var entry = _classifyCache[hex] as ClassifyEntry;
+            if (
+                ac == null ||
+                !_sameString(entry[4], (ac as Aircraft).category) ||
+                !_sameString(entry[5], (ac as Aircraft).typeCode)
+            ) {
+                _classifyCache.remove(hex);
+            }
+        }
     }
 
-    private function _classify(
-        ac as Aircraft
-    ) as [String, String, Float, Number] {
+    private function _sameString(a as String?, b as String?) as Boolean {
+        return a == null ? b == null : b != null && (a as String).equals(b);
+    }
+
+    private function _classify(ac as Aircraft) as ClassifyEntry {
         var cached = _classifyCache[ac.hex];
         if (cached != null) {
-            return cached as [String, String, Float, Number];
+            return cached as ClassifyEntry;
         }
         var cat = AircraftClassifier.effectiveCategory(ac);
         var shape = AircraftClassifier.shapeKeyForCategory(ac, cat);
@@ -147,7 +163,8 @@ class AircraftIcons {
             ICON_BASE_SCALE * scale
         );
         var result =
-            [cat, shape, scale, halfExtent] as [String, String, Float, Number];
+            [cat, shape, scale, halfExtent, ac.category, ac.typeCode] as
+            ClassifyEntry;
         _classifyCache[ac.hex] = result;
         return result;
     }
@@ -218,10 +235,11 @@ class AircraftIcons {
         }
 
         var shape = _classify(ac)[1];
-        var heading = ac.heading;
+        // Track first so the nose follows the trail and glide; heading covers stationary aircraft, where the feed omits track.
+        var rotation = ac.track != null ? ac.track : ac.heading;
         var theta =
-            heading != null && AircraftClassifier.shapeRotates(shape)
-                ? Math.toRadians(heading)
+            rotation != null && AircraftClassifier.shapeRotates(shape)
+                ? Math.toRadians(rotation)
                 : 0.0;
 
         var scale = ICON_BASE_SCALE * sizeScale(ac);
