@@ -95,6 +95,8 @@ class RadarView extends WatchUi.View {
     private const TAP_SUPPRESS_WINDOW_MS = 300;
     // Trailing touch events from opening/closing the full-detail view can bleed into whatever's on top next.
     private var _inputSuppressedUntilMs as Number?;
+    private const EXIT_HINT_MS = 2000;
+    private var _exitUntil as Number?;
 
     private var _tickTimer as Timer.Timer?;
     private var _ticksSincePoll as Number = 0;
@@ -124,6 +126,7 @@ class RadarView extends WatchUi.View {
     private var _tooBusyText as String = "";
     private var _fetchingText as String = "";
     private var _liveText as String = "";
+    private var _exitHintText as String = "";
     private var _fontSmall as Graphics.FontType = Graphics.FONT_SMALL;
     private var _fontTiny as Graphics.FontType = Graphics.FONT_XTINY;
 
@@ -144,6 +147,8 @@ class RadarView extends WatchUi.View {
         _tooBusyText = WatchUi.loadResource(Rez.Strings.TooBusy) as String;
         _fetchingText = WatchUi.loadResource(Rez.Strings.Fetching) as String;
         _liveText = WatchUi.loadResource(Rez.Strings.Fetched) as String;
+        _exitHintText =
+            WatchUi.loadResource(Rez.Strings.PressAgainToExit) as String;
         _fontSmall =
             WatchUi.loadResource(Rez.Fonts.SpaceMono_SMALL) as
             Graphics.FontDefinition;
@@ -318,6 +323,12 @@ class RadarView extends WatchUi.View {
 
         _map.expireStaleTiles(now);
 
+        var exitUntil = _exitUntil;
+        if (exitUntil != null && now >= exitUntil) {
+            _exitUntil = null;
+            WatchUi.requestUpdate();
+        }
+
         var nextRetry = _feedRetryAtMs;
         if (nextRetry != null) {
             // A failure retries on its own backoff, not the poll cadence - quick recovery without re-triggering a rate limit.
@@ -478,6 +489,47 @@ class RadarView extends WatchUi.View {
         return false;
     }
 
+    // Recenters or deselects first; with nothing left to clear, false while the exit hint shows lets the app exit.
+    public function back() as Boolean {
+        if (recenter()) {
+            return true;
+        }
+        var until = _exitUntil;
+        if (until != null && System.getTimer() < until) {
+            return false;
+        }
+        _exitUntil = System.getTimer() + EXIT_HINT_MS;
+        WatchUi.requestUpdate();
+        return true;
+    }
+
+    // Opens full detail for the selection, else selects the aircraft drawn nearest the radar center.
+    public function selectOrOpen() as Void {
+        if (_selection.aircraft != null) {
+            openFullDetail();
+            return;
+        }
+        if (_selection.hex != null || !_hasFix) {
+            return;
+        }
+        var c = _lastScreenHeight / 2;
+        var best = null as String?;
+        var bestDistSq = 0;
+        for (var i = 0; i < _lastDrawnPositions.size(); i++) {
+            var entry = _lastDrawnPositions[i];
+            var dx = (entry[1] as Number) - c;
+            var dy = (entry[2] as Number) - c;
+            var distSq = dx * dx + dy * dy;
+            if (best == null || distSq < bestDistSq) {
+                bestDistSq = distSq;
+                best = entry[0] as String;
+            }
+        }
+        if (best != null) {
+            selectAircraft(best);
+        }
+    }
+
     public function beginDrag(x as Number, y as Number) as Void {
         // Never cleared by endDrag - trySwipeOpenDetail reads this later since SwipeEvent has no coordinates.
         _touchDownInDetailPanel = _isInDetailPanelZone(x, y);
@@ -616,6 +668,7 @@ class RadarView extends WatchUi.View {
         }
         _selection.select(hex, _aircraftByHex[hex]);
         _manualFocus = null;
+        _exitUntil = null;
         _fetcher.onSelect();
         _map.requestRefetch();
         WatchUi.requestUpdate();
@@ -858,6 +911,7 @@ class RadarView extends WatchUi.View {
                 _noGpsText,
                 Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER
             );
+            _drawExitHint(dc, cx, cy, h, radiusPx);
             return;
         }
 
@@ -926,9 +980,37 @@ class RadarView extends WatchUi.View {
 
         _drawTopPanel(dc, cx, cy, radiusPx, topLines);
 
+        _drawExitHint(dc, cx, cy, h, radiusPx);
+
         if (Settings.showButtonHints) {
             _drawButtonHints(dc, cx, cy, radiusPx);
         }
+    }
+
+    // The top panel's mirror at the bottom, which is free since the hint only arms with nothing selected.
+    private function _drawExitHint(
+        dc as Dc,
+        cx as Number,
+        cy as Number,
+        h as Number,
+        radiusPx as Number
+    ) as Void {
+        if (_exitUntil == null) {
+            return;
+        }
+        var line = [_exitHintText, Palette.GRID_LABEL] as [String, Number];
+        var panelY = h - _topPanelHeightFor([line]);
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
+        dc.fillRectangle(0, panelY + 1, dc.getWidth(), h - panelY - 1);
+        dc.setColor(line[1], Graphics.COLOR_TRANSPARENT);
+        dc.drawText(
+            cx,
+            panelY + 4,
+            _fontTiny,
+            line[0],
+            Graphics.TEXT_JUSTIFY_CENTER
+        );
+        _drawPanelBorder(dc, panelY, cx, cy, radiusPx);
     }
 
     // drawn: the selected aircraft's dead-reckoned position (what's on screen) instead of its last reported fix.
@@ -1090,12 +1172,16 @@ class RadarView extends WatchUi.View {
 
         var plusPos = _buttonHintPos(cx, cy, ringR, 270.0);
         var minusPos = _buttonHintPos(cx, cy, ringR, 240.0);
-        var menuPos = _buttonHintPos(cx, cy, ringR, 60.0);
+        var selectPos = _buttonHintPos(cx, cy, ringR, 60.0);
         var recenterPos = _buttonHintPos(cx, cy, ringR, 120.0);
 
         _drawPlusHint(dc, plusPos[0], plusPos[1]);
         _drawMinusHint(dc, minusPos[0], minusPos[1]);
-        _drawMenuHint(dc, menuPos[0], menuPos[1]);
+        if (_selection.hex != null) {
+            _drawOpenHint(dc, selectPos[0], selectPos[1]);
+        } else {
+            _drawSelectHint(dc, selectPos[0], selectPos[1]);
+        }
         _drawRecenterHint(dc, recenterPos[0], recenterPos[1]);
     }
 
@@ -1133,13 +1219,30 @@ class RadarView extends WatchUi.View {
         dc.drawLine(x - s, y, x + s, y);
     }
 
-    // Menu (KEY_ENTER/KEY_MENU).
-    private function _drawMenuHint(dc as Dc, x as Number, y as Number) as Void {
+    // Select nearest (KEY_ENTER, nothing selected) - corner brackets.
+    private function _drawSelectHint(
+        dc as Dc,
+        x as Number,
+        y as Number
+    ) as Void {
         dc.setColor(Palette.WHITE, Graphics.COLOR_TRANSPARENT);
-        var s = 4;
-        dc.drawLine(x - s, y - 3, x + s, y - 3);
-        dc.drawLine(x - s, y, x + s, y);
-        dc.drawLine(x - s, y + 3, x + s, y + 3);
+        var s = 5;
+        var arm = 3;
+        for (var sx = -1; sx <= 1; sx += 2) {
+            for (var sy = -1; sy <= 1; sy += 2) {
+                var cornerX = x + sx * s;
+                var cornerY = y + sy * s;
+                dc.drawLine(cornerX, cornerY, cornerX - sx * arm, cornerY);
+                dc.drawLine(cornerX, cornerY, cornerX, cornerY - sy * arm);
+            }
+        }
+    }
+
+    // Open full detail (KEY_ENTER, aircraft selected) - a magnifier.
+    private function _drawOpenHint(dc as Dc, x as Number, y as Number) as Void {
+        dc.setColor(Palette.WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawCircle(x - 1, y - 1, 4);
+        dc.drawLine(x + 2, y + 2, x + 5, y + 5);
     }
 
     // Recenter (KEY_ESC) - a crosshair with a gap, not a solid "+", so it doesn't read as the zoom-in hint.

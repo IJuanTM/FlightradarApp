@@ -1,7 +1,6 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 
-// Bottom-right (ESC) recenters/deselects when there's something to clear, else falls through to exit.
 class RadarDelegate extends WatchUi.BehaviorDelegate {
     private var _view as RadarView;
 
@@ -10,6 +9,7 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
         _view = view;
     }
 
+    // START as a key, not the onSelect behavior, which a tap also triggers.
     public function onKey(keyEvent as WatchUi.KeyEvent) as Boolean {
         var key = keyEvent.getKey();
 
@@ -19,18 +19,26 @@ class RadarDelegate extends WatchUi.BehaviorDelegate {
         } else if (key == WatchUi.KEY_DOWN) {
             _view.zoomOut();
             return true;
-        } else if (key == WatchUi.KEY_ESC) {
-            return _view.recenter();
-        } else if (key == WatchUi.KEY_ENTER or key == WatchUi.KEY_MENU) {
-            WatchUi.pushView(
-                MenuBuilder.buildMainMenu(),
-                new SettingsMenuDelegate(),
-                WatchUi.SLIDE_UP
-            );
+        } else if (key == WatchUi.KEY_ENTER) {
+            _view.selectOrOpen();
             return true;
         }
 
         return false;
+    }
+
+    public function onBack() as Boolean {
+        return _view.back();
+    }
+
+    // Holding UP.
+    public function onMenu() as Boolean {
+        WatchUi.pushView(
+            MenuBuilder.buildMainMenu(),
+            new SettingsMenuDelegate(),
+            WatchUi.SLIDE_UP
+        );
+        return true;
     }
 
     // Suppressed during and right after a committed drag - a real gesture can leave a stray tap.

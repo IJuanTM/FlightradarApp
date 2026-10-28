@@ -22,7 +22,7 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 - Ground-vehicle and fixed-obstacle (towers, masts, tethered balloons) filtering, grounded/stale-position dimming, military filtering
 - Battery Saver mode (triples the poll interval, halves the redraw rate, turns off smooth motion) and Single Color Mode (uniform aircraft color, no category coding)
 - Metric/imperial unit toggle throughout
-- Pan by dragging, recenter/deselect/exit via a single button
+- Pan by dragging, recenter/deselect/exit via Back
 
 ---
 
@@ -39,7 +39,7 @@ A live ADS-B flight radar for Garmin watches, showing every aircraft around you 
 - Your position is a cyan ring; an edge arrow points toward it instead if you've panned it out of view
 - Aircraft are drawn as rotated silhouette icons tinted by category, with an optional callsign/speed/altitude label
 - A selected aircraft gets a green reticle above it, its historical track drawn behind it, and a compact detail panel along the bottom
-- Corner glyphs hint what Up / Down / Menu / Esc do at a glance (toggleable)
+- Corner glyphs hint what Up / Down / Start / Back do at a glance (toggleable)
 
 ### Full detail view
 
@@ -55,14 +55,15 @@ Swipe up on the compact panel (or tap it) for everything the compact panel leave
 | ------------------------------------- | ------------------------------------------------------------------- |
 | Up                                    | Zoom in                                                             |
 | Down                                  | Zoom out                                                            |
-| Enter / Menu                          | Open Settings                                                       |
-| Esc                                   | Recenter (if panned) → deselect (if an aircraft is selected) → exit |
+| Start                                 | Select the aircraft nearest the center; with one selected, open full detail |
+| Hold Up                               | Open Settings                                                       |
+| Back                                  | Recenter (if panned) → deselect (if an aircraft is selected) → `Press again to exit`, a second Back within 2 s exits |
 | Tap an aircraft                       | Select it: track, compact panel, chevrons                           |
 | Tap empty space                       | Deselect, keep the current view                                     |
 | Tap the compact panel                 | Open full detail                                                    |
 | Drag                                  | Pan the map                                                         |
 | Swipe up _(aircraft selected)_        | Open full detail                                                    |
-| Swipe down / Esc _(full detail open)_ | Close                                                               |
+| Swipe down / Back _(full detail open)_ | Close                                                               |
 | Tap the bottom band _(full detail open)_ | Close                                                             |
 | Drag / Up / Down _(full detail open)_ | Scroll                                                              |
 
@@ -70,7 +71,7 @@ Swipe up on the compact panel (or tap it) for everything the compact panel leave
 
 ## Settings
 
-Reached via the on-device menu (Enter/Menu button).
+Reached via the on-device menu (hold Up).
 
 ### Display
 
@@ -83,7 +84,7 @@ Reached via the on-device menu (Enter/Menu button).
 | Map → Map Dark Mode       | Use the style's dark variant                                           |
 | Airports → Airports       | Nearby airport markers                                                 |
 | Airports → Small Airports | Also show ICAO-coded airfields that have no IATA code                   |
-| Button Hints              | Edge glyphs showing what Up / Down / Menu / Esc do                     |
+| Button Hints              | Edge glyphs showing what Up / Down / Start / Back do                   |
 
 ### Filters
 
