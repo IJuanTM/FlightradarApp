@@ -33,6 +33,10 @@ class FlightradarApp extends Application.AppBase {
                 Position.CONFIGURATION_GPS_GLONASS_GALILEO_BEIDOU_L1;
         }
         Position.enableLocationEvents(options, method(:onPosition));
+        // P2000App's MMT page launches this with the incident's position and the helicopters to look for.
+        if (state != null) {
+            _radarView.focusOn(state);
+        }
     }
 
     public function onStop(state as Dictionary?) as Void {

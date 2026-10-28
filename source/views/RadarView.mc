@@ -80,6 +80,8 @@ class RadarView extends WatchUi.View {
 
     private var _selection as Selection = new Selection();
     private var _manualFocus as [Float, Float]?;
+    // Registrations from a launch by another app; the first one seen is selected.
+    private var _focusRegs as Array<String>?;
     private var _dragStartCoords as [Number, Number]?;
     private var _dragLastCoords as [Number, Number]?;
     private var _dragCommitted as Boolean = false;
@@ -433,8 +435,35 @@ class RadarView extends WatchUi.View {
         _viewHasFreshData = false;
     }
 
+    // Launch arguments: "lat"/"lon" as decimal strings and "regs" as comma-separated registrations, each optional.
+    public function focusOn(args as Dictionary) as Void {
+        var lat = args["lat"];
+        var lon = args["lon"];
+        if (lat instanceof Lang.String && lon instanceof Lang.String) {
+            var latF = lat.toFloat();
+            var lonF = lon.toFloat();
+            if (latF != null && lonF != null) {
+                _manualFocus = [latF, lonF];
+            }
+        }
+        var regs = args["regs"];
+        if (regs instanceof Lang.String) {
+            var list = [] as Array<String>;
+            var rest = regs;
+            var comma = rest.find(",");
+            while (comma != null) {
+                list.add(rest.substring(0, comma) as String);
+                rest = rest.substring(comma + 1, null) as String;
+                comma = rest.find(",");
+            }
+            list.add(rest);
+            _focusRegs = list;
+        }
+    }
+
     // False when nothing's left to clear - lets the caller fall through to exit.
     public function recenter() as Boolean {
+        _focusRegs = null;
         if (_manualFocus != null) {
             _manualFocus = null;
             _viewHasFreshData = false;
@@ -770,6 +799,23 @@ class RadarView extends WatchUi.View {
                     _manualFocus = _selection.lastPos;
                 }
                 deselectAircraft();
+            }
+            var regs = _focusRegs;
+            if (regs != null) {
+                for (
+                    var i = 0;
+                    i < aircraft.size() && _focusRegs != null;
+                    i++
+                ) {
+                    var reg = aircraft[i].registration;
+                    for (var j = 0; reg != null && j < regs.size(); j++) {
+                        if (regs[j].equals(reg)) {
+                            _focusRegs = null;
+                            selectAircraft(aircraft[i].hex);
+                            break;
+                        }
+                    }
+                }
             }
         } else {
             _feedRetryAtMs = System.getTimer() + _feedRetryBackoffMs;
