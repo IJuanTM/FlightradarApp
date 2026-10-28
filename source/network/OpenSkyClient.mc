@@ -15,10 +15,11 @@ class OpenSkyClient {
     // A ground stop longer than this is a turnaround, so the live track's points before it are the previous flight.
     private const TURNAROUND_GAP_SEC = 1200;
 
-    // hex travels with the response - a retried or late response correlated via caller state could be misattributed.
+    // requestId and hex travel with the response - a late reply to a timed-out request must be told apart from its queued retry.
     typedef TrackCallback as
         (Method
             (
+                requestId as Number,
                 hex as String,
                 points as Array<[Float, Float, Number, Boolean]>,
                 ok as Boolean
@@ -29,17 +30,18 @@ class OpenSkyClient {
     private var _clientSecret as String?;
     private var _accessToken as String?;
     private var _tokenExpiresAtMs as Number?;
-    // Payload is the hex - see PendingRequestSlot for the active/queued contract.
+    // Payload is [requestId, hex] - see PendingRequestSlot for the active/queued contract.
     private var _slot as PendingRequestSlot = new PendingRequestSlot();
     private var _retriedTrackAuth as Boolean = false;
 
     public function initialize() {}
 
     public function fetchTrack(
+        requestId as Number,
         hex as String,
         callback as TrackCallback
     ) as Void {
-        if (!_slot.start(hex, callback as Method)) {
+        if (!_slot.start([requestId, hex], callback as Method)) {
             return;
         }
         _retriedTrackAuth = false;
@@ -131,14 +133,14 @@ class OpenSkyClient {
     }
 
     private function _fetchTrackWithToken(token as String) as Void {
-        var hex = _slot.activePayload() as String?;
-        if (hex == null) {
+        var payload = _slot.activePayload() as [Number, String]?;
+        if (payload == null) {
             return;
         }
         // Params dict, not URL concatenation - auto-encoding stops a malformed hex from injecting query params.
         Communications.makeWebRequest(
             TRACKS_URL,
-            { "icao24" => hex, "time" => 0 },
+            { "icao24" => payload[1], "time" => 0 },
             {
                 :method => Communications.HTTP_REQUEST_METHOD_GET,
                 :headers => { "Authorization" => "Bearer " + token },
@@ -220,11 +222,11 @@ class OpenSkyClient {
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
     ) as Void {
-        var hex = _slot.activePayload() as String?;
+        var payload = _slot.activePayload() as [Number, String]?;
         var cb = _slot.activeCallback() as TrackCallback?;
         var promoted = _slot.clearAndPromote();
-        if (cb != null && hex != null) {
-            cb.invoke(hex, points, ok);
+        if (cb != null && payload != null) {
+            cb.invoke(payload[0], payload[1], points, ok);
         }
         if (promoted) {
             _retriedTrackAuth = false;

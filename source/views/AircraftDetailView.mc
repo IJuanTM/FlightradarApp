@@ -289,8 +289,7 @@ class AircraftDetailView extends WatchUi.View {
             return;
         }
         var row = _rows[rowIndex];
-        var cell = row[0];
-        row[0] = [cell[0], segments];
+        row[0] = [row[0][0], segments];
         if (rowIndex == _depRowIndex) {
             _depWrapDirty = true;
         } else if (rowIndex == _arrRowIndex) {

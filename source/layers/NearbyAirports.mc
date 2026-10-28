@@ -7,8 +7,9 @@ import Toybox.WatchUi;
 class NearbyAirports {
     // Airports basically never change - a long cooldown is fair use of the free OpenAIP tier.
     private const MIN_REFETCH_INTERVAL_MS = 20000;
-    private const REFETCH_MARGIN_FACTOR = 0.5;
     private const OVERSCAN_FACTOR = 1.2;
+    // Within the overscan margin, as BackgroundMap does - a wider threshold leaves the leading edge unfetched.
+    private const REFETCH_MARGIN_FACTOR = (OVERSCAN_FACTOR - 1.0) * 0.75;
     // Least recently fetched evicted first past this - keeps the merged cache bounded on a long panning session.
     private const CACHE_MAX = 150;
     private const MARKER_R = 3;

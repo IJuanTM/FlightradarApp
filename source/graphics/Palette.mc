@@ -63,7 +63,7 @@ module Palette {
 
     // "Grey" full-detail values are white - label and value would read as the same dim tone otherwise.
     const DETAIL_VALUE = WHITE;
-    // Route's loading/unknown/failed states only, to read as "not resolved" rather than a fact.
+    // Missing-value dashes and route loading/unknown/failed states, to read as "not resolved" rather than a fact.
     const ROUTE_DIM = GRID_LABEL;
     // Identity/reference fields - not grey, row labels are already grey.
     const IDENTITY = HUES[4]; // cyan

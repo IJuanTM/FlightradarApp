@@ -8,9 +8,11 @@ class AdsbFiClient {
     private const BASE_URL = "https://opendata.adsb.fi/api/v3/lat";
 
     // tooMuchData distinguishes the known response-size-ceiling failure (-402/-403) from a generic failure.
+    // requestId travels with the response - a late reply to a timed-out poll must be told apart from the queued one.
     typedef FetchCallback as
         (Method
             (
+                requestId as Number,
                 aircraft as Array<Aircraft>,
                 ok as Boolean,
                 tooMuchData as Boolean,
@@ -21,7 +23,7 @@ class AdsbFiClient {
     // adsb.fi documents a 1 req/sec limit - a bit of margin above that.
     private const MIN_REQUEST_INTERVAL_MS = 1050;
 
-    // Payload shape is [lat, lon, radiusKm] - see PendingRequestSlot for the active/queued contract.
+    // Payload shape is [requestId, lat, lon, radiusKm] - see PendingRequestSlot for the active/queued contract.
     private var _slot as PendingRequestSlot = new PendingRequestSlot();
     private var _lastRequestStartMs as Number?;
     // Held here, not a local - an unreferenced Timer can be garbage-collected before it fires.
@@ -30,12 +32,13 @@ class AdsbFiClient {
     public function initialize() {}
 
     public function fetch(
+        requestId as Number,
         lat as Float,
         lon as Float,
         radiusKm as Float,
         callback as FetchCallback
     ) as Void {
-        if (!_slot.start([lat, lon, radiusKm], callback as Method)) {
+        if (!_slot.start([requestId, lat, lon, radiusKm], callback as Method)) {
             return;
         }
         _dispatchOrThrottle();
@@ -69,7 +72,7 @@ class AdsbFiClient {
         _lastRequestStartMs = System.getTimer();
 
         var payload = _slot.activePayload() as Array;
-        var radiusNm = (payload[2] as Float) * 0.539957;
+        var radiusNm = (payload[3] as Float) * 0.539957;
         if (radiusNm < 1.0) {
             radiusNm = 1.0;
         }
@@ -78,9 +81,9 @@ class AdsbFiClient {
         Communications.makeWebRequest(
             BASE_URL +
                 "/" +
-                (payload[0] as Float).toString() +
-                "/lon/" +
                 (payload[1] as Float).toString() +
+                "/lon/" +
+                (payload[2] as Float).toString() +
                 "/dist/" +
                 radiusNm.format("%.1f"),
             null,
@@ -126,10 +129,11 @@ class AdsbFiClient {
         tooMuchData as Boolean,
         code as Number
     ) as Void {
+        var payload = _slot.activePayload() as Array?;
         var cb = _slot.activeCallback() as FetchCallback?;
         var promoted = _slot.clearAndPromote();
-        if (cb != null) {
-            cb.invoke(aircraft, ok, tooMuchData, code);
+        if (cb != null && payload != null) {
+            cb.invoke(payload[0] as Number, aircraft, ok, tooMuchData, code);
         }
         if (promoted) {
             _dispatchOrThrottle();

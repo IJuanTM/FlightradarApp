@@ -18,6 +18,8 @@ class BackgroundMap {
     private const REFETCH_MARGIN_FACTOR = 0.75;
     // A 6th concurrently-cached 512x512-class tile reliably fails - stay comfortably under that.
     private const MAX_TILES_FOR_HI_RES = 5;
+    // Web Mercator's edge - past it the tile math yields NaN zooms and Math.pow throws.
+    private const MAX_MERCATOR_LAT = 85.0511;
 
     // Shared request channel - the aircraft poll and the selection fetches pause it while they run.
     public var client as MapTileClient = new MapTileClient(
@@ -54,6 +56,7 @@ class BackgroundMap {
 
     // Refetch checks compare against this, not the received tiles, to avoid re-requesting a slow fetch.
     private var _requestedZoomIndex as Number?;
+    private var _requestedTileSize as Number?;
     private var _requestedLat as Float?;
     private var _requestedLon as Float?;
     // Shared across all tiles, since only one tile request is ever in flight.
@@ -138,6 +141,9 @@ class BackgroundMap {
         screenW as Number,
         screenH as Number
     ) as Boolean {
+        if (focusLat.abs() > MAX_MERCATOR_LAT) {
+            return false;
+        }
         var zoomIndex = Settings.zoomIndex;
         var now = System.getTimer();
         if (_forceRefetch) {
@@ -266,10 +272,12 @@ class BackgroundMap {
             )
         );
 
-        // Only a real zoom change keeps the old set - _pruneStaleTilesCoveredBy evicts each stale tile as its area is replaced.
+        // Only a zoom or tile-size change keeps the old set (a pan can flip HI/STD and change every key) - _pruneStaleTilesCoveredBy evicts each stale tile as its area is replaced.
+        // && / ||, not and / or - the Prettier Monkey C formatter mis-prints (A or B) and C, flipping its meaning.
         if (
-            _requestedZoomIndex != null and
-            _requestedZoomIndex != zoomIndex and
+            _requestedZoomIndex != null &&
+            (_requestedZoomIndex != zoomIndex ||
+                _requestedTileSize != tileSize) &&
             _tiles.size() > 0
         ) {
             _staleTiles = _tiles.values();
@@ -277,6 +285,7 @@ class BackgroundMap {
         }
 
         _requestedZoomIndex = zoomIndex;
+        _requestedTileSize = tileSize;
         _requestedLat = focusLat;
         _requestedLon = focusLon;
         _neededKeys = neededKeys;

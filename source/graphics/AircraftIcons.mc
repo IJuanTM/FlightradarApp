@@ -400,12 +400,14 @@ class AircraftIcons {
         center as [Number, Number],
         ac as Aircraft
     ) as Void {
-        var cx = center[0];
-        var cy = center[1];
-        var dir = (ac.vertRate as Float) > 0 ? 1 : -1;
         dc.setColor(colorFor(ac), Graphics.COLOR_TRANSPARENT);
-        dc.drawLine(cx - 3, cy + dir * 3, cx, cy);
-        dc.drawLine(cx, cy, cx + 3, cy + dir * 3);
+        DrawUtils.drawChevron(
+            dc,
+            center[0],
+            center[1],
+            3,
+            (ac.vertRate as Float) > 0
+        );
     }
 
     public function chevronRect(

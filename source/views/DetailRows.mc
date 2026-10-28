@@ -37,20 +37,9 @@ module DetailRows {
                 DrawUtils.plainRun(ac.registration as String, Palette.IDENTITY)
             );
         }
-        var badgeParts = [] as Array<String>;
-        if (ac.spi) {
-            badgeParts.add("IDENT");
-        }
-        if (ac.alertFlag) {
-            badgeParts.add("ALERT");
-        }
-        if (badgeParts.size() > 0) {
-            idSegs.add(
-                DrawUtils.plainRun(
-                    " ".join(badgeParts),
-                    ac.isEmergency() ? Palette.EMERGENCY : Palette.WARN
-                )
-            );
+        var badge = _statusBadge(ac);
+        if (badge != null) {
+            idSegs.add(DrawUtils.plainRun(badge, _statusColor(ac)));
         }
         lines.add(idSegs);
 
@@ -125,10 +114,13 @@ module DetailRows {
             _cell("Hex", ac.hex, Palette.IDENTITY)
         );
 
-        var typeStr = ac.typeDesc != null ? ac.typeDesc : ac.typeCode;
         _gridRow(
             rows,
-            _cellOrDash("Type", typeStr, Palette.IDENTITY),
+            _cellOrDash(
+                "Type",
+                ac.typeDesc != null ? ac.typeDesc : ac.typeCode,
+                Palette.IDENTITY
+            ),
             _cellOrDash("Category", ac.category, Palette.IDENTITY)
         );
 
@@ -143,13 +135,15 @@ module DetailRows {
               : null;
         var vertRateCell = _cell("Vertical Rate", "-", Palette.ROUTE_DIM);
         if (ac.vertRate != null) {
-            var vr = ac.vertRate as Float;
-            var climbing = vr > 0;
-            var sign = climbing ? "+" : "";
+            var fpm = NumUtils.round(ac.vertRate as Float);
             vertRateCell = _cell(
                 "Vertical Rate",
-                sign + Formatters.vertRate(NumUtils.round(vr)),
-                climbing ? Palette.SUCCESS : Palette.WARN
+                (fpm > 0 ? "+" : "") + Formatters.vertRate(fpm),
+                fpm > 0
+                    ? Palette.SUCCESS
+                    : fpm < 0
+                      ? Palette.WARN
+                      : Palette.DETAIL_VALUE
             );
         }
         _gridRow(
@@ -218,21 +212,9 @@ module DetailRows {
             : _cellOrDash("Squawk", ac.squawk, squawkColor);
         _gridRow(rows, hdgCell, squawkCell);
 
-        var statusParts = [] as Array<String>;
-        if (ac.spi) {
-            statusParts.add("IDENT");
-        }
-        if (ac.alertFlag) {
-            statusParts.add("ALERT");
-        }
-        if (statusParts.size() > 0) {
-            rows.add([
-                _cell(
-                    "Status",
-                    " ".join(statusParts),
-                    emergency ? Palette.EMERGENCY : Palette.WARN
-                ),
-            ]);
+        var status = _statusBadge(ac);
+        if (status != null) {
+            rows.add([_cell("Status", status, _statusColor(ac))]);
         }
         _markGroupIfNonEmpty(rows, groupBoundaries, navStatusStart);
 
@@ -350,16 +332,25 @@ module DetailRows {
 
     function _gridRow(
         rows as Array<Array<Cell> >,
-        cellA as Cell?,
-        cellB as Cell?
+        cellA as Cell,
+        cellB as Cell
     ) as Void {
-        if (cellA != null && cellB != null) {
-            rows.add([cellA as Cell, cellB as Cell]);
-        } else if (cellA != null) {
-            rows.add([cellA as Cell]);
-        } else if (cellB != null) {
-            rows.add([cellB as Cell]);
+        rows.add([cellA, cellB]);
+    }
+
+    function _statusBadge(ac as Aircraft) as String? {
+        var parts = [] as Array<String>;
+        if (ac.spi) {
+            parts.add("IDENT");
         }
+        if (ac.alertFlag) {
+            parts.add("ALERT");
+        }
+        return parts.size() > 0 ? " ".join(parts) : null;
+    }
+
+    function _statusColor(ac as Aircraft) as Number {
+        return ac.isEmergency() ? Palette.EMERGENCY : Palette.WARN;
     }
 
     // A group that added no rows (all its fields were absent) doesn't get a boundary marker.

@@ -21,9 +21,10 @@ module Projection {
         } else if (dLon < -180.0) {
             dLon += 360.0;
         }
-        var dxM = dLon * metersPerDegLon;
-        var dyM = (lat - centerLat) * METERS_PER_DEG_LAT;
-        return [dxM / 1000.0, dyM / 1000.0];
+        return [
+            (dLon * metersPerDegLon) / 1000.0,
+            ((lat - centerLat) * METERS_PER_DEG_LAT) / 1000.0,
+        ];
     }
 
     function distanceKm(
@@ -49,9 +50,10 @@ module Projection {
         var dyKm = dyPx / pxPerKm;
         var metersPerDegLon =
             METERS_PER_DEG_LAT * Math.cos(Math.toRadians(focusLat));
-        var dLon = (dxKm * 1000.0) / metersPerDegLon;
-        var dLat = (dyKm * 1000.0) / METERS_PER_DEG_LAT;
-        return [dLat, dLon];
+        return [
+            (dyKm * 1000.0) / METERS_PER_DEG_LAT,
+            (dxKm * 1000.0) / metersPerDegLon,
+        ];
     }
 
     const WEB_MERCATOR_EQUATOR_M_PER_PX_AT_Z0 = 156543.03392;
@@ -92,8 +94,10 @@ module Projection {
 
     // Longitude degrees shrink in real distance away from the equator (cos(lat)) - unlike latitude.
     function kmToDegLon(km as Float, atLat as Float) as Float {
-        var metersPerDeg = METERS_PER_DEG_LAT * Math.cos(Math.toRadians(atLat));
-        return (km * 1000.0) / metersPerDeg;
+        return (
+            (km * 1000.0) /
+            (METERS_PER_DEG_LAT * Math.cos(Math.toRadians(atLat)))
+        );
     }
 
     // Top-left corner of the tile.

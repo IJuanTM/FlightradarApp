@@ -8,9 +8,10 @@ module Credentials {
         section as String,
         keys as Array<String>
     ) as Array<String>? {
-        var creds =
-            WatchUi.loadResource(Rez.JsonData.Credentials) as Dictionary;
-        var sec = creds[section];
+        var sec =
+            (WatchUi.loadResource(Rez.JsonData.Credentials) as Dictionary)[
+                section
+            ];
         if (!(sec instanceof Lang.Dictionary)) {
             return null;
         }

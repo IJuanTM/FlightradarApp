@@ -13,6 +13,7 @@ class SelectionFetcher {
     private var _trackFetchInFlight as Boolean = false;
     private var _trackFetchStartMs as Number?;
     private var _trackFetchHex as String?;
+    private var _trackFetchSeq as Number = 0;
     private var _trackFetchRetried as Boolean = false;
     // Set when _fetchTrack deferred because a map tile was already in flight - retried from retryDeferred.
     private var _trackFetchPending as Boolean = false;
@@ -84,7 +85,12 @@ class SelectionFetcher {
             _trackFetchInFlight and
             FetchTimeout.expired(_trackFetchStartMs, now)
         ) {
-            _onTrackResult(_trackFetchHex as String, [], false);
+            _onTrackResult(
+                _trackFetchSeq,
+                _trackFetchHex as String,
+                [],
+                false
+            );
         }
         checkRouteTimeouts(now);
     }
@@ -129,14 +135,23 @@ class SelectionFetcher {
         _trackFetchInFlight = true;
         _trackFetchStartMs = System.getTimer();
         _trackFetchHex = hex;
-        _trackClient.fetchTrack(hex as String, method(:_onTrackResult));
+        _trackFetchSeq += 1;
+        _trackClient.fetchTrack(
+            _trackFetchSeq,
+            hex as String,
+            method(:_onTrackResult)
+        );
     }
 
     public function _onTrackResult(
+        requestId as Number,
         hex as String,
         points as Array<[Float, Float, Number, Boolean]>,
         ok as Boolean
     ) as Void {
+        if (requestId != _trackFetchSeq) {
+            return;
+        }
         _trackFetchInFlight = false;
         _tiles.resumeFor(:track);
         ApiStatus.setState(ApiStatus.track, ok);

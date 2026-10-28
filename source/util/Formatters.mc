@@ -32,12 +32,14 @@ module Formatters {
     }
 
     function lat(lat as Float, precise as Boolean) as String {
-        var s = precise ? lat.abs().format("%.4f") : lat.abs().format("%.2f");
-        return s + (lat >= 0 ? "N" : "S");
+        return (
+            lat.abs().format(precise ? "%.4f" : "%.2f") + (lat >= 0 ? "N" : "S")
+        );
     }
 
     function lon(lon as Float, precise as Boolean) as String {
-        var s = precise ? lon.abs().format("%.4f") : lon.abs().format("%.2f");
-        return s + (lon >= 0 ? "E" : "W");
+        return (
+            lon.abs().format(precise ? "%.4f" : "%.2f") + (lon >= 0 ? "E" : "W")
+        );
     }
 }

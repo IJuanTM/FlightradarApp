@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-// Color stays in RadarView, tied to Settings/palette.
+// Color stays in AircraftIcons.colorFor, tied to Settings/palette.
 module AircraftClassifier {
     // Half-diagonal (content px, scale 1.0) of each shape's rendered art bbox.
     const ICON_HALF_DIAGONAL as Dictionary<String, Float> = {
@@ -711,7 +711,8 @@ module AircraftClassifier {
         if (matchesType(ac.typeCode, LARGE_TYPE_CODES)) {
             return "A3";
         }
-        return cat != null ? cat as String : "A1";
+        // Unclassified, not guessed light - tar1090 gives A0 and a missing category the same "unknown" shape.
+        return "A0";
     }
 
     function shapeKeyForCategory(ac as Aircraft, cat as String) as String {

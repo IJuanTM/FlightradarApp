@@ -50,7 +50,10 @@ class RadarView extends WatchUi.View {
     private var _noSignalCodeText as String = "";
     // Reset on pan/zoom, so "Fetching" shows for a genuine new-view load, not a same-view background poll.
     private var _viewHasFreshData as Boolean = false;
+    // The in-flight fetch was sent for the view before a pan/zoom, so its reply isn't fresh data for this one.
+    private var _feedForOldView as Boolean = false;
     private var _feedInFlight as Boolean = false;
+    private var _feedSeq as Number = 0;
     // Asked to fetch again while one was already in flight - retried once it resolves.
     private var _feedRefetchPending as Boolean = false;
     private var _feedStartMs as Number?;
@@ -62,6 +65,8 @@ class RadarView extends WatchUi.View {
     // The compact detail panel's built segments, dropped per fetch result - see _buildDetailLinesCached.
     private var _detailLinesCache as Array<Array<DrawUtils.ValueRun> >?;
     private var _detailLinesCacheHex as String?;
+    private var _detailMeasures as Array<[Number, Array<Number>]> = [];
+    private var _detailMeasuresFor as Array<Array<DrawUtils.ValueRun> >?;
     // [singleColorMode, useMetricUnits, trackLoading, trackLoaded] - all affect the built output but aren't tied to any poll.
     private var _detailLinesCacheFlags as [Boolean, Boolean, Boolean, Boolean]?;
     // Same idea, for every visible aircraft's on-map label - see _buildLabelLinesCached.
@@ -158,6 +163,7 @@ class RadarView extends WatchUi.View {
         var charSize = DrawUtils.measureChar(dc, _fontTiny);
         _charW = charSize[0];
         _charH = charSize[1];
+        _labelLineH = dc.getTextDimensions("Ag", _fontTiny)[1];
         // Sized to fit the button hints with a visible gap on both sides - see BUTTON_HINT_REACH_PX.
         _edgeMargin = BUTTON_HINT_REACH_PX * 2;
         _gridLabelInset = _charH + _charW;
@@ -188,10 +194,7 @@ class RadarView extends WatchUi.View {
             var deg = (loc as Position.Location).toDegrees();
             var lat = deg[0].toFloat();
             var lon = deg[1].toFloat();
-            // A few devices are known to report (0,0) or (180,180) instead of null when there's no cached fix.
-            if (
-                !(lat == 0.0 and lon == 0.0 or (lat == 180.0 and lon == 180.0))
-            ) {
+            if (!_isPlaceholderFix(lat, lon)) {
                 _userLat = lat;
                 _userLon = lon;
                 _hasFix = true;
@@ -230,11 +233,20 @@ class RadarView extends WatchUi.View {
             seedLon = storedLon as Float;
             seedTs = storedTs as Number;
         }
-        if (seedTs != null && Time.now().value() - seedTs <= MAX_SEED_AGE_SEC) {
+        if (
+            seedTs != null &&
+            Time.now().value() - seedTs <= MAX_SEED_AGE_SEC &&
+            !_isPlaceholderFix(seedLat as Float, seedLon as Float)
+        ) {
             _userLat = seedLat;
             _userLon = seedLon;
             _hasFix = true;
         }
+    }
+
+    // A few devices, and the simulator when its activity data stops, report (0,0) or (180,180) instead of null for no fix.
+    private function _isPlaceholderFix(lat as Float, lon as Float) as Boolean {
+        return lat.abs() > 90.0 || (lat == 0.0 && lon == 0.0);
     }
 
     public function onHide() as Void {
@@ -307,7 +319,7 @@ class RadarView extends WatchUi.View {
 
         // A hung callback would otherwise stall forever.
         if (_feedInFlight and FetchTimeout.expired(_feedStartMs, now)) {
-            _onFeedResult([], false, false, 0);
+            _onFeedResult(_feedSeq, [], false, false, 0);
         }
         _fetcher.checkTimeouts(now);
 
@@ -384,7 +396,10 @@ class RadarView extends WatchUi.View {
 
     public function onPosition(info as Position.Info) as Void {
         var pos = info.position;
-        if (pos == null) {
+        var deg = pos != null ? pos.toDegrees() : null;
+        var lat = deg != null ? deg[0].toFloat() : 0.0;
+        var lon = deg != null ? deg[1].toFloat() : 0.0;
+        if (_isPlaceholderFix(lat, lon)) {
             // A fix already established can be lost again (e.g. indoors) - don't keep rendering on stale coordinates.
             // Only a live one, though: the empty events before the first real fix must not drop the startup seed.
             if (_hasFix && _liveFix != null) {
@@ -394,9 +409,6 @@ class RadarView extends WatchUi.View {
             return;
         }
 
-        var deg = pos.toDegrees();
-        var lat = deg[0].toFloat();
-        var lon = deg[1].toFloat();
         // A seed can be km off, so the first live fix refetches at once instead of waiting for the poll.
         var firstFix = !_hasFix || _liveFix == null;
         _userLat = lat;
@@ -443,7 +455,12 @@ class RadarView extends WatchUi.View {
         _zoomChangedAtMs = System.getTimer();
         _feedRetryAtMs = null;
         _feedRetryBackoffMs = FEED_INITIAL_RETRY_BACKOFF_MS;
+        _markViewChanged();
+    }
+
+    private function _markViewChanged() as Void {
         _viewHasFreshData = false;
+        _feedForOldView = _feedInFlight;
     }
 
     // Launch arguments: "lat"/"lon" as decimal strings and "regs" as comma-separated registrations, each optional.
@@ -477,7 +494,7 @@ class RadarView extends WatchUi.View {
         _focusRegs = null;
         if (_manualFocus != null) {
             _manualFocus = null;
-            _viewHasFreshData = false;
+            _markViewChanged();
             _fetchFeed();
             WatchUi.requestUpdate();
             return true;
@@ -608,7 +625,7 @@ class RadarView extends WatchUi.View {
         _dragCommitted = false;
         if (wasCommitted) {
             _dragStopAtMs = System.getTimer();
-            _viewHasFreshData = false;
+            _markViewChanged();
             _fetchFeed();
             WatchUi.requestUpdate();
         }
@@ -804,7 +821,9 @@ class RadarView extends WatchUi.View {
         var focus = _focusPoint(false);
         _feedInFlight = true;
         _feedStartMs = System.getTimer();
+        _feedSeq += 1;
         _feedClient.fetch(
+            _feedSeq,
             focus[0],
             focus[1],
             Settings.zoomRadiusKm(),
@@ -813,12 +832,19 @@ class RadarView extends WatchUi.View {
     }
 
     public function _onFeedResult(
+        requestId as Number,
         aircraft as Array<Aircraft>,
         ok as Boolean,
         tooMuchData as Boolean,
         code as Number
     ) as Void {
+        // The watchdog already failed this poll and a newer one is queued behind it - the late reply must not end that one.
+        if (requestId != _feedSeq) {
+            return;
+        }
         _feedInFlight = false;
+        var forOldView = _feedForOldView;
+        _feedForOldView = false;
         _lastFeedOk = ok;
         _lastFeedTooMuchData = tooMuchData;
         if (!ok) {
@@ -831,7 +857,7 @@ class RadarView extends WatchUi.View {
             _ticksSincePoll = 0;
             _feedRetryAtMs = null;
             _feedRetryBackoffMs = FEED_INITIAL_RETRY_BACKOFF_MS;
-            _viewHasFreshData = true;
+            _viewHasFreshData = !forOldView;
 
             var byHex = ({}) as Dictionary<String, Aircraft>;
             var now = System.getTimer();
@@ -1195,9 +1221,10 @@ class RadarView extends WatchUi.View {
         compassDeg as Float
     ) as [Number, Number] {
         var theta = Math.toRadians(compassDeg);
-        var x = cx + NumUtils.round(ringR * Math.sin(theta));
-        var y = cy - NumUtils.round(ringR * Math.cos(theta));
-        return [x, y];
+        return [
+            cx + NumUtils.round(ringR * Math.sin(theta)),
+            cy - NumUtils.round(ringR * Math.cos(theta)),
+        ];
     }
 
     // Zoom in (KEY_UP). White, not Palette.TEXT, to match the chevron's brightness.
@@ -1660,7 +1687,6 @@ class RadarView extends WatchUi.View {
             var showCallsign = Settings.isLabelFieldEnabled("callsign");
             var showSpeed = Settings.isLabelFieldEnabled("speed");
             var showAltitude = Settings.isLabelFieldEnabled("altitude");
-            var lineH = dc.getTextDimensions("Ag", _fontTiny)[1];
             _syncLabelCacheSettings(showCallsign, showSpeed, showAltitude);
             // Drawn first so its rect is already reserved - an overlapping label loses the spot instead of stacking.
             if (selectedIndex >= 0) {
@@ -1675,8 +1701,7 @@ class RadarView extends WatchUi.View {
                         true,
                         showCallsign,
                         showSpeed,
-                        showAltitude,
-                        lineH
+                        showAltitude
                     );
                 }
             }
@@ -1696,8 +1721,7 @@ class RadarView extends WatchUi.View {
                     false,
                     showCallsign,
                     showSpeed,
-                    showAltitude,
-                    lineH
+                    showAltitude
                 );
             }
         }
@@ -1919,6 +1943,7 @@ class RadarView extends WatchUi.View {
     private var _labelLineGapPx as Number = 2;
     // Scaled by aircraft size like the icon, with margin to clear the icon and a descent chevron at every size tier.
     private var _labelVoffsetBase as Float = 18.0;
+    private var _labelLineH as Number = 14;
 
     // Two rows (callsign / speed+altitude), not one wide line - a narrower footprint loses fewer overlap checks.
     private function _drawAircraftLabel(
@@ -1929,8 +1954,7 @@ class RadarView extends WatchUi.View {
         isSelected as Boolean,
         showCallsign as Boolean,
         showSpeed as Boolean,
-        showAltitude as Boolean,
-        lineH as Number
+        showAltitude as Boolean
     ) as Void {
         var entry = _buildLabelLinesCached(
             dc,
@@ -1954,10 +1978,10 @@ class RadarView extends WatchUi.View {
         var width = topW > bottomW ? topW : bottomW;
         var height = 0;
         if (top.size() > 0) {
-            height += lineH;
+            height += _labelLineH;
         }
         if (bottom.size() > 0) {
-            height += lineH;
+            height += _labelLineH;
         }
         if (top.size() > 0 && bottom.size() > 0) {
             height += _labelLineGapPx;
@@ -1981,7 +2005,7 @@ class RadarView extends WatchUi.View {
         if (topM != null) {
             var m = topM as [Number, Array<Number>];
             _drawMeasuredSegments(dc, x, lineY, top, m[1], m[0]);
-            lineY += lineH + _labelLineGapPx;
+            lineY += _labelLineH + _labelLineGapPx;
         }
         if (bottomM != null) {
             var m = bottomM as [Number, Array<Number>];
@@ -2134,10 +2158,20 @@ class RadarView extends WatchUi.View {
         // Stops one row short of panelY, like the top panel, so _drawPanelBorder's line isn't drawn over bare black.
         dc.fillRectangle(0, panelY + 1, dc.getWidth(), panelH - 1);
 
+        // Measured once per built line set (a reference check), not per frame - same reason as the label cache.
+        if (_detailMeasuresFor != lines) {
+            var measures = [] as Array<[Number, Array<Number>]>;
+            for (var i = 0; i < lines.size(); i++) {
+                measures.add(_measureSegments(dc, lines[i]));
+            }
+            _detailMeasures = measures;
+            _detailMeasuresFor = lines;
+        }
+
         var maxLineW = 0;
         for (var i = 0; i < lines.size(); i++) {
             var line = lines[i] as Array<DrawUtils.ValueRun>;
-            var measured = _measureSegments(dc, line);
+            var measured = _detailMeasures[i];
             var lineW = measured[0] as Number;
             if (lineW > maxLineW) {
                 maxLineW = lineW;

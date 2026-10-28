@@ -11,7 +11,7 @@ class MapTileClient {
     public const TILE_SIZE_STD as Number = 256;
     // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
-    // Well above the slowest measured cold fetch (~1s) - past this a tile is reported failed so RadarView can retry it.
+    // Well above the slowest measured cold fetch (~1s) - past this a tile is reported failed so BackgroundMap can retry it.
     private const TILE_TIMEOUT_MS = 3000;
 
     private var _apiKey as String?;
@@ -150,7 +150,7 @@ class MapTileClient {
         }
     }
 
-    // Shared with RadarView so both sides agree on one tile-identity key format.
+    // Shared with BackgroundMap so both sides agree on one tile-identity key format.
     public function tileKeyFor(
         z as Number,
         x as Number,
