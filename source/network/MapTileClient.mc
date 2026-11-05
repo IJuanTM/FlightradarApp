@@ -11,8 +11,6 @@ class MapTileClient {
     public const TILE_SIZE_STD as Number = 256;
     // 256 reference tile at @2x - a distinct render, not interchangeable with MapTiler's own 512 tile.
     public const TILE_SIZE_HI as Number = 512;
-    // Well above the slowest measured cold fetch (~1s) - past this a tile is reported failed so BackgroundMap can retry it.
-    private const TILE_TIMEOUT_MS = 3000;
 
     private var _apiKey as String?;
     private var _currentStartMs as Number?;
@@ -27,7 +25,8 @@ class MapTileClient {
                 x as Number,
                 y as Number,
                 tileSize as Number,
-                bitmap as MapBitmap?
+                bitmap as MapBitmap?,
+                code as Number
             ) as Void
         );
     private var _callback as TileCallback?;
@@ -73,11 +72,9 @@ class MapTileClient {
 
     // Timer ticks only - a hung tile is reported failed rather than cancelled, since cancelAllRequests() crashed on-device.
     public function tick() as Void {
-        var startedAt = _currentStartMs;
         if (
             _current != null and
-            startedAt != null and
-            System.getTimer() - startedAt > TILE_TIMEOUT_MS
+            FetchTimeout.expired(_currentStartMs, System.getTimer())
         ) {
             _abandonCurrent();
         }
@@ -189,7 +186,8 @@ class MapTileClient {
                 req[1] as Number,
                 req[2] as Number,
                 req[3] as Number,
-                null
+                null,
+                Communications.NETWORK_REQUEST_TIMED_OUT
             );
         }
     }
@@ -242,7 +240,8 @@ class MapTileClient {
                 req[1] as Number,
                 req[2] as Number,
                 req[3] as Number,
-                responseCode == 200 ? data : null
+                responseCode == 200 ? data : null,
+                responseCode
             );
         }
         _dispatchNextIfIdle();

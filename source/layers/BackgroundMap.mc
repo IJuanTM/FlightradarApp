@@ -374,7 +374,8 @@ class BackgroundMap {
         x as Number,
         y as Number,
         tileSize as Number,
-        bitmap as MapTileClient.MapBitmap?
+        bitmap as MapTileClient.MapBitmap?,
+        code as Number
     ) as Void {
         var key = client.tileKeyFor(z, x, y, tileSize);
         var stillNeeded =
@@ -382,7 +383,7 @@ class BackgroundMap {
         if (bitmap == null) {
             // An abandoned tile also arrives as null - only one something still needs is a failure worth retrying.
             if (stillNeeded) {
-                _scheduleRetry();
+                _scheduleRetry(code);
             }
             return;
         }
@@ -400,7 +401,7 @@ class BackgroundMap {
         }
         if (resolved == null) {
             if (stillNeeded) {
-                _scheduleRetry();
+                _scheduleRetry(code);
             }
             return;
         }
@@ -426,7 +427,7 @@ class BackgroundMap {
         WatchUi.requestUpdate();
     }
 
-    private function _scheduleRetry() as Void {
+    private function _scheduleRetry(code as Number) as Void {
         ApiStatus.setState(ApiStatus.map, false);
         _nextRetryAtMs = System.getTimer() + _retryBackoffMs;
         _retryBackoffMs *= 2;
@@ -435,6 +436,15 @@ class BackgroundMap {
         }
         // Otherwise needsRefetch sees zero drift from the failed target and never retries while stationary.
         _requestedLat = null;
+        // A dead link or a blocked key would fail the queued tiles too. A tile failing on its own must not take them along: the retry requests it first, so they'd never load.
+        if (
+            FetchTimeout.isTransient(code) ||
+            code == 401 ||
+            code == 403 ||
+            code == 429
+        ) {
+            client.pruneQueue(({}) as Dictionary<String, Boolean>);
+        }
     }
 
     private function _latLonRectsOverlap(

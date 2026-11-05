@@ -11,7 +11,13 @@ class NearbyAirportsClient {
     typedef NearbyAirport as [String, String, Boolean, Float, Float];
 
     typedef NearbyAirportsCallback as
-        (Method(airports as Array<NearbyAirport>, ok as Boolean) as Void);
+        (Method
+            (
+                airports as Array<NearbyAirport>,
+                ok as Boolean,
+                coveredArea as [Float, Float, Number]?
+            ) as Void
+        );
 
     // Payload is [lat, lon, radiusMeters] - see PendingRequestSlot for the active/queued contract.
     private var _slot as PendingRequestSlot = new PendingRequestSlot();
@@ -33,7 +39,7 @@ class NearbyAirportsClient {
 
     private function _performFetch() as Void {
         if (!_ensureApiKeyLoaded()) {
-            _resolve([] as Array<NearbyAirport>, false);
+            _resolve([] as Array<NearbyAirport>, false, false);
             return;
         }
 
@@ -74,13 +80,13 @@ class NearbyAirportsClient {
         data as Dictionary or String or Null
     ) as Void {
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            _resolve([] as Array<NearbyAirport>, false);
+            _resolve([] as Array<NearbyAirport>, false, false);
             return;
         }
 
         var items = (data as Dictionary)["items"];
         if (!(items instanceof Lang.Array)) {
-            _resolve([] as Array<NearbyAirport>, false);
+            _resolve([] as Array<NearbyAirport>, false, false);
             return;
         }
         var result = [] as Array<NearbyAirport>;
@@ -90,7 +96,8 @@ class NearbyAirportsClient {
                 result.add(airport as NearbyAirport);
             }
         }
-        _resolve(result, true);
+        // Raw count, not result.size() - dropped entries don't make a full page any less cut off.
+        _resolve(result, true, items.size() < RESULT_LIMIT);
     }
 
     // GeoJSON "coordinates" is [lon, lat], the opposite order from the "pos" query param above.
@@ -131,12 +138,14 @@ class NearbyAirportsClient {
 
     private function _resolve(
         airports as Array<NearbyAirport>,
-        ok as Boolean
+        ok as Boolean,
+        complete as Boolean
     ) as Void {
+        var payload = _slot.activePayload() as [Float, Float, Number]?;
         var cb = _slot.activeCallback() as NearbyAirportsCallback?;
         var promoted = _slot.clearAndPromote();
         if (cb != null) {
-            cb.invoke(airports, ok);
+            cb.invoke(airports, ok, complete ? payload : null);
         }
         if (promoted) {
             _performFetch();

@@ -125,6 +125,8 @@ class RadarView extends WatchUi.View {
     private var _feedRetryBackoffMs as Number = FEED_INITIAL_RETRY_BACKOFF_MS;
     private const FEED_INITIAL_RETRY_BACKOFF_MS = 1000;
     private const FEED_MAX_RETRY_BACKOFF_MS = 16000;
+    // After a 429 nothing may poll before this, not even a pan or zoom, which otherwise skip the failure backoff.
+    private var _feedRateLimitedUntilMs as Number?;
 
     private var _noGpsText as String = "";
     private var _noSignalText as String = "";
@@ -282,7 +284,7 @@ class RadarView extends WatchUi.View {
 
     public function onDisplayModeChanged(mode as System.DisplayMode) as Void {
         var wasOff = _displayOff;
-        _displayOff = mode == System.DISPLAY_MODE_OFF;
+        _displayOff = mode != System.DISPLAY_MODE_HIGH_POWER;
         if (!wasOff && _displayOff) {
             if (_tickTimer != null) {
                 _stopTick();
@@ -809,6 +811,10 @@ class RadarView extends WatchUi.View {
             _feedRefetchPending = true;
             return;
         }
+        var limitedUntil = _feedRateLimitedUntilMs;
+        if (limitedUntil != null && System.getTimer() < limitedUntil) {
+            return;
+        }
         if (!_hasFix or _userLat == null or _userLon == null) {
             _map.client.resumeFor(:poll);
             return;
@@ -897,6 +903,11 @@ class RadarView extends WatchUi.View {
                 }
             }
         } else {
+            if (code == 429) {
+                _feedRetryBackoffMs = FEED_MAX_RETRY_BACKOFF_MS;
+                _feedRateLimitedUntilMs =
+                    System.getTimer() + FEED_MAX_RETRY_BACKOFF_MS;
+            }
             _feedRetryAtMs = System.getTimer() + _feedRetryBackoffMs;
             _feedRetryBackoffMs *= 2;
             if (_feedRetryBackoffMs > FEED_MAX_RETRY_BACKOFF_MS) {
@@ -966,12 +977,15 @@ class RadarView extends WatchUi.View {
                 : [] as Array<Array<DrawUtils.ValueRun> >;
         var bottomPanelH = _detailPanelHeightFor(detailLines);
 
+        // Low-power frames still draw, but the ticks that pace and time out requests are stopped.
+        var mayFetch = !isDragActive() && !_displayOff;
+        // The reported focus, not the animated one - a followed aircraft gliding every frame never settles the fetch debounce.
+        var fetchFocus = _focusPoint(false);
+
         if (Settings.showBackgroundMap) {
             _map.syncStyle();
             // Fetches never fire mid-drag anyway, so skip the trig work every drag frame.
-            if (!isDragActive()) {
-                // The reported focus, not the animated one - a followed aircraft gliding every frame never settles the fetch debounce.
-                var fetchFocus = _focusPoint(false);
+            if (mayFetch) {
                 _map.maybeFetch(
                     fetchFocus[0],
                     fetchFocus[1],
@@ -995,7 +1009,9 @@ class RadarView extends WatchUi.View {
         // Drawn before aircraft, not after - the user's own marker should never sit on top of a craft icon.
         _drawUserMarker(dc, proj, topPanelH, h - bottomPanelH);
         if (Settings.showAirports) {
-            _airports.maybeFetch(focusLat, focusLon, radiusKm);
+            if (mayFetch) {
+                _airports.maybeFetch(fetchFocus[0], fetchFocus[1], radiusKm);
+            }
             _airports.draw(dc, proj);
         }
         _drawAircraft(dc, proj);

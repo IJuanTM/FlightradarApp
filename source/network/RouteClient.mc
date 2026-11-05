@@ -12,7 +12,8 @@ class RouteClient {
                 requestId as Number,
                 dep as String?,
                 arr as String?,
-                ok as Boolean
+                ok as Boolean,
+                code as Number
             ) as Void
         );
 
@@ -24,15 +25,15 @@ class RouteClient {
         callback as RouteCallback
     ) as Void {
         if (callsign.length() < 3) {
-            callback.invoke(requestId, null, null, true);
+            callback.invoke(requestId, null, null, true, 200);
             return;
         }
+        // No :responseType - the 404 is text/html, and a forced type would turn it into an opaque -400.
         Communications.makeWebRequest(
             BASE_URL + callsign.substring(0, 2) + "/" + callsign + ".json",
             null,
             {
                 :method => Communications.HTTP_REQUEST_METHOD_GET,
-                :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
                 :context => [requestId, callback] as [Number, RouteCallback],
             },
             method(:_onReceive)
@@ -48,11 +49,11 @@ class RouteClient {
         var cb = context[1];
         // A 404 (unknown/uncrowdsourced callsign) is a normal outcome, not a failure - same as no route.
         if (responseCode == 404) {
-            cb.invoke(requestId, null, null, true);
+            cb.invoke(requestId, null, null, true, responseCode);
             return;
         }
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            cb.invoke(requestId, null, null, false);
+            cb.invoke(requestId, null, null, false, responseCode);
             return;
         }
         var airports = (data as Dictionary)["_airports"];
@@ -60,11 +61,17 @@ class RouteClient {
             !(airports instanceof Lang.Array) or
             (airports as Array).size() < 2
         ) {
-            cb.invoke(requestId, null, null, true);
+            cb.invoke(requestId, null, null, true, responseCode);
             return;
         }
         var list = airports as Array;
-        cb.invoke(requestId, _icaoOf(list[0]), _icaoOf(list[1]), true);
+        cb.invoke(
+            requestId,
+            _icaoOf(list[0]),
+            _icaoOf(list[1]),
+            true,
+            responseCode
+        );
     }
 
     private function _icaoOf(entry as Object?) as String? {

@@ -22,7 +22,8 @@ class OpenSkyClient {
                 requestId as Number,
                 hex as String,
                 points as Array<[Float, Float, Number, Boolean]>,
-                ok as Boolean
+                ok as Boolean,
+                code as Number
             ) as Void
         );
 
@@ -64,7 +65,7 @@ class OpenSkyClient {
 
     private function _requestToken() as Void {
         if (!_ensureCredentialsLoaded()) {
-            _failPendingTrack();
+            _failPendingTrack(0);
             return;
         }
 
@@ -111,7 +112,7 @@ class OpenSkyClient {
         data as Dictionary or String or Null
     ) as Void {
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            _failPendingTrack();
+            _failPendingTrack(responseCode);
             return;
         }
 
@@ -119,7 +120,7 @@ class OpenSkyClient {
         var token = dict["access_token"];
         var expiresIn = JsonUtils.toNumberOrNull(dict["expires_in"]);
         if (!(token instanceof Lang.String) or expiresIn == null) {
-            _failPendingTrack();
+            _failPendingTrack(responseCode);
             return;
         }
 
@@ -138,13 +139,13 @@ class OpenSkyClient {
             return;
         }
         // Params dict, not URL concatenation - auto-encoding stops a malformed hex from injecting query params.
+        // No :responseType - the 404 has no Content-Type, and a forced type could turn it into an opaque -400.
         Communications.makeWebRequest(
             TRACKS_URL,
             { "icao24" => payload[1], "time" => 0 },
             {
                 :method => Communications.HTTP_REQUEST_METHOD_GET,
                 :headers => { "Authorization" => "Bearer " + token },
-                :responseType => Communications.HTTP_RESPONSE_CONTENT_TYPE_JSON,
             },
             method(:_onTrackReceive)
         );
@@ -162,14 +163,24 @@ class OpenSkyClient {
             return;
         }
 
+        // OpenSky simply has no track for this aircraft - a normal outcome, not a failure.
+        if (responseCode == 404) {
+            _resolveTrack(
+                [] as Array<[Float, Float, Number, Boolean]>,
+                true,
+                responseCode
+            );
+            return;
+        }
+
         if (responseCode != 200 or !(data instanceof Lang.Dictionary)) {
-            _failPendingTrack();
+            _failPendingTrack(responseCode);
             return;
         }
 
         var pathRaw = (data as Dictionary)["path"];
         if (!(pathRaw instanceof Lang.Array)) {
-            _failPendingTrack();
+            _failPendingTrack(responseCode);
             return;
         }
         var points = [] as Array<[Float, Float, Number, Boolean]>;
@@ -178,7 +189,7 @@ class OpenSkyClient {
             endTime != null &&
             Time.now().value() - (endTime as Number) > STALE_TRACK_SEC
         ) {
-            _resolveTrack(points, true);
+            _resolveTrack(points, true, responseCode);
             return;
         }
         var prevGroundTime = null as Number?;
@@ -211,22 +222,27 @@ class OpenSkyClient {
             }
         }
 
-        _resolveTrack(points, true);
+        _resolveTrack(points, true, responseCode);
     }
 
-    private function _failPendingTrack() as Void {
-        _resolveTrack([] as Array<[Float, Float, Number, Boolean]>, false);
+    private function _failPendingTrack(code as Number) as Void {
+        _resolveTrack(
+            [] as Array<[Float, Float, Number, Boolean]>,
+            false,
+            code
+        );
     }
 
     private function _resolveTrack(
         points as Array<[Float, Float, Number, Boolean]>,
-        ok as Boolean
+        ok as Boolean,
+        code as Number
     ) as Void {
         var payload = _slot.activePayload() as [Number, String]?;
         var cb = _slot.activeCallback() as TrackCallback?;
         var promoted = _slot.clearAndPromote();
         if (cb != null && payload != null) {
-            cb.invoke(payload[0], payload[1], points, ok);
+            cb.invoke(payload[0], payload[1], points, ok, code);
         }
         if (promoted) {
             _retriedTrackAuth = false;

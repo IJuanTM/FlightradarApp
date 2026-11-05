@@ -12,6 +12,7 @@ class NearbyAirports {
     private const REFETCH_MARGIN_FACTOR = (OVERSCAN_FACTOR - 1.0) * 0.75;
     // Least recently fetched evicted first past this - keeps the merged cache bounded on a long panning session.
     private const CACHE_MAX = 150;
+    private const COVERED_MAX = 8;
     private const MARKER_R = 3;
     private const MARKER_R_SMALL = 2;
     private const SMALL_DIM_FACTOR = 0.75;
@@ -24,6 +25,8 @@ class NearbyAirports {
     private var _requestedLon as Float?;
     private var _requestedRadiusKm as Float?;
     private var _nextFetchAtMs as Number?;
+    // [lat, lon, radiusKm] of queries that weren't cut off by the result limit, so a view inside one has nothing new to fetch.
+    private var _covered as Array<[Float, Float, Float]> = [];
     private var _font as Graphics.FontType = Graphics.FONT_XTINY;
 
     public function initialize() {}
@@ -61,6 +64,9 @@ class NearbyAirports {
         _requestedLat = focusLat;
         _requestedLon = focusLon;
         _requestedRadiusKm = radiusKm;
+        if (_isCovered(focusLat, focusLon, radiusKm * OVERSCAN_FACTOR)) {
+            return;
+        }
         _nextFetchAtMs = now + MIN_REFETCH_INTERVAL_MS;
         _client.fetchNearby(
             focusLat,
@@ -70,9 +76,27 @@ class NearbyAirports {
         );
     }
 
+    private function _isCovered(
+        lat as Float,
+        lon as Float,
+        radiusKm as Float
+    ) as Boolean {
+        for (var i = 0; i < _covered.size(); i++) {
+            var area = _covered[i];
+            if (
+                Projection.distanceKm(area[0], area[1], lat, lon) + radiusKm <=
+                area[2]
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function _onResult(
         airports as Array<NearbyAirportsClient.NearbyAirport>,
-        ok as Boolean
+        ok as Boolean,
+        coveredArea as [Float, Float, Number]?
     ) as Void {
         ApiStatus.setState(ApiStatus.airports, ok);
         if (ok) {
@@ -90,6 +114,20 @@ class NearbyAirports {
             merged.addAll(airports);
             var excess = merged.size() - CACHE_MAX;
             _airports = excess > 0 ? merged.slice(excess, null) : merged;
+            if (excess > 0) {
+                // Evicted airports may lie inside an area recorded as covered.
+                _covered = [];
+            }
+            if (coveredArea != null) {
+                _covered.add([
+                    coveredArea[0],
+                    coveredArea[1],
+                    coveredArea[2] / 1000.0,
+                ]);
+                if (_covered.size() > COVERED_MAX) {
+                    _covered = _covered.slice(1, null);
+                }
+            }
             WatchUi.requestUpdate();
         } else {
             // Otherwise the refetch-margin check suppresses every retry until the view moves.

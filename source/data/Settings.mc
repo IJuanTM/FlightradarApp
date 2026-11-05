@@ -5,10 +5,10 @@ import Toybox.WatchUi;
 module Settings {
     // [radiusKm, pollMs, gridStepKm] - polls slow down at wide zoom, where responses near the platform's size ceiling.
     const ZOOM_LEVELS as Array<[Float, Number, Float]> = [
-        [5.0, 1000, 1.0],
-        [10.0, 1000, 5.0],
-        [25.0, 2000, 10.0],
-        [50.0, 3000, 25.0],
+        [5.0, 2000, 1.0],
+        [10.0, 2000, 5.0],
+        [25.0, 3000, 10.0],
+        [50.0, 5000, 25.0],
     ];
 
     class LabelField {
