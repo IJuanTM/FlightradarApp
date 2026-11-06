@@ -11,6 +11,7 @@ module ApiStatus {
     class Source {
         public var stringId as ResourceId;
         public var state = NEVER_TRIED;
+        public var code as Number?;
 
         public function initialize(stringId as ResourceId) {
             self.stringId = stringId;
@@ -34,16 +35,17 @@ module ApiStatus {
         track,
     ];
 
-    // Only the feed currently has a meaningful failure code to show - add more here if that changes.
-    var feedCode as Number = 0;
-
     function setState(source as Source, ok as Boolean) as Void {
         source.state = ok ? OK : FAILED;
     }
 
-    function setFeed(ok as Boolean, code as Number) as Void {
-        feedCode = code;
-        setState(feed, ok);
+    function setStateWithCode(
+        source as Source,
+        ok as Boolean,
+        code as Number
+    ) as Void {
+        source.code = code;
+        setState(source, ok);
     }
 
     function label(state) as String {

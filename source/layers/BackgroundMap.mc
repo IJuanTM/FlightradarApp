@@ -82,6 +82,11 @@ class BackgroundMap {
         _forceRefetch = true;
     }
 
+    public function clearRetryBackoff() as Void {
+        _nextRetryAtMs = null;
+        _retryBackoffMs = INITIAL_RETRY_BACKOFF_MS;
+    }
+
     public function syncStyle() as Void {
         var styleKey = Settings.mapStyle + (Settings.mapDarkMode ? "d" : "l");
         var cachedStyleKey = _cachedStyleKey;
@@ -405,8 +410,7 @@ class BackgroundMap {
             }
             return;
         }
-        _nextRetryAtMs = null;
-        _retryBackoffMs = INITIAL_RETRY_BACKOFF_MS;
+        clearRetryBackoff();
         ApiStatus.setState(ApiStatus.map, true);
         if (!stillNeeded) {
             return;
@@ -428,7 +432,7 @@ class BackgroundMap {
     }
 
     private function _scheduleRetry(code as Number) as Void {
-        ApiStatus.setState(ApiStatus.map, false);
+        ApiStatus.setStateWithCode(ApiStatus.map, false, code);
         _nextRetryAtMs = System.getTimer() + _retryBackoffMs;
         _retryBackoffMs *= 2;
         if (_retryBackoffMs > MAX_RETRY_BACKOFF_MS) {

@@ -258,6 +258,7 @@ class RadarView extends WatchUi.View {
 
     // A single recurring Timer, not two - a second one alongside the poll timer hit the "Too Many Timers" limit.
     private function _startTick() as Void {
+        _stopTick();
         _tickIntervalMs = Settings.batterySaverMode ? TICK_MS * 2 : TICK_MS;
         var timer = new Timer.Timer();
         timer.start(method(:_onTick), _tickIntervalMs, true);
@@ -463,6 +464,7 @@ class RadarView extends WatchUi.View {
     private function _markViewChanged() as Void {
         _viewHasFreshData = false;
         _feedForOldView = _feedInFlight;
+        _map.clearRetryBackoff();
     }
 
     // Launch arguments: "lat"/"lon" as decimal strings and "regs" as comma-separated registrations, each optional.
@@ -774,11 +776,13 @@ class RadarView extends WatchUi.View {
             new AircraftDetailDelegate(view),
             WatchUi.SLIDE_UP
         );
+        // onHide may run later, and overlapping the detail timer risks a "Too Many Timers" crash.
+        _stopTick();
         _fetcher.onDetailOpened(view);
         _startDetailTimer();
     }
 
-    // pushView's onHide stops _onTick, so retries and timeouts need their own tick while the detail view is up.
+    // _onTick is stopped while the detail view is up, so retries and timeouts need their own tick.
     private function _startDetailTimer() as Void {
         _stopDetailTimer();
         var timer = new Timer.Timer();
@@ -856,7 +860,7 @@ class RadarView extends WatchUi.View {
         if (!ok) {
             _noSignalCodeText = _noSignalText + " " + code.toString();
         }
-        ApiStatus.setFeed(ok, code);
+        ApiStatus.setStateWithCode(ApiStatus.feed, ok, code);
         _map.client.resumeFor(:poll);
 
         if (ok) {

@@ -63,8 +63,9 @@ module MenuBuilder {
         for (var i = 0; i < ApiStatus.SOURCES.size(); i++) {
             var source = ApiStatus.SOURCES[i];
             var label = ApiStatus.label(source.state);
-            if (source == ApiStatus.feed and source.state == ApiStatus.FAILED) {
-                label += " (" + ApiStatus.feedCode.toString() + ")";
+            var code = source.code;
+            if (source.state == ApiStatus.FAILED and code != null) {
+                label += " (" + code.toString() + ")";
             }
             menu.addItem(
                 new WatchUi.MenuItem(source.stringId, label, :status, null)
